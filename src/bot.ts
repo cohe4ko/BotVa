@@ -490,7 +490,18 @@ export function createBot(): Bot {
       [{ text: t('settings.team', { label: teamLabel }), callback_data: 'settings:team' }],
     ]
 
-    return { text: `⚙️ <b>${t('cmd.settings.title')}</b>`, reply_markup: { inline_keyboard: keyboard } }
+    const lines = [
+      `⚙️ <b>${t('cmd.settings.title')}</b>`,
+      '',
+      `🗣 <b>${voiceOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.voice')}`,
+      `📊 <b>${statsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.stats')}`,
+      `🌐 <b>${langLabel}</b> — ${t('settings.desc.lang')}`,
+      `🎨 <b>${styleLabel}</b> — ${t('settings.desc.style')}`,
+      `⏱ <b>${delayLabel}</b> — ${t('settings.desc.delay')}`,
+      `👥 <b>${teamLabel}</b> — ${t('settings.desc.team')}`,
+    ]
+
+    return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
   }
 
   // Pre-middleware: handle stop/cancel immediately, bypass grammy's sequential processing

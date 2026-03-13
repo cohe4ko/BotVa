@@ -176,6 +176,12 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.style': '🎨 {label}',
     'settings.delay': '⏱ {label}',
     'settings.team': '👥 {label}',
+    'settings.desc.voice': 'Reply with voice messages along with text',
+    'settings.desc.stats': 'Show token count and cost after each reply',
+    'settings.desc.lang': 'Bot interface language',
+    'settings.desc.style': 'Progress indicator style: brunette (technical) or blonde (cute emoji)',
+    'settings.desc.delay': 'Delay before showing progress updates (0 = instant, ∞ = never)',
+    'settings.desc.team': 'Show teammate work: all steps, result only, or hidden',
 
     // Bot commands menu
     'menu.start': 'Start',
@@ -360,6 +366,12 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.style': '🎨 {label}',
     'settings.delay': '⏱ {label}',
     'settings.team': '👥 {label}',
+    'settings.desc.voice': 'Відповідати голосовими повідомленнями разом з текстом',
+    'settings.desc.stats': 'Показувати кількість токенів та вартість після кожної відповіді',
+    'settings.desc.lang': 'Мова інтерфейсу бота',
+    'settings.desc.style': 'Стиль індикатора прогресу: brunette (технічний) або blonde (милі емодзі)',
+    'settings.desc.delay': 'Затримка перед показом прогресу (0 = миттєво, ∞ = ніколи)',
+    'settings.desc.team': 'Показ роботи команди: всі кроки, тільки результат або приховано',
 
     // Bot commands menu
     'menu.start': 'Почати роботу',
