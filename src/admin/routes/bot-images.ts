@@ -3,6 +3,7 @@ import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
 import { formatCost, formatTs, truncate } from '../views/components.js'
 import { getImagenSummary, getImagenRows, getImagenDaily } from '../db-multi.js'
+import { imageTokenCost } from '../../pricing.js'
 import { validateBot, botName } from '../bot-middleware.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
@@ -68,7 +69,7 @@ app.get('/bot/:name/images', validateBot, (c) => {
               <td class="detail-cell">${truncate(r.prompt, 60)}</td>
               <td>${r.input_tokens.toLocaleString()} / ${r.output_tokens.toLocaleString()}</td>
               <td>${formatBytes(r.image_bytes)}</td>
-              <td>${formatCost(0.039)}</td>
+              <td>${formatCost(imageTokenCost(r.output_tokens))}</td>
             </tr>`)}
           </tbody>
         </table>

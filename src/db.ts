@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'fs'
 import { STORE_DIR, MEMORY_SALIENCE_DECAY, MEMORY_SALIENCE_MIN, MEMORY_SALIENCE_MAX, MEMORY_SALIENCE_BOOST } from './config.js'
 import { logger } from './logger.js'
+import { imageTokenCost } from './pricing.js'
 
 let db: DatabaseSync
 
@@ -359,8 +360,7 @@ export function getImagenUsageSince(sinceTs: number): ImagenUsageSummary {
     FROM imagen_usage WHERE created_at >= ?
   `).get(sinceTs) as unknown as Omit<ImagenUsageSummary, 'estimatedCostUSD'>
 
-  // ~$0.039 per image (1290 output tokens at standard pricing)
-  const estimatedCostUSD = Number(((row.total ?? 0) * 0.039).toFixed(3))
+  const estimatedCostUSD = imageTokenCost(row.outputTokens ?? 0)
   return { ...row, estimatedCostUSD }
 }
 

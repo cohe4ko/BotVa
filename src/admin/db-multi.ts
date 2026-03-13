@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { existsSync, readdirSync, statSync, mkdirSync } from 'fs'
+import { imageTokenCost, IMAGE_OUTPUT_TOKEN_PRICE } from '../pricing.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..', '..')
@@ -391,7 +392,7 @@ export function getImagenSummary(bot: BotName, sinceTs: number): { total: number
       COALESCE(SUM(image_bytes), 0) as totalImageBytes
     FROM imagen_usage WHERE created_at >= ?
   `).get(sinceTs) as unknown as { total: number; generates: number; edits: number; inputTokens: number; outputTokens: number; totalImageBytes: number }
-  return { ...row, estimatedCostUSD: Number(((row.total ?? 0) * 0.039).toFixed(3)) }
+  return { ...row, estimatedCostUSD: imageTokenCost(row.outputTokens ?? 0) }
 }
 
 export function getImagenRows(bot: BotName, limit = 50): ImagenRow[] {
@@ -406,7 +407,7 @@ export function getImagenDaily(bot: BotName, days = 30): { date: string; count: 
   return getBotDb(bot).prepare(`
     SELECT date(created_at, 'unixepoch', 'localtime') as date,
            COUNT(*) as count,
-           COUNT(*) * 0.039 as cost
+           COALESCE(SUM(output_tokens), 0) * ${IMAGE_OUTPUT_TOKEN_PRICE} as cost
     FROM imagen_usage
     WHERE created_at >= ?
     GROUP BY date
