@@ -14,8 +14,9 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
-# Prevent OOM on Node 25+
-export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=4096"
+# Prevent OOM on Node 25+ (use half of system RAM for V8 heap)
+MEM_MB=$(node -e "console.log(Math.floor(require('os').totalmem()/1024/1024/2))")
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=$MEM_MB"
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 info() { echo -e "${GREEN}✓${NC} $1"; }
