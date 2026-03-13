@@ -1,148 +1,425 @@
 # BotVa
 
-Multi-bot Telegram platform powered by Claude. One codebase — many bots, each with its own personality, knowledge base, memory, and integrations.
+Мульти-бот Telegram-платформа на базі Claude AI. Один сервер -- багато ботів, кожен зі своєю роллю, пам'яттю, знаннями та інтеграціями.
 
-## Features
+## Ключові можливості
 
-- **Multi-bot** — run multiple Telegram bots from a single instance
-- **Roles** — pre-built personality templates (assistant, researcher, manager, creative, etc.)
-- **Memory** — per-bot conversation history with salience-based recall
-- **Voice** — speech-to-text (Groq/Whisper) and text-to-speech
-- **Image generation** — via Google Gemini
-- **Agent mode** — Claude agent with MCP tools for extended tasks
-- **Scheduler** — cron-based recurring messages and tasks
-- **Admin panel** — web UI for managing bots, memories, knowledge, and settings
-- **MCP integrations** — Bitrix24 CRM, Meta Ads, inter-bot communication
+- **Кілька ботів** з одного інстансу Node.js
+- **11 готових ролей** -- від персонального асистента до вебмайстра
+- **Пам'ять** -- бот пам'ятає контекст між розмовами
+- **Голос** -- надсилай голосові, отримуй голосові відповіді
+- **Зображення** -- генерація та редагування через Gemini
+- **Команда ботів** -- боти спілкуються між собою та делегують задачі
+- **Планувальник** -- cron-задачі: нагадування, перевірки, звіти
+- **Інтеграції** -- CRM, реклама, Google Workspace, розумний дім, PubMed
+- **Веб-пошук та браузер** -- пошук, скрапінг, автоматизація
+- **Адмін-панель** -- веб-інтерфейс для управління всіма ботами
 
-## Requirements
+## Швидкий старт
 
-- **Node.js 20+**
-- **macOS** or **Linux**
-- **Git**
+### Вимоги
 
-## Installation
+- Node.js 20+
+- macOS або Linux
+- Git
+
+### Встановлення
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/cohe4ko/BotVa.git
+# 1. Клонувати
+git clone <repo-url> BotVa
 cd BotVa
 
-# 2. Run setup (installs dependencies, builds TypeScript and MCP servers)
+# 2. Встановити залежності та зібрати
 ./scripts/deploy.sh setup
 
-# 3. Start — if no bots configured, admin panel launches automatically
-./scripts/deploy.sh start
+# 3. Створити першого бота (варіант A: CLI)
+npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "Мій Бот"
+
+# 3. Створити першого бота (варіант B: веб-інтерфейс)
+npm run admin              # Запустити адмін-панель
+#    Відкрий http://localhost:3000 → Create Bot
+#    Обери роль, задай ім'я, emoji та токени -- все через форму
+
+# 4. Налаштувати токени
+#    CLI: відкрий bots/my-bot/.env та встанови:
+#    Веб: відкрий http://localhost:3000 → бот → Config → Environment
+#    - TELEGRAM_BOT_TOKEN  (отримати у @BotFather в Telegram)
+#    - ALLOWED_CHAT_ID     (надіслати /start боту після запуску)
+
+# 5. Запустити
+./scripts/deploy.sh start  # або кнопка Start в адмін-панелі
 ```
 
-The admin panel opens in your browser where you can create and configure bots — set Telegram token, chat ID, role, personality, and knowledge base.
+Після запуску напиши боту в Telegram -- він відповість.
 
-## Management
+## Ролі ботів
+
+При створенні бота обираєш роль -- вона визначає спеціалізацію, інструменти та стиль спілкування.
+
+| Роль | Slug | Опис |
+|------|------|------|
+| Персональний асистент | `personal-assistant` | Повсякденні задачі, розклад, CRM, розумний дім |
+| Дослідник | `researcher` | Глибокий аналіз, верифікація фактів, звіти |
+| Здоров'я | `health-advisor` | Моніторинг показників, аналізи, рекомендації |
+| Академічний | `academic` | Наукові статті, методологія, PhD, викладання |
+| Креативний | `creative` | Дизайн, зображення, презентації, копірайтинг |
+| Продажі | `sales` | Ліди, угоди, аналіз продажів, комерційні пропозиції |
+| Планувальник | `planner` | Задачі, дедлайни, пріоритизація |
+| База знань | `knowledge-base` | Документація, FAQ, пошук внутрішніх знань |
+| Менеджер | `manager` | Координація команди ботів, делегування задач |
+| Продукт/Ринок | `product-market` | CRM-аналітика, позиціонування, конкуренти |
+| Вебмайстер | `webmaster` | Сайт, контент, деплой, SEO |
+
+Створення бота:
 
 ```bash
-./scripts/deploy.sh start      # Start all bots (or admin panel if none configured)
-./scripts/deploy.sh stop       # Stop all bots
-./scripts/deploy.sh restart    # Restart all bots
-./scripts/deploy.sh status     # Show running bots
-./scripts/deploy.sh build      # Rebuild TypeScript
-./scripts/deploy.sh admin      # Launch admin panel with one-time token
-./scripts/deploy.sh launchd    # Install macOS auto-start (launchd)
+npm run new-bot -- <slug> <роль> [--emoji 🤖] [--name "Назва"]
 ```
 
-## Project Structure
+## Можливості
 
-```
-BotVa/
-├── src/                    # Platform source code (TypeScript)
-│   ├── index.ts            # Entry point
-│   ├── bot.ts              # Telegram bot setup
-│   ├── agent.ts            # Claude agent with MCP tools
-│   ├── memory.ts           # Salience-based memory system
-│   ├── voice.ts            # STT/TTS
-│   ├── imagen.ts           # Image generation
-│   ├── scheduler.ts        # Cron scheduler
-│   ├── admin/              # Web admin panel
-│   └── ...
-├── roles/                  # Personality templates
-├── mcp-servers/            # MCP server integrations (see below)
-│   ├── bitrix24/
-│   ├── meta-ads-mcp/
-│   ├── colleague/
-│   ├── manager/
-│   └── pubmed/
-├── scripts/
-│   └── deploy.sh           # Deploy & management script
-├── bots/                   # Bot configs & data (gitignored)
-│   └── <name>/
-│       ├── .env            # Bot tokens & settings
-│       ├── core/           # personality.md, skills.md
-│       ├── context/        # User profile, daily memories
-│       ├── knowledge/      # Domain knowledge files
-│       └── store/          # SQLite database
-├── .env.example            # Template for bot .env
-└── package.json
+### Голос
+
+Бот розуміє голосові повідомлення та може відповідати голосом.
+
+- **Розпізнавання мовлення (STT)** -- Groq Whisper. Потрібен `GROQ_API_KEY` (безкоштовно на console.groq.com)
+- **Синтез мовлення (TTS)** -- Edge-TTS. Безкоштовно, без API ключа
+- **Мови** -- українська, англійська, російська (автовизначення)
+- Увімкнути/вимкнути голосові відповіді: команда `/voice` в Telegram
+
+Налаштування голосу через `.env`:
+
+```env
+TTS_RATE=+30%                    # Швидкість мовлення
+TTS_VOICE_UK=uk-UA-OstapNeural   # Голос для української
+TTS_VOICE_EN=en-US-AndrewNeural  # Голос для англійської
 ```
 
-## Bot Configuration
+### Зображення
 
-Each bot lives in `bots/<name>/` with its own `.env` file. See `.env.example` for all available options.
+Генерація та редагування зображень через Google Gemini.
 
-### Required
+- Команда `/img опис зображення` -- швидка генерація
+- Або просто попроси бота створити/відредагувати зображення в чаті
+- Потрібен `GOOGLE_API_KEY`
+- Всі згенеровані зображення зберігаються в галереї
 
-| Variable | Description |
-|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Token from @BotFather |
-| `ALLOWED_CHAT_ID` | Your Telegram chat ID |
+### Пам'ять
 
-### Optional integrations
+Дворівнева система, щоб бот пам'ятав контекст між розмовами:
 
-| Variable | Description |
-|----------|-------------|
-| `GOOGLE_API_KEY` | Image generation (Gemini) |
-| `GROQ_API_KEY` | Voice transcription (Groq Whisper) |
-| `BITRIX24_WEBHOOK_URL` | Bitrix24 CRM |
-| `META_ACCESS_TOKEN` | Meta/Facebook Ads |
-| `HA_URL` + `HA_TOKEN` | Home Assistant |
+1. **SQLite з salience** -- структуровані факти (семантичні та епізодичні)
+   - Кожен факт має "важливість" (salience), яка поступово згасає (0.98/день)
+   - При зверненні до факту -- важливість зростає
+   - Факти з важливістю нижче 0.1 видаляються
+2. **Щоденні markdown-логи** -- конспект розмов за кожен день
+   - Зберігаються в `bots/<name>/context/memories/YYYY-MM-DD.md`
+   - Бот бачить записи за сьогодні та вчора
 
-### Roles
+Команди:
+- `/memory` -- показати останні 10 збережених спогадів
+- `/newchat` або `/forget` -- очистити сесію (пам'ять залишається)
 
-Assign a role to a bot by referencing it in `core/personality.md`. Available templates in `roles/`:
+### Планувальник
 
-`personal-assistant`, `manager`, `researcher`, `academic`, `creative`, `health-advisor`, `knowledge-base`, `planner`, `product-market`, `sales`, `webmaster`
+Cron-задачі для автоматичних дій: нагадування, перевірки, регулярні звіти.
 
-## MCP Servers
+```
+/schedule 0 9 * * * Доброго ранку! Що в мене на сьогодні?
+/schedule 0 22 * * 5 Підсумок тижня
+/schedule */30 * * * * Перевір статус сервера
+```
 
-During setup you can choose which MCP servers to install. All are optional.
+Формат: стандартний 5-полевий cron (хвилина година день місяць день-тижня).
+Задачі перевіряються кожні 60 секунд.
 
-| Server | Language | Description |
-|--------|----------|-------------|
-| **bitrix24** | Node.js | Bitrix24 CRM — manage leads, contacts, deals, companies, tasks. Requires `BITRIX24_WEBHOOK_URL` |
-| **meta-ads-mcp** | Node.js | Meta Marketing API — create and manage Facebook/Instagram ad campaigns, audiences, analytics. Requires `META_ACCESS_TOKEN` |
-| **colleague** | Node.js | Inter-bot communication — lets bots ask each other questions via Unix sockets. Used for multi-bot teamwork |
-| **manager** | Node.js | Manager bot coordination — allows a designated manager bot to delegate tasks and collect reports from other bots |
-| **pubmed** | Python | PubMed article search — keyword and advanced search, article metadata, PDF download, deep paper analysis. Requires Python 3 |
+### Команда ботів
 
-## Admin Panel
+Боти можуть працювати як команда:
 
-Two ways to access:
+- **Менеджер** координує роботу та розподіляє задачі
+- **Colleague MCP** -- боти спілкуються через Unix-сокети
+- Кожен бот може звернутись до менеджера через `ask_manager("питання")`
+- Конфігурація команди зберігається в `workspace/team.json`
 
-1. **From Telegram** — send `/admin` to any bot (starts on-demand, auto-stops after 20 min)
-2. **Standalone** — `npm run admin` or `./scripts/deploy.sh admin`
+### Веб-пошук та браузер
 
-## Backup & Restore
+- **WebSearch / WebFetch** -- пошук та отримання веб-сторінок
+- **Stagehand** -- AI-браузер з природними командами
+- **Playwright** -- headless Chrome для автоматизації
 
-Bot data is not stored in git. Back up the `bots/` directory:
+Бот шукає в інтернеті проактивно, коли потрібна актуальна інформація.
+
+### Інтеграції
+
+| Інтеграція | MCP-сервер | Потрібні змінні |
+|------------|-----------|-----------------|
+| Bitrix24 CRM | `bitrix24` | `BITRIX24_WEBHOOK_URL` |
+| Meta/Facebook Ads | `meta-ads-mcp` | `META_ACCESS_TOKEN`, `META_APP_SECRET` |
+| Google Calendar, Docs, Gmail | `google-workspace` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
+| Home Assistant | `home-assistant` | `HA_URL`, `HA_TOKEN` |
+| PubMed (медичні дослідження) | `pubmed` | -- (Python 3) |
+
+### Публікація файлів
+
+- **Telegraph** -- довгі відповіді автоматично публікуються як Telegraph-статті
+- **publish.sh** -- публікація HTML-файлів та презентацій на зовнішній сервер
 
 ```bash
-# Backup
-tar czf botva-backup.tar.gz bots/ workspace/ .mcp.json .env
+scripts/publish.sh /path/to/file.html [subfolder]
+```
 
-# Restore on a new machine
-git clone https://github.com/cohe4ko/BotVa.git && cd BotVa
+## Структура бота
+
+```
+bots/<name>/
+├── .env                         # Токени та API-ключі
+├── CLAUDE.md                    # Інструкції для AI (генерується з ролі)
+├── core/
+│   ├── personality.md           # Ідентичність, правила, формат
+│   └── skills.md                # Доступні інструменти та MCP
+├── context/
+│   ├── user-profile.md          # Базовий профіль користувача
+│   ├── user-deep-profile.md     # Детальний профіль
+│   ├── KEY_EVENTS.md            # Важливі події
+│   └── memories/                # Щоденні логи (YYYY-MM-DD.md)
+├── knowledge/                   # Файли знань (предметна область)
+└── store/
+    └── botva.db                 # SQLite база (сесії, пам'ять, usage)
+```
+
+- **core/** -- персональність та навички бота (редагуй для кастомізації)
+- **context/** -- що бот знає про тебе (заповнюється автоматично та вручну)
+- **knowledge/** -- файли з предметними знаннями (додавай .md, .txt, .pdf)
+- **store/** -- база даних (створюється автоматично)
+
+## Конфігурація
+
+Кожен бот має свій `.env` файл в `bots/<name>/.env`.
+
+### Обов'язкові
+
+| Змінна | Опис |
+|--------|------|
+| `TELEGRAM_BOT_TOKEN` | Токен від @BotFather |
+| `ALLOWED_CHAT_ID` | Твій Telegram chat ID |
+
+### Голос
+
+| Змінна | За замовчуванням | Опис |
+|--------|-----------------|------|
+| `GROQ_API_KEY` | -- | Ключ Groq для розпізнавання мовлення |
+| `TTS_RATE` | `+30%` | Швидкість синтезу мовлення |
+| `TTS_VOICE_UK` | `uk-UA-OstapNeural` | Голос для української |
+| `TTS_VOICE_EN` | `en-US-AndrewNeural` | Голос для англійської |
+
+### Зображення
+
+| Змінна | За замовчуванням | Опис |
+|--------|-----------------|------|
+| `GOOGLE_API_KEY` | -- | Google API ключ для Gemini |
+| `IMAGEN_MODEL` | `gemini-3.1-flash-image-preview` | Модель генерації |
+
+### Адмін-панель
+
+| Змінна | За замовчуванням | Опис |
+|--------|-----------------|------|
+| `ADMIN_PORT` | `3000` | Порт адмін-панелі |
+| `ADMIN_TOKEN` | -- | Токен авторизації |
+
+### Пам'ять
+
+| Змінна | За замовчуванням | Опис |
+|--------|-----------------|------|
+| `NIGHT_OWL_HOUR` | `4` | Година "переходу дня" (для нічних сов) |
+| `MEMORY_SALIENCE_DECAY` | `0.98` | Множник згасання за день |
+| `MEMORY_SALIENCE_MIN` | `0.1` | Мінімальна важливість (нижче -- видалення) |
+| `MEMORY_SALIENCE_MAX` | `5.0` | Максимальна важливість |
+
+### Agent
+
+| Змінна | За замовчуванням | Опис |
+|--------|-----------------|------|
+| `AGENT_WATCHDOG_WARN_SECONDS` | `60` | Попередження при неактивності агента |
+| `AGENT_WATCHDOG_TIMEOUT_MS` | `600000` | Таймаут агента (10 хв) |
+
+### Логування
+
+| Змінна | За замовчуванням | Опис |
+|--------|-----------------|------|
+| `LOG_LEVEL` | `info` | Рівень: debug, info, warn, error |
+
+## Telegram-команди
+
+| Команда | Опис |
+|---------|------|
+| `/start` | Привітання та показ chat ID |
+| `/chatid` | Показати поточний chat ID |
+| `/newchat`, `/forget` | Очистити сесію, почати нову розмову |
+| `/memory` | Показати останні 10 спогадів |
+| `/voice` | Увімкнути/вимкнути голосові відповіді |
+| `/img <опис>` | Згенерувати зображення |
+| `/model` | Перемкнути модель (Opus/Sonnet/Haiku) |
+| `/schedule <cron> <текст>` | Створити заплановану задачу |
+| `/usage` | Показати статистику використання токенів |
+| `/stats` | Увімкнути/вимкнути inline-статистику |
+| `/lang` | Перемкнути мову (en/uk) |
+| `/style` | Стиль індикатора прогресу |
+| `/show_team_work` | Видимість роботи команди (all/result/none) |
+| `/delay` | Затримка оновлення прогресу (0/15/30/60 сек) |
+| `/admin` | Запустити/зупинити адмін-панель |
+| `/cancel` | Скасувати поточний запит |
+
+## Адмін-панель
+
+Веб-інтерфейс для управління ботами. Два способи запуску:
+
+```bash
+# 1. З Telegram (on-demand, автостоп через 20 хв)
+/admin
+
+# 2. Як окремий сервіс (постійний)
+npm run admin
+```
+
+### Розділи
+
+| Розділ | Що робить |
+|--------|-----------|
+| Dashboard | Огляд: статус ботів, запити за день, витрати |
+| Config | Налаштування: модель, температура, env-змінні |
+| Knowledge | Управління файлами знань |
+| Memories | Перегляд та видалення спогадів |
+| Tasks | Заплановані задачі |
+| Sessions | Сесії користувачів |
+| Settings | Налаштування чатів |
+| Usage | Аналітика токенів та витрат |
+| Images | Галерея згенерованих зображень |
+| Logs | Журнали подій |
+| Audit | Аудит дій |
+| Diagnostics | Діагностика бота |
+| Backup | Створення та відновлення бекапів |
+| Team | Управління командою ботів |
+| Create Bot | Майстер створення нового бота |
+
+## Управління
+
+### deploy.sh
+
+```bash
+./scripts/deploy.sh setup      # Встановити залежності, зібрати проект
+./scripts/deploy.sh start      # Запустити всі боти
+./scripts/deploy.sh stop       # Зупинити всі боти
+./scripts/deploy.sh restart    # Перезапустити
+./scripts/deploy.sh build      # Перезібрати TypeScript + MCP сервери
+./scripts/deploy.sh status     # Показати статус
+./scripts/deploy.sh launchd    # Автозапуск при старті macOS
+./scripts/deploy.sh backup     # Створити бекап
+./scripts/deploy.sh restore    # Відновити з бекапу
+```
+
+### npm scripts
+
+```bash
+npm run build       # Зібрати TypeScript
+npm start           # Запустити (після збірки)
+npm run dev         # Запустити в dev-режимі (tsx)
+npm run admin       # Запустити адмін-панель
+npm run new-bot     # Створити нового бота
+npm run delete-bot  # Видалити бота
+npm run status      # Показати статус ботів
+npm run typecheck   # Перевірка типів
+npm test            # Запустити тести
+```
+
+## Backup та відновлення
+
+### Що бекапити
+
+```bash
+tar czf botva-backup.tar.gz \
+  bots/ \
+  workspace/ \
+  .mcp.json \
+  .env
+```
+
+Ці файли НЕ зберігаються в git -- вони містять токени, персональні дані та бази.
+
+### Відновлення
+
+```bash
+cd BotVa
 tar xzf botva-backup.tar.gz
 ./scripts/deploy.sh setup
 ./scripts/deploy.sh start
 ```
 
-## License
+Також доступний бекап через адмін-панель (розділ Backup).
+
+## FAQ
+
+**Як дізнатись свій chat ID?**
+Запусти бота та надішли `/start` або `/chatid`. Бот покаже ID чату.
+
+**Як додати знання боту?**
+Поклади .md або .txt файли в `bots/<name>/knowledge/`. Бот автоматично їх підхопить. Також можна через адмін-панель (розділ Knowledge).
+
+**Як змінити голос TTS?**
+Встанови змінну `TTS_VOICE_UK` (або `_EN`, `_RU`) в `.env` бота. Список голосів: [Edge-TTS voices](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support).
+
+**Як підключити інтеграцію?**
+Додай відповідні змінні в `.env` бота (наприклад, `BITRIX24_WEBHOOK_URL`). Після перезапуску бот автоматично отримає доступ до інструментів.
+
+**Як переїхати на інший сервер?**
+1. Зроби бекап: `tar czf botva-backup.tar.gz bots/ workspace/ .mcp.json .env`
+2. На новому сервері: клонуй репо, розпакуй бекап, запусти `./scripts/deploy.sh setup && ./scripts/deploy.sh start`
+
+**Як кастомізувати персональність бота?**
+Редагуй `bots/<name>/core/personality.md` -- там визначено хто бот, як спілкується, які правила дотримується.
+
+**Як додати бота в команду?**
+Створи бота з роллю `manager` для координації. Інші боти автоматично додаються в `workspace/team.json` при створенні.
+
+## Технічний стек
+
+- **Runtime**: Node.js 20+, TypeScript
+- **Telegram**: Grammy
+- **AI**: Anthropic Claude Agent SDK
+- **Database**: SQLite (вбудований в Node.js)
+- **Web**: Hono
+- **Voice**: Edge-TTS (синтез), Groq Whisper (розпізнавання)
+- **Images**: Google Gemini
+- **Browser**: Stagehand / Playwright
+
+## Структура проекту
+
+```
+BotVa/
+├── src/                    # Код платформи (TypeScript)
+│   ├── index.ts            # Точка входу
+│   ├── bot.ts              # Telegram бот
+│   ├── agent.ts            # Claude agent з MCP
+│   ├── memory.ts           # Система пам'яті
+│   ├── voice.ts            # STT/TTS
+│   ├── imagen.ts           # Генерація зображень
+│   ├── scheduler.ts        # Планувальник
+│   └── admin/              # Веб адмін-панель
+├── roles/                  # Шаблони ролей
+├── mcp-servers/            # MCP сервери
+│   ├── bitrix24/           # Bitrix24 CRM
+│   ├── meta-ads-mcp/       # Meta/Facebook Ads
+│   ├── colleague/          # Міжботова комунікація
+│   ├── manager/            # Координація менеджером
+│   └── pubmed/             # PubMed пошук
+├── scripts/                # Скрипти управління
+├── bots/                   # Дані ботів (gitignored)
+├── workspace/              # Runtime дані (gitignored)
+├── .env.example            # Шаблон конфігурації
+└── package.json
+```
+
+## Ліцензія
 
 MIT
