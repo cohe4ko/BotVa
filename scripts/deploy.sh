@@ -55,7 +55,7 @@ do_setup() {
     if [ -f "$mcp/package.json" ]; then
       name=$(basename "$mcp")
       echo "  Building $name..."
-      (cd "$mcp" && npm install --silent && npm run build) 2>&1
+      (cd "$mcp" && NODE_OPTIONS="--max-old-space-size=512" npm install && npm run build) 2>&1
       info "MCP: $name"
     fi
   done
