@@ -1,4 +1,4 @@
-import { resolve, dirname, basename, join, relative } from 'path'
+import { resolve, dirname, basename } from 'path'
 import { fileURLToPath } from 'url'
 import {
   existsSync, mkdirSync, rmSync, readdirSync, statSync, readFileSync,
@@ -6,7 +6,7 @@ import {
 } from 'fs'
 import { execSync } from 'child_process'
 import { createHash } from 'crypto'
-import { safeSqliteBackup } from './sqlite.js'
+import { DatabaseSync } from 'node:sqlite'
 import type { BackupManifest, BackupOptions, RestoreOptions, BackupInfo } from './types.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -42,35 +42,6 @@ function formatSize(bytes: number): string {
   return `${bytes} B`
 }
 
-/** Recursively copy directory, using safeSqliteBackup for .db files */
-function copyDirWithSqlite(src: string, dest: string): number {
-  mkdirSync(dest, { recursive: true })
-  let totalSize = 0
-
-  for (const entry of readdirSync(src, { withFileTypes: true })) {
-    const srcPath = resolve(src, entry.name)
-    const destPath = resolve(dest, entry.name)
-
-    if (entry.isDirectory()) {
-      totalSize += copyDirWithSqlite(srcPath, destPath)
-    } else if (entry.isFile()) {
-      // Skip WAL and SHM files — VACUUM INTO produces clean DB
-      if (entry.name.endsWith('.db-wal') || entry.name.endsWith('.db-shm')) continue
-      // Skip PID files
-      if (entry.name.endsWith('.pid')) continue
-
-      if (entry.name.endsWith('.db')) {
-        safeSqliteBackup(srcPath, destPath)
-      } else {
-        mkdirSync(dirname(destPath), { recursive: true })
-        copyFileSync(srcPath, destPath)
-      }
-      totalSize += statSync(destPath).size
-    }
-  }
-  return totalSize
-}
-
 function getBotvaVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(resolve(PROJECT_ROOT, 'package.json'), 'utf-8'))
@@ -88,91 +59,97 @@ function getHostname(): string {
   }
 }
 
+/** Checkpoint all SQLite WAL files in a directory tree before tar */
+function checkpointDatabases(dir: string): void {
+  if (!existsSync(dir)) return
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = resolve(dir, entry.name)
+    if (entry.isDirectory()) {
+      checkpointDatabases(fullPath)
+    } else if (entry.isFile() && entry.name.endsWith('.db')) {
+      try {
+        const db = new DatabaseSync(fullPath)
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+        db.close()
+      } catch { /* skip non-sqlite files or locked dbs */ }
+    }
+  }
+}
+
+/** Get directory size in bytes via du */
+function dirSize(dir: string): number {
+  try {
+    return parseInt(execSync(`du -sk "${dir}" 2>/dev/null`, { encoding: 'utf-8' }).split('\t')[0], 10) * 1024
+  } catch {
+    return 0
+  }
+}
+
+// Directories to exclude from system backup (auto-recreatable)
+const SYSTEM_EXCLUDES = [
+  'node_modules',
+  'dist',
+  '.git',
+  'backups',
+  'mcp-servers/*/build',
+  'mcp-servers/*/node_modules',
+  'mcp-servers/*/venv',
+  'mcp-servers/*/__pycache__',
+]
+
 export function createBackup(options: BackupOptions): BackupInfo {
   const root = getProjectRoot()
   const backupsDir = getBackupsDir(options.outputDir)
-  const tmpDir = resolve(backupsDir, '.tmp')
-
   mkdirSync(backupsDir, { recursive: true })
-  mkdirSync(tmpDir, { recursive: true })
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const namePart = options.type === 'bot' ? `-${options.botName}` : ''
   const archiveName = `botva-${options.type}${namePart}-${ts}.tar.gz`
+  const archivePath = resolve(backupsDir, archiveName)
 
-  // Temp staging directory
-  const stageDir = resolve(tmpDir, `stage-${ts}`)
-  mkdirSync(stageDir, { recursive: true })
-
-  let totalSize = 0
   const bots: string[] = []
 
-  try {
-    if (options.type === 'bot') {
-      if (!options.botName) throw new Error('botName required for bot backup')
-      const botDir = resolve(root, 'bots', options.botName)
-      if (!existsSync(botDir)) throw new Error(`Bot "${options.botName}" not found`)
+  if (options.type === 'bot') {
+    // --- Single bot backup: tar entire bot directory ---
+    if (!options.botName) throw new Error('botName required for bot backup')
+    const botDir = resolve(root, 'bots', options.botName)
+    if (!existsSync(botDir)) throw new Error(`Bot "${options.botName}" not found`)
 
-      const destBot = resolve(stageDir, 'bot')
-      totalSize += copyDirWithSqlite(botDir, destBot)
-      bots.push(options.botName)
-    } else {
-      // System backup: all bots
-      const botNames = getBotNames()
-      for (const name of botNames) {
-        const botDir = resolve(root, 'bots', name)
-        const destBot = resolve(stageDir, 'bots', name)
-        totalSize += copyDirWithSqlite(botDir, destBot)
-        bots.push(name)
-      }
+    // Checkpoint SQLite before tar
+    checkpointDatabases(botDir)
+    bots.push(options.botName)
 
-      // System configs
-      const sysDir = resolve(stageDir, 'system')
-      mkdirSync(sysDir, { recursive: true })
-      for (const file of ['.env', '.mcp.json', 'mcp-servers.json']) {
-        const src = resolve(root, file)
-        if (existsSync(src)) {
-          copyFileSync(src, resolve(sysDir, file))
-          totalSize += statSync(src).size
-        }
-      }
-
-      // Workspace
-      const wsDir = resolve(root, 'workspace')
-      if (existsSync(wsDir)) {
-        const destWs = resolve(stageDir, 'workspace')
-        totalSize += copyDirWithSqlite(wsDir, destWs)
-      }
-    }
-
-    // Write manifest (without checksum — will update after tar)
+    // Write manifest into bot dir temporarily
+    const manifestPath = resolve(botDir, '.backup-manifest.json')
     const manifest: BackupManifest = {
       version: 1,
-      type: options.type,
-      ...(options.botName ? { botName: options.botName } : {}),
+      type: 'bot',
+      botName: options.botName,
       createdAt: new Date().toISOString(),
       hostname: getHostname(),
       botvaVersion: getBotvaVersion(),
       checksum: '',
       bots,
-      totalSize,
+      totalSize: dirSize(botDir),
     }
-    writeFileSync(resolve(stageDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
 
-    // Create tar.gz
-    const archivePath = resolve(backupsDir, archiveName)
-    execSync(`tar -czf "${archivePath}" -C "${stageDir}" .`, { timeout: 120000 })
+    try {
+      // tar entire bot directory as-is
+      execSync(`tar -czf "${archivePath}" -C "${resolve(root, 'bots')}" "${options.botName}"`, { timeout: 300000 })
 
-    // Compute checksum and update manifest
-    const checksum = computeChecksum(archivePath)
-    manifest.checksum = checksum
-    writeFileSync(resolve(stageDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
+      // Compute checksum
+      manifest.checksum = computeChecksum(archivePath)
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
 
-    // Re-create tar with final manifest
-    execSync(`tar -czf "${archivePath}" -C "${stageDir}" .`, { timeout: 120000 })
+      // Re-tar with checksum in manifest
+      execSync(`tar -czf "${archivePath}" -C "${resolve(root, 'bots')}" "${options.botName}"`, { timeout: 300000 })
+    } finally {
+      // Remove temp manifest from bot dir
+      try { unlinkSync(manifestPath) } catch { /* ignore */ }
+    }
 
     const archiveSize = statSync(archivePath).size
-
     return {
       filename: archiveName,
       path: archivePath,
@@ -180,14 +157,58 @@ export function createBackup(options: BackupOptions): BackupInfo {
       sizeBytes: archiveSize,
       createdAt: new Date(manifest.createdAt),
     }
-  } finally {
-    // Cleanup temp
-    rmSync(stageDir, { recursive: true, force: true })
-    // Remove .tmp if empty
+
+  } else {
+    // --- System backup: tar entire project directory ---
+    // Checkpoint all databases
+    checkpointDatabases(resolve(root, 'bots'))
+    checkpointDatabases(resolve(root, 'workspace'))
+    checkpointDatabases(resolve(root, 'store'))
+
+    bots.push(...getBotNames())
+
+    // Write manifest into project root temporarily
+    const manifestPath = resolve(root, '.backup-manifest.json')
+    const manifest: BackupManifest = {
+      version: 1,
+      type: 'system',
+      createdAt: new Date().toISOString(),
+      hostname: getHostname(),
+      botvaVersion: getBotvaVersion(),
+      checksum: '',
+      bots,
+      totalSize: 0,
+    }
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
+
     try {
-      const remaining = readdirSync(tmpDir)
-      if (remaining.length === 0) rmSync(tmpDir, { recursive: true, force: true })
-    } catch { /* ignore */ }
+      // Build exclude flags
+      const excludeFlags = [
+        ...SYSTEM_EXCLUDES.map(e => `--exclude='${e}'`),
+        `--exclude='backups'`,
+      ].join(' ')
+
+      execSync(`tar -czf "${archivePath}" ${excludeFlags} -C "${dirname(root)}" "${basename(root)}"`, { timeout: 600000 })
+
+      // Compute checksum
+      manifest.checksum = computeChecksum(archivePath)
+      manifest.totalSize = statSync(archivePath).size
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
+
+      // Re-tar with checksum
+      execSync(`tar -czf "${archivePath}" ${excludeFlags} -C "${dirname(root)}" "${basename(root)}"`, { timeout: 600000 })
+    } finally {
+      try { unlinkSync(manifestPath) } catch { /* ignore */ }
+    }
+
+    const archiveSize = statSync(archivePath).size
+    return {
+      filename: archiveName,
+      path: archivePath,
+      manifest,
+      sizeBytes: archiveSize,
+      createdAt: new Date(manifest.createdAt),
+    }
   }
 }
 
@@ -197,123 +218,135 @@ export async function restoreBackup(options: RestoreOptions): Promise<{ restored
 
   if (!existsSync(archivePath)) throw new Error(`Backup file not found: ${archivePath}`)
 
-  // Read manifest from archive
   const manifest = readManifest(archivePath)
   const restored: string[] = []
   const warnings: string[] = []
 
   if (options.dryRun) {
-    // List contents
     const contents = execSync(`tar -tzf "${archivePath}"`, { encoding: 'utf-8', timeout: 30000 })
     return { restored: contents.trim().split('\n'), warnings: ['dry-run: no files extracted'] }
   }
 
-  // Extract to temp dir first
-  const tmpDir = resolve(root, 'backups', '.tmp', `restore-${Date.now()}`)
-  mkdirSync(tmpDir, { recursive: true })
+  if (manifest.type === 'bot') {
+    // Bot backup: archive contains <botName>/ at root
+    const srcName = manifest.botName ?? manifest.bots[0]
+    const targetName = options.targetBotName ?? srcName
+    if (!targetName) throw new Error('Cannot determine bot name for restore')
 
-  try {
-    execSync(`tar -xzf "${archivePath}" -C "${tmpDir}"`, { timeout: 120000 })
+    const destBot = resolve(root, 'bots', targetName)
 
-    if (manifest.type === 'bot') {
-      const srcBot = resolve(tmpDir, 'bot')
-      const targetName = options.targetBotName ?? manifest.botName ?? manifest.bots[0]
-      if (!targetName) throw new Error('Cannot determine bot name for restore')
+    if (existsSync(destBot) && !options.overwrite) {
+      throw new Error(`Bot "${targetName}" already exists. Use --overwrite to replace.`)
+    }
 
-      const destBot = resolve(root, 'bots', targetName)
+    // Stop bot before overwriting
+    if (existsSync(destBot)) {
+      try {
+        const { stopBot } = await import('../admin/bot-control.js')
+        stopBot(targetName)
+      } catch { /* may not be running */ }
+      rmSync(destBot, { recursive: true, force: true })
+    }
 
-      if (existsSync(destBot) && !options.overwrite) {
-        throw new Error(`Bot "${targetName}" already exists. Use --overwrite to replace.`)
-      }
+    // Extract bot directory
+    mkdirSync(resolve(root, 'bots'), { recursive: true })
 
-      if (existsSync(destBot)) {
-        // Stop bot before overwriting
-        try {
-          const { stopBot } = await import('../admin/bot-control.js')
-          stopBot(targetName)
-        } catch { /* may not be running */ }
-        rmSync(destBot, { recursive: true, force: true })
-      }
-
-      mkdirSync(dirname(destBot), { recursive: true })
-      renameSync(srcBot, destBot)
-      restored.push(`bots/${targetName}/`)
-
+    if (targetName === srcName) {
+      // Same name — extract directly
+      execSync(`tar -xzf "${archivePath}" -C "${resolve(root, 'bots')}"`, { timeout: 300000 })
     } else {
-      // System restore
-      // Restore bots
-      const srcBots = resolve(tmpDir, 'bots')
-      if (existsSync(srcBots)) {
-        for (const botName of readdirSync(srcBots)) {
-          const destBot = resolve(root, 'bots', botName)
-          if (existsSync(destBot) && !options.overwrite) {
-            warnings.push(`Skipped bot "${botName}" — already exists (use --overwrite)`)
-            continue
-          }
-          if (existsSync(destBot)) {
-            try {
-              const { stopBot } = await import('../admin/bot-control.js')
-              stopBot(botName)
-            } catch { /* ignore */ }
-            rmSync(destBot, { recursive: true, force: true })
-          }
-          mkdirSync(dirname(destBot), { recursive: true })
-          renameSync(resolve(srcBots, botName), destBot)
-          restored.push(`bots/${botName}/`)
-        }
-      }
-
-      // Restore system configs
-      const srcSys = resolve(tmpDir, 'system')
-      if (existsSync(srcSys)) {
-        for (const file of ['.env', '.mcp.json', 'mcp-servers.json']) {
-          const src = resolve(srcSys, file)
-          if (existsSync(src)) {
-            const dest = resolve(root, file)
-            if (existsSync(dest) && !options.overwrite) {
-              warnings.push(`Skipped ${file} — already exists (use --overwrite)`)
-              continue
-            }
-            copyFileSync(src, dest)
-            restored.push(file)
-          }
-        }
-      }
-
-      // Restore workspace
-      const srcWs = resolve(tmpDir, 'workspace')
-      if (existsSync(srcWs)) {
-        const destWs = resolve(root, 'workspace')
-        mkdirSync(destWs, { recursive: true })
-        // Merge workspace files (don't delete existing)
-        copyDirSimple(srcWs, destWs)
-        restored.push('workspace/')
+      // Different name — extract to temp, then rename
+      const tmpDir = resolve(root, 'backups', '.tmp', `restore-${Date.now()}`)
+      mkdirSync(tmpDir, { recursive: true })
+      try {
+        execSync(`tar -xzf "${archivePath}" -C "${tmpDir}"`, { timeout: 300000 })
+        renameSync(resolve(tmpDir, srcName!), destBot)
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true })
       }
     }
 
-    return { restored, warnings }
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true })
-  }
-}
+    // Clean up temp manifest
+    const tempManifest = resolve(destBot, '.backup-manifest.json')
+    if (existsSync(tempManifest)) unlinkSync(tempManifest)
 
-/** Simple recursive copy (no SQLite special handling, used for restore) */
-function copyDirSimple(src: string, dest: string): void {
-  mkdirSync(dest, { recursive: true })
-  for (const entry of readdirSync(src, { withFileTypes: true })) {
-    const srcPath = resolve(src, entry.name)
-    const destPath = resolve(dest, entry.name)
-    if (entry.isDirectory()) {
-      copyDirSimple(srcPath, destPath)
-    } else if (entry.isFile()) {
-      copyFileSync(srcPath, destPath)
+    restored.push(`bots/${targetName}/`)
+
+  } else {
+    // System backup: archive contains project directory at root
+    // Stop all bots first
+    for (const botName of manifest.bots) {
+      try {
+        const { stopBot } = await import('../admin/bot-control.js')
+        stopBot(botName)
+      } catch { /* ignore */ }
+    }
+
+    // Extract over existing project (tar overwrites existing files)
+    const tmpDir = resolve(root, 'backups', '.tmp', `restore-${Date.now()}`)
+    mkdirSync(tmpDir, { recursive: true })
+    try {
+      execSync(`tar -xzf "${archivePath}" -C "${tmpDir}"`, { timeout: 600000 })
+
+      // Find the extracted project directory
+      const extracted = readdirSync(tmpDir).filter(f => statSync(resolve(tmpDir, f)).isDirectory())
+      if (extracted.length === 0) throw new Error('Empty backup archive')
+      const srcRoot = resolve(tmpDir, extracted[0])
+
+      // Restore data directories
+      for (const dir of ['bots', 'workspace', 'store', 'knowledge', 'agents', 'roles']) {
+        const srcDir = resolve(srcRoot, dir)
+        if (!existsSync(srcDir)) continue
+        const destDir = resolve(root, dir)
+        if (existsSync(destDir) && !options.overwrite) {
+          warnings.push(`Skipped ${dir}/ — already exists (use --overwrite)`)
+          continue
+        }
+        if (existsSync(destDir)) rmSync(destDir, { recursive: true, force: true })
+        renameSync(srcDir, destDir)
+        restored.push(`${dir}/`)
+      }
+
+      // Restore config files
+      for (const file of ['.env', '.mcp.json', 'mcp-servers.json']) {
+        const src = resolve(srcRoot, file)
+        if (!existsSync(src)) continue
+        const dest = resolve(root, file)
+        if (existsSync(dest) && !options.overwrite) {
+          warnings.push(`Skipped ${file} — already exists (use --overwrite)`)
+          continue
+        }
+        copyFileSync(src, dest)
+        restored.push(file)
+      }
+
+      // Clean up temp manifest
+      const tempManifest = resolve(root, '.backup-manifest.json')
+      if (existsSync(tempManifest)) unlinkSync(tempManifest)
+
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
     }
   }
+
+  return { restored, warnings }
 }
 
 export function readManifest(archivePath: string): BackupManifest {
+  // Try to find manifest in archive (may be at different paths depending on backup type)
+  const tryPaths = [
+    '.backup-manifest.json',
+    '*/\\.backup-manifest.json',
+  ]
+
+  // Use tar to list and find the manifest
+  const listing = execSync(`tar -tzf "${archivePath}" 2>/dev/null`, { encoding: 'utf-8', timeout: 30000 })
+  const manifestFile = listing.split('\n').find(f => f.endsWith('.backup-manifest.json'))
+
+  if (!manifestFile) throw new Error('No manifest found in backup archive')
+
   const output = execSync(
-    `tar -xzf "${archivePath}" -O ./manifest.json 2>/dev/null || tar -xzf "${archivePath}" -O manifest.json`,
+    `tar -xzf "${archivePath}" -O "${manifestFile}"`,
     { encoding: 'utf-8', timeout: 30000 }
   )
   return JSON.parse(output)
@@ -379,7 +412,6 @@ export function deleteBackup(filename: string, dir?: string): boolean {
   const backupsDir = getBackupsDir(dir)
   const filePath = resolve(backupsDir, filename)
 
-  // Safety: only delete files that look like backups
   if (!filename.startsWith('botva-') || !filename.endsWith('.tar.gz')) return false
   if (!existsSync(filePath)) return false
 
