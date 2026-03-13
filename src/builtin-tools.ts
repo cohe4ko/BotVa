@@ -164,6 +164,107 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   }
 
+  // --- Gallery tools (always available) ---
+
+  tools.push(
+    tool(
+      'ListGalleryImages',
+      'List images in the gallery with metadata (id, bot, type, prompt, size, date). Supports pagination and optional bot name filter.',
+      {
+        limit: z.number().optional().describe('Max images to return (default 20)'),
+        offset: z.number().optional().describe('Pagination offset (default 0)'),
+        bot: z.string().optional().describe('Filter by bot name'),
+      },
+      async (args) => {
+        usedTools.add('ListGalleryImages')
+        try {
+          const { getGalleryImages, countGalleryImages } = await import('./admin/db-multi.js')
+          const { formatSize } = await import('./backup/index.js')
+          const limit = args.limit ?? 20
+          const images = getGalleryImages(limit, args.offset ?? 0, args.bot)
+          const total = countGalleryImages(args.bot)
+          if (images.length === 0) {
+            return { content: [{ type: 'text' as const, text: `No images in gallery${args.bot ? ` for bot "${args.bot}"` : ''} (total: ${total})` }] }
+          }
+          const lines = images.map(img => {
+            const date = new Date(img.created_at * 1000).toISOString().slice(0, 16)
+            const promptShort = img.prompt.length > 80 ? img.prompt.slice(0, 80) + '...' : img.prompt
+            return `#${img.id} | ${img.bot_name} | ${img.type} | ${formatSize(img.image_bytes)} | ${date} | ${promptShort}`
+          })
+          lines.unshift(`Gallery: ${total} images total, showing ${images.length}`)
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'ListGalleryImages tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  tools.push(
+    tool(
+      'SendGalleryImage',
+      'Send a gallery image to the chat by its ID. Sends the full-resolution image with prompt as caption.',
+      { id: z.number().describe('Gallery image ID') },
+      async (args) => {
+        usedTools.add('SendGalleryImage')
+        try {
+          const { getGalleryImageById } = await import('./admin/db-multi.js')
+          const { resolve } = await import('path')
+          const image = getGalleryImageById(args.id)
+          if (!image) {
+            return { content: [{ type: 'text' as const, text: `Image #${args.id} not found in gallery` }], isError: true }
+          }
+          const { PROJECT_ROOT } = await import('./config.js')
+          const imagePath = resolve(PROJECT_ROOT, 'workspace', 'gallery', image.filename)
+          await ctx.replyWithChatAction('upload_photo')
+          await ctx.replyWithPhoto(new InputFile(imagePath), {
+            caption: image.prompt.slice(0, 1024),
+          })
+          return { content: [{ type: 'text' as const, text: `Sent gallery image #${args.id} (${image.type} by ${image.bot_name})` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SendGalleryImage tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  tools.push(
+    tool(
+      'DeleteGalleryImage',
+      'Delete an image from the gallery by its ID. Removes the database entry and both the full image and thumbnail files.',
+      { id: z.number().describe('Gallery image ID to delete') },
+      async (args) => {
+        usedTools.add('DeleteGalleryImage')
+        try {
+          const { deleteGalleryImage } = await import('./admin/db-multi.js')
+          const { resolve } = await import('path')
+          const { existsSync, unlinkSync } = await import('fs')
+          const deleted = deleteGalleryImage(args.id)
+          if (!deleted) {
+            return { content: [{ type: 'text' as const, text: `Image #${args.id} not found in gallery` }], isError: true }
+          }
+          // Remove image files
+          const { PROJECT_ROOT } = await import('./config.js')
+          const galleryDir = resolve(PROJECT_ROOT, 'workspace', 'gallery')
+          const imagePath = resolve(galleryDir, deleted.filename)
+          const thumbName = deleted.filename.replace(/\.\w+$/, '.jpg')
+          const thumbPath = resolve(galleryDir, 'thumbs', thumbName)
+          if (existsSync(imagePath)) unlinkSync(imagePath)
+          if (existsSync(thumbPath)) unlinkSync(thumbPath)
+          return { content: [{ type: 'text' as const, text: `Deleted gallery image #${args.id}: "${deleted.prompt.slice(0, 100)}" (${deleted.filename})` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'DeleteGalleryImage tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
   // --- Backup tools (always available) ---
 
   tools.push(

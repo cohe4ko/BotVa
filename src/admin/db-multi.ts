@@ -475,3 +475,17 @@ export function countGalleryImages(bot?: string): number {
   const row = db.prepare('SELECT COUNT(*) as cnt FROM gallery').get() as unknown as { cnt: number }
   return row.cnt
 }
+
+export function getGalleryImageById(id: number): GalleryRow | null {
+  const db = getGalleryDb()
+  const row = db.prepare('SELECT * FROM gallery WHERE id = ?').get(id) as unknown as GalleryRow | undefined
+  return row ?? null
+}
+
+export function deleteGalleryImage(id: number): GalleryRow | null {
+  const db = getGalleryDb()
+  const row = db.prepare('SELECT * FROM gallery WHERE id = ?').get(id) as unknown as GalleryRow | undefined
+  if (!row) return null
+  db.prepare('DELETE FROM gallery WHERE id = ?').run(id)
+  return row as GalleryRow
+}
