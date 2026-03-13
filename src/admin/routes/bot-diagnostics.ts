@@ -70,7 +70,7 @@ Rules:
 - For each tool, assign "importance": "high" (core functionality, frequently used), "medium" (useful but situational), "low" (rarely used or niche).
 - Group tools by their "source" field.
 - In "recommendations": give 3-5 actionable tips about the agent's toolset — what could be improved, what seems redundant, what's missing.
-- In "canDisable": list tools/servers that are safe to disable if the bot doesn't need them. Explain WHY for each. Focus on low-importance tools and niche MCP servers.
+- In "canDisable": list ONLY tools/servers that CAN actually be disabled by the admin. SDK tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Agent, etc.) are built into the Claude platform and CANNOT be disabled — never include them. Only include: (1) builtin tools (type: "tool") like GenerateImage, TextToSpeech, PublishTelegraph, backup tools, gallery tools, telegram media tools; (2) MCP servers (type: "mcp-server") like stagehand, bitrix24, google-workspace, meta-ads, pubmed, playwright, home-assistant, macos-control, colleague, manager. Explain WHY each can be disabled.
 - If you see skills (slash commands like /commit, /review-pr, etc.) in the echo, list them in "skills" with name and description.
 
 The JSON must have this exact structure:
@@ -312,7 +312,7 @@ function renderBarChart(data: Record<string, number>, colorFn: (key: string) => 
   `
 }
 
-function renderToolsGrouped(tools: ToolInfo[], lang: Lang) {
+function renderToolsGrouped(tools: ToolInfo[], lang: Lang, inputTokens?: number) {
   // Group by source
   const bySource: Record<string, ToolInfo[]> = {}
   for (const t of tools) {
@@ -320,6 +320,9 @@ function renderToolsGrouped(tools: ToolInfo[], lang: Lang) {
     if (!bySource[src]) bySource[src] = []
     bySource[src].push(t)
   }
+
+  const totalToolCount = tools.length || 1
+  const fmtTok = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 
   // Sort sources: sdk first, then builtin, then alphabetically
   const sourceOrder = ['sdk', 'builtin']
@@ -336,6 +339,8 @@ function renderToolsGrouped(tools: ToolInfo[], lang: Lang) {
     ${sortedSources.map(source => {
       const sourceTools = bySource[source]
       const style = getSourceStyle(source)
+      // Estimate tokens: proportional to tool count (tool definitions ~equal size in context)
+      const estTokens = inputTokens ? Math.round((inputTokens * 0.75) * (sourceTools.length / totalToolCount)) : 0
       // Sort tools within source: high importance first
       const sorted = [...sourceTools].sort((a, b) => {
         const order = { high: 0, medium: 1, low: 2 }
@@ -349,6 +354,9 @@ function renderToolsGrouped(tools: ToolInfo[], lang: Lang) {
               ${icon(style.icon, 12)} ${source}
             </span>
             <span style="font-size:0.72rem;color:var(--mc-text-dim)">${sourceTools.length} tools</span>
+            ${estTokens > 0 ? html`
+              <span style="font-size:0.68rem;color:var(--mc-text-dim);font-variant-numeric:tabular-nums">~${fmtTok(estTokens)} tokens</span>
+            ` : ''}
           </div>
           <div class="table-wrap">
             <table>
@@ -627,7 +635,7 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
     <!-- Tools grouped by source -->
     <h3>${icon('wrench')} ${t('diag.tools')} (${a.tools?.length ?? 0})</h3>
     ${a.tools && a.tools.length > 0
-      ? renderToolsGrouped(a.tools, lang)
+      ? renderToolsGrouped(a.tools, lang, eu?.inputTokens)
       : html`<p style="color:var(--mc-text-dim)">${t('diag.noResult')}</p>`
     }
 
