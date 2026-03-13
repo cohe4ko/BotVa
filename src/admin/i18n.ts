@@ -73,6 +73,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'botnav.images': 'Images',
     'botnav.audit': 'Audit',
     'botnav.logs': 'Logs',
+    'botnav.diagnostics': 'Diagnostics',
 
     // Bot config
     'config.agentSettings': 'Agent Settings',
@@ -451,6 +452,25 @@ const translations: Record<Lang, Record<string, string>> = {
     'bak.hostname': 'Hostname',
     'bak.version': 'Version',
 
+    // Diagnostics
+    'diag.title': 'Agent Diagnostics',
+    'diag.desc': 'Run the agent with full context and ask it to echo everything it sees — tools, MCP servers, instructions, role, knowledge. The echo is then parsed into structured JSON.',
+    'diag.run': 'Run Diagnostics',
+    'diag.running': 'Running agent (may take 30-60s)...',
+    'diag.echo': 'Agent Echo',
+    'diag.rawEcho': 'Raw agent echo',
+    'diag.analysis': 'Analysis',
+    'diag.tools': 'Tools',
+    'diag.mcpServers': 'MCP Servers',
+    'diag.instructions': 'System Instructions',
+    'diag.role': 'Role',
+    'diag.knowledge': 'Knowledge',
+    'diag.source': 'Source',
+    'diag.noResult': 'No result',
+    'diag.detectedModel': 'Detected model',
+    'diag.builtinNote': 'Builtin tools (not included in probe, require Telegram context)',
+    'diag.jsonParseFailed': 'Could not parse analysis as JSON. Raw output below:',
+
     // Common
     'common.save': 'Save',
     'common.back': 'Back',
@@ -522,6 +542,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'botnav.images': 'Зображення',
     'botnav.audit': 'Аудит',
     'botnav.logs': 'Логи',
+    'botnav.diagnostics': 'Діагностика',
 
     // Bot config
     'config.agentSettings': 'Налаштування агента',
@@ -899,6 +920,25 @@ const translations: Record<Lang, Record<string, string>> = {
     'bak.contents': 'Вміст',
     'bak.hostname': 'Хост',
     'bak.version': 'Версія',
+
+    // Diagnostics
+    'diag.title': 'Діагностика агента',
+    'diag.desc': 'Запускає агента з повним контекстом і просить його перелічити все, що він бачить — інструменти, MCP сервери, інструкції, роль, знання. Ехо парситься в структурований JSON.',
+    'diag.run': 'Запустити діагностику',
+    'diag.running': 'Агент працює (може зайняти 30-60с)...',
+    'diag.echo': 'Ехо агента',
+    'diag.rawEcho': 'Сире ехо агента',
+    'diag.analysis': 'Аналіз',
+    'diag.tools': 'Інструменти',
+    'diag.mcpServers': 'MCP сервери',
+    'diag.instructions': 'Системні інструкції',
+    'diag.role': 'Роль',
+    'diag.knowledge': 'База знань',
+    'diag.source': 'Джерело',
+    'diag.noResult': 'Немає результату',
+    'diag.detectedModel': 'Виявлена модель',
+    'diag.builtinNote': 'Вбудовані інструменти (не включені в probe, потребують Telegram контексту)',
+    'diag.jsonParseFailed': 'Не вдалось розпарсити аналіз як JSON. Сирий вивід нижче:',
 
     // Common
     'common.save': 'Зберегти',

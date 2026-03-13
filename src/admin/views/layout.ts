@@ -69,6 +69,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:14px;height:14px"></i> ${_t('nav.team')}</a>
       <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:14px;height:14px"></i> ${_t('nav.gallery')}</a>
       <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:14px;height:14px"></i> ${_t('nav.storage')}</a>
+      <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:14px;height:14px"></i> ${_t('nav.backup')}</a>
       <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:14px;height:14px"></i> ${_t('nav.system')}</a>
       <a href="/create-bot" class="${activePath === '/create-bot' ? 'active' : ''}"><i data-lucide="plus" style="width:14px;height:14px"></i> ${_t('nav.new')}</a>
     </div>
@@ -116,6 +117,7 @@ const NAV_SECTIONS = [
   { id: 'images', key: 'botnav.images', icon: 'image' },
   { id: 'audit', key: 'botnav.audit', icon: 'scroll-text' },
   { id: 'logs', key: 'botnav.logs', icon: 'file-text' },
+  { id: 'diagnostics', key: 'botnav.diagnostics', icon: 'radar' },
 ]
 
 export function botNav(botName: string, currentSection: string, t?: TFunc): HtmlContent {

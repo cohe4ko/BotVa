@@ -5,6 +5,7 @@ dist/
 store/
 workspace/
 archive/
+backups/
 *.log
 *.pid
 bots/

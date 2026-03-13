@@ -18,7 +18,9 @@ import system from './routes/system.js'
 import createBot from './routes/create-bot.js'
 import gallery from './routes/gallery.js'
 import storage from './routes/storage.js'
+import backup from './routes/backup.js'
 import team from './routes/team.js'
+import botDiagnostics from './routes/bot-diagnostics.js'
 
 export function createAdminApp(): Hono<I18nEnv> {
   const app = new Hono<I18nEnv>()
@@ -60,7 +62,9 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', createBot)
   app.route('/', gallery)
   app.route('/', storage)
+  app.route('/', backup)
   app.route('/', team)
+  app.route('/', botDiagnostics)
 
   return app
 }
