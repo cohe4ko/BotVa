@@ -21,6 +21,7 @@ import { shouldUseTelegraph, createTelegraphPage } from './telegraph.js'
 import { generateImage, editImage } from './imagen.js'
 import { getModel, setModel, MODELS, getModelLabel } from './model.js'
 import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } from './bot-i18n.js'
+import { createBuiltinMcpServer } from './builtin-tools.js'
 
 // --- AskUserQuestion pending responses ---
 const pendingQuestions = new Map<string, {
@@ -306,6 +307,9 @@ async function handleMessage(
       const sendTyping = () => ctx.api.sendChatAction(chatId, 'typing').catch(() => {})
       await sendTyping()
 
+      // Create builtin MCP server (image gen, voice, telegraph, media sending)
+      const builtin = createBuiltinMcpServer(ctx, chatId)
+
       // Run agent
       let text: string | null
       let newSessionId: string | undefined
@@ -353,7 +357,7 @@ async function handleMessage(
           return answers.join('; ') || chatT(chatIdStr)('cb.userSkipped')
         }
 
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, getModel(chatIdStr), askUserHandler)
+        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, getModel(chatIdStr), askUserHandler, builtin?.server)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage
@@ -397,8 +401,10 @@ async function handleMessage(
         logUsage(chatIdStr, usage.inputTokens, usage.outputTokens, usage.cacheReadTokens, usage.cacheCreationTokens, usage.costUSD, responseTimeMs)
       }
 
-      // Send text
-      if (TELEGRAPH_ENABLED && shouldUseTelegraph(text)) {
+      // Send text — skip auto-telegraph if agent already used PublishTelegraph
+      const shouldTelegraph = TELEGRAPH_ENABLED && shouldUseTelegraph(text)
+        && !builtin?.usedTools.has('PublishTelegraph')
+      if (shouldTelegraph) {
         const url = await createTelegraphPage(BOT_NAME, text)
         if (url) {
           await ctx.reply(url)
@@ -415,8 +421,9 @@ async function handleMessage(
         await ctx.reply(statsLine, { parse_mode: 'HTML' })
       }
 
-      // Voice reply async
-      const shouldVoice = forceVoiceReply || getChatSetting(chatIdStr, 'voice') === '1'
+      // Voice reply async — skip if agent already used TextToSpeech
+      const shouldVoice = (forceVoiceReply || getChatSetting(chatIdStr, 'voice') === '1')
+        && !builtin?.usedTools.has('TextToSpeech')
       if (shouldVoice) {
         synthesizeSpeech(text)
           .then(audioPath => ctx.replyWithVoice(new InputFile(audioPath)))

@@ -1,4 +1,4 @@
-import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import { query, type SDKMessage, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
 import { buildMcpServers } from './mcp-config.js'
 import { isManager } from './team.js'
@@ -32,7 +32,8 @@ async function runAgentOnce(
   chatId: string,
   onEvent?: (event: SDKMessage) => void,
   model?: string,
-  onAskUser?: AskUserHandler
+  onAskUser?: AskUserHandler,
+  builtinMcpServer?: McpSdkServerConfigWithInstance
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -55,7 +56,12 @@ async function runAgentOnce(
   const abortController = createAbortController(chatId)
 
   try {
-    const mcpServers = buildMcpServers()
+    const mcpServers: Record<string, any> = buildMcpServers()
+
+    // Built-in tools MCP (image generation, voice, telegraph, etc.)
+    if (builtinMcpServer) {
+      mcpServers['builtin'] = builtinMcpServer
+    }
 
     // Inter-bot communication MCP (reads role from workspace/team.json)
     if (BOT_NAME && isManager(PROJECT_ROOT, BOT_NAME)) {
@@ -208,9 +214,10 @@ export async function runAgent(
   chatId: string,
   onEvent?: (event: SDKMessage) => void,
   model?: string,
-  onAskUser?: AskUserHandler
+  onAskUser?: AskUserHandler,
+  builtinMcpServer?: McpSdkServerConfigWithInstance
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, onAskUser)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, onAskUser, builtinMcpServer)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -218,7 +225,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, onAskUser)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, onAskUser, builtinMcpServer)
     return { text: retry.text, newSessionId: retry.newSessionId, usage: retry.usage }
   }
 
