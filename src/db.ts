@@ -198,12 +198,22 @@ export function insertMemory(chatId: string, content: string, sector: 'semantic'
   ).run(chatId, topicKey ?? null, content, sector, now, now)
 }
 
-export function searchMemories(chatId: string, query: string, limit = 3): Memory[] {
+export function searchMemories(chatId: string, query: string, limit = 3, topic?: string): Memory[] {
   const sanitized = query.replace(/[^\w\s]/g, '').trim()
   if (!sanitized) return []
 
   const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
   try {
+    if (topic) {
+      const stmt = getDb().prepare(`
+        SELECT m.* FROM memories m
+        JOIN memories_fts f ON f.rowid = m.id
+        WHERE memories_fts MATCH ? AND m.chat_id = ? AND m.topic_key = ?
+        ORDER BY rank
+        LIMIT ?
+      `)
+      return stmt.all(ftsQuery, chatId, topic, limit) as unknown as Memory[]
+    }
     const stmt = getDb().prepare(`
       SELECT m.* FROM memories m
       JOIN memories_fts f ON f.rowid = m.id
@@ -245,6 +255,27 @@ export function getAllMemories(chatId: string, limit = 20): Memory[] {
 
 export function clearMemories(chatId: string): void {
   getDb().prepare('DELETE FROM memories WHERE chat_id = ?').run(chatId)
+}
+
+export function getMemoryTopics(chatId: string): { topic: string; count: number; latest: number }[] {
+  return getDb().prepare(`
+    SELECT topic_key AS topic, COUNT(*) AS count, MAX(created_at) AS latest
+    FROM memories
+    WHERE chat_id = ? AND topic_key IS NOT NULL AND topic_key != ''
+    GROUP BY topic_key
+    ORDER BY latest DESC
+  `).all(chatId) as unknown as { topic: string; count: number; latest: number }[]
+}
+
+export function deleteMemory(id: number, chatId: string): boolean {
+  const result = getDb().prepare('DELETE FROM memories WHERE id = ? AND chat_id = ?').run(id, chatId)
+  return (result as unknown as { changes: number }).changes > 0
+}
+
+export function getMemoriesByTopic(chatId: string, topic: string, limit = 20): Memory[] {
+  return getDb().prepare(
+    'SELECT * FROM memories WHERE chat_id = ? AND topic_key = ? ORDER BY created_at DESC LIMIT ?'
+  ).all(chatId, topic, limit) as unknown as Memory[]
 }
 
 // --- Scheduler ---
