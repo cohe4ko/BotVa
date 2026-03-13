@@ -131,6 +131,7 @@ async function main(): Promise<void> {
       options: {
         cwd: BOT_DIR,
         permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         mcpServers,
         canUseTool: async () => ({ behavior: 'deny' as const, message: 'Diagnostic mode — tool use disabled' }),
         model: 'sonnet',

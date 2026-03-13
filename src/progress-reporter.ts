@@ -452,6 +452,78 @@ export class ProgressReporter {
       // Init: skip — same every message, just noise
     }
 
+    // --- Tool use summary (multi-tool batch) ---
+    if (event.type === 'tool_use_summary') {
+      const summary = (event as any).summary as string
+      if (summary) {
+        const preview = summary.replace(/\n/g, ' ').trim().slice(0, TEXT_PREVIEW_LEN)
+        this.addLine(`📋 <i>${mdToHtml(preview)}${summary.length > TEXT_PREVIEW_LEN ? '...' : ''}</i>`)
+        return true
+      }
+      return false
+    }
+
+    // --- Rate limit events ---
+    if (event.type === 'rate_limit_event') {
+      const info = (event as any).rate_limit_info
+      if (info?.status === 'rejected') {
+        const resetsAt = info.resetsAt ? new Date(info.resetsAt).toLocaleTimeString() : '?'
+        this.addLine(this.cuteMode
+          ? `<i>${this.t('progress.cute.rateLimit')}</i>`
+          : `⏳ <i>Rate limit — reset ${escapeHtml(resetsAt)}</i>`)
+        return true
+      }
+      if (info?.status === 'allowed_warning') {
+        this.addLine(this.cuteMode
+          ? `<i>${this.t('progress.cute.rateLimit')}</i>`
+          : `⚠️ <i>Rate limit warning (${Math.round((info.utilization ?? 0) * 100)}%)</i>`)
+        return true
+      }
+      return false
+    }
+
+    // --- Task (subagent) events ---
+    if (event.type === 'system') {
+      const sys = event as any
+
+      if (sys.subtype === 'task_started') {
+        const desc = (sys.description ?? '').slice(0, 60)
+        this.addLine(`  🤖 <i>Subtask: ${escapeHtml(desc)}</i>`)
+        return true
+      }
+
+      if (sys.subtype === 'task_progress' && sys.summary) {
+        const summary = String(sys.summary).replace(/\n/g, ' ').trim().slice(0, 80)
+        this.addLine(`  💭 <i>${escapeHtml(summary)}</i>`)
+        return true
+      }
+
+      if (sys.subtype === 'task_notification') {
+        const status = sys.status === 'completed' ? '✅' : sys.status === 'failed' ? '❌' : '⏹'
+        const summary = sys.summary ? `: ${String(sys.summary).replace(/\n/g, ' ').trim().slice(0, 60)}` : ''
+        this.addLine(`  ${status} <i>Subtask ${sys.status ?? 'done'}${escapeHtml(summary)}</i>`)
+        return true
+      }
+
+      // Hook events — debug only, don't show in Telegram
+      if (sys.subtype === 'hook_started' || sys.subtype === 'hook_progress') {
+        logger.debug({ hook: sys.hook_name, subtype: sys.subtype }, 'Hook event')
+        return false
+      }
+
+      // Files persisted — debug only
+      if (sys.subtype === 'files_persisted') {
+        logger.debug({ files: (sys.files ?? []).length, failed: (sys.failed ?? []).length }, 'Files persisted')
+        return false
+      }
+    }
+
+    // --- Prompt suggestion, local_command_output, elicitation_complete — ignore ---
+    const eventType = event.type as string
+    if (eventType === 'prompt_suggestion' || eventType === 'local_command_output' || eventType === 'elicitation_complete') {
+      return false
+    }
+
     // --- Result: show summary line ---
     if (event.type === 'result') {
       const res = event as any

@@ -250,6 +250,7 @@ async function runDiagnostics(botName: string, lang: Lang): Promise<DiagnosticRe
       options: {
         cwd: '/tmp',
         permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         model: 'haiku',
       },
     })

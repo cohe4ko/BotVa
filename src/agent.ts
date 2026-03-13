@@ -105,10 +105,12 @@ async function runAgentOnce(
       options: {
         cwd: BOT_DIR,
         permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
         abortController,
         mcpServers,
         includePartialMessages: true,
+        agentProgressSummaries: true,
         ...(canUseTool ? { canUseTool } : {}),
         ...(model ? { model } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
@@ -129,6 +131,26 @@ async function runAgentOnce(
       }
       // Soft interrupt — let the agent finish, keep the result
       // (no break — we continue reading events until result arrives)
+
+      // Log rate limit warnings
+      if (event.type === 'rate_limit_event') {
+        const info = (event as any).rate_limit_info
+        if (info?.status === 'allowed_warning') {
+          logger.warn({ chatId, utilization: info.utilization, resetsAt: info.resetsAt }, 'Rate limit warning')
+        } else if (info?.status === 'rejected') {
+          logger.warn({ chatId, resetsAt: info.resetsAt }, 'Rate limit rejected')
+        }
+      }
+
+      // Log task (subagent) lifecycle
+      if (event.type === 'system') {
+        const sys = event as any
+        if (sys.subtype === 'task_started') {
+          logger.info({ chatId, taskId: sys.task_id, description: sys.description }, 'Subtask started')
+        } else if (sys.subtype === 'task_notification') {
+          logger.info({ chatId, taskId: sys.task_id, status: sys.status }, 'Subtask finished')
+        }
+      }
 
       // Track last assistant message text and context window usage
       if (event.type === 'assistant') {

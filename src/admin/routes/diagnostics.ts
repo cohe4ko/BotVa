@@ -880,6 +880,7 @@ app.post('/diagnostics/run', async (c) => {
       options: {
         cwd: '/tmp',
         permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         model: 'sonnet',
       },
     })
