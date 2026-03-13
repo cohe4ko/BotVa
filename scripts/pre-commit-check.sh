@@ -22,7 +22,7 @@ check_pattern() {
   local label="$1"
   local pattern="$2"
   local matches
-  matches=$(echo "$STAGED_DIFF" | grep -nP "^\+" | grep -Pi "$pattern" || true)
+  matches=$(echo "$STAGED_DIFF" | grep -n "^+" | grep -Ei "$pattern" || true)
   if [ -n "$matches" ]; then
     echo -e "${RED}BLOCKED:${NC} $label"
     echo "$matches" | head -5
@@ -35,7 +35,7 @@ echo "Scanning staged changes for secrets..."
 echo ""
 
 # Telegram bot tokens (patterns: digits:AAF/AAH/AAG/AAE...)
-check_pattern "Telegram bot token" '\d+:AA[A-Z][A-Za-z0-9_-]{30,}'
+check_pattern "Telegram bot token" '[0-9]+:AA[A-Z][A-Za-z0-9_-]{30,}'
 
 # API keys
 check_pattern "Groq API key (gsk_)" 'gsk_[A-Za-z0-9]{20,}'
@@ -50,7 +50,7 @@ check_pattern "Hardcoded user path (/home/)" '/home/[a-zA-Z]'
 check_pattern "Email address" '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 
 # Webhook URLs with credentials in path
-check_pattern "Webhook URL with credentials" 'https?://[^/]+/rest/\d+/[a-zA-Z0-9]+'
+check_pattern "Webhook URL with credentials" 'https?://[^/]+/rest/[0-9]+/[a-zA-Z0-9]+'
 
 if [ $ERRORS -gt 0 ]; then
   echo -e "${RED}Commit blocked: $ERRORS secret pattern(s) detected.${NC}"
