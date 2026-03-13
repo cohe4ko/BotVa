@@ -17,35 +17,44 @@ app.get('/bot/:name/settings', validateBot, (c) => {
 
   const content = html`
     ${botNav(name, 'settings', t)}
-    <h3>${t('settings.title')}</h3>
+    <div class="section-header">
+      <h3 style="margin:0">${t('settings.title')}</h3>
+      <small>${settings.length} ${settings.length === 1 ? 'setting' : 'settings'}</small>
+    </div>
     <div id="settings-alerts"></div>
-    <details>
-      <summary>${t('settings.addUpdate')}</summary>
+    <details style="margin-bottom:1rem">
+      <summary><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('settings.addUpdate')}</summary>
       <form hx-post="/bot/${name}/settings" hx-target="#settings-alerts" hx-swap="innerHTML">
         <div class="grid">
           <label>${t('settings.chatId')}<input type="text" name="chat_id" required></label>
           <label>${t('settings.key')}<input type="text" name="key" required placeholder="${t('settings.keyPlaceholder')}"></label>
           <label>${t('settings.value')}<input type="text" name="value" required placeholder="${t('settings.valuePlaceholder')}"></label>
         </div>
-        <button type="submit">${t('settings.save')}</button>
+        <button type="submit" style="margin-top:0.75rem"><i data-lucide="save" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('settings.save')}</button>
       </form>
     </details>
-    <table>
-      <thead><tr><th>${t('settings.chatId')}</th><th>${t('settings.key')}</th><th>${t('settings.value')}</th><th></th></tr></thead>
-      <tbody>
-        ${settings.map(s => html`
-          <tr id="setting-${s.chat_id}-${s.key}">
-            <td>${s.chat_id}</td>
-            <td><code>${s.key}</code></td>
-            <td>${s.value}</td>
-            <td><button hx-delete="/bot/${name}/settings?chat_id=${s.chat_id}&key=${s.key}"
-              hx-target="#setting-${s.chat_id}-${s.key}" hx-swap="outerHTML" hx-confirm="${t('settings.deleteConfirm')}"
-              class="secondary outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">${t('mem.del')}</button></td>
-          </tr>
-        `)}
-        ${settings.length === 0 ? html`<tr><td colspan="4">${t('settings.noSettings')}</td></tr>` : ''}
-      </tbody>
-    </table>
+    ${settings.length === 0
+      ? html`<div class="empty-state"><div class="empty-icon"><i data-lucide="sliders-horizontal" style="width:32px;height:32px"></i></div><p>${t('settings.noSettings')}</p></div>`
+      : html`
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>${t('settings.chatId')}</th><th>${t('settings.key')}</th><th>${t('settings.value')}</th><th style="width:60px"></th></tr></thead>
+            <tbody>
+              ${settings.map(s => html`
+                <tr id="setting-${s.chat_id}-${s.key}">
+                  <td><small>${s.chat_id}</small></td>
+                  <td><code>${s.key}</code></td>
+                  <td>${s.value}</td>
+                  <td><button hx-delete="/bot/${name}/settings?chat_id=${s.chat_id}&key=${s.key}"
+                    hx-target="#setting-${s.chat_id}-${s.key}" hx-swap="outerHTML" hx-confirm="${t('settings.deleteConfirm')}"
+                    class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button></td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      `
+    }
   `
   return c.html(layout(`${name} ${t('botnav.settings')}`, content, `/bot/${name}`, t, lang))
 })

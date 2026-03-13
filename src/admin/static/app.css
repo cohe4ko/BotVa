@@ -846,6 +846,107 @@ article > p { padding: 0.85rem; margin: 0; }
 }
 .burger-toggle:hover { color: var(--mc-text); background: none; }
 
+/* === Details / Summary (collapsible sections) === */
+details {
+  border: 1px solid var(--mc-border);
+  border-radius: var(--radius);
+  background: var(--mc-white);
+  overflow: hidden;
+}
+details > summary {
+  cursor: pointer;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--mc-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+  list-style: none;
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--mc-text-dim);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+details[open] > summary::before { transform: rotate(90deg); }
+details > summary:hover { background: var(--mc-surface2); color: var(--mc-text); }
+details[open] > summary { border-bottom: 1px solid var(--mc-border); }
+details > :not(summary) { padding-inline: 0.85rem; }
+details > :last-child { padding-bottom: 0.85rem; }
+details > :not(summary):first-of-type { padding-top: 0.85rem; }
+details.danger > summary { color: var(--mc-red); }
+details.danger > summary::before { border-left-color: var(--mc-red); }
+details.inline { border: none; background: none; }
+details.inline > summary { padding: 0.4rem 0; }
+details.inline > summary:hover { background: none; }
+details.inline[open] > summary { border-bottom: none; }
+details.inline > :not(summary) { padding-inline: 0; }
+details.inline > :last-child { padding-bottom: 0; }
+
+/* Form sections — consistent spacing between form elements */
+.form-section {
+  background: var(--mc-white);
+  border: 1px solid var(--mc-border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 1rem;
+}
+.form-section > label + label,
+.form-section > .grid + .btn-group,
+.form-section > textarea + .btn-group,
+.form-section > textarea + button,
+.form-section > .grid + button,
+.form-section > label + .btn-group,
+.form-section > label + button { margin-top: 0.75rem; }
+.form-section > textarea { margin-top: 0.35rem; }
+
+/* Section titles with icon — used for h3 inside bot pages */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--mc-text);
+  margin: 1.5rem 0 0.6rem;
+}
+.section-title:first-child { margin-top: 0; }
+
+/* Active button variant (for toggle-style button groups) */
+.btn-group a[role="button"].active,
+.btn-group button.active {
+  background: var(--mc-accent);
+  border-color: var(--mc-accent);
+  color: #fff;
+}
+
+/* Breadcrumb-style navigation */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--mc-text-dim);
+  margin-bottom: 0.75rem;
+}
+.breadcrumb a { color: var(--mc-accent); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb .sep { color: var(--mc-text-dim); }
+
+/* File browser row icons */
+.file-icon { color: var(--mc-text-dim); flex-shrink: 0; }
+
 /* === Responsive === */
 @media (max-width: 768px) {
   .top-nav { padding: 0 0.75rem; position: sticky; top: 0; z-index: 100; background: #ffffff; }

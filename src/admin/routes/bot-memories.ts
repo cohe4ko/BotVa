@@ -29,38 +29,51 @@ app.get('/bot/:name/memories', validateBot, (c) => {
 
   const content = html`
     ${botNav(name, 'memories', t)}
-    <h3>${t('mem.title')} <small>(${total})</small></h3>
-    <form method="GET" action="/bot/${name}/memories" role="search">
-      <input type="search" name="q" value="${q}" placeholder="${t('mem.search')}">
-      <button type="submit">${t('mem.searchBtn')}</button>
+    <div class="section-header">
+      <h3 style="margin:0"><i data-lucide="brain" style="width:15px;height:15px;display:inline-block;vertical-align:middle"></i> ${t('mem.title')}</h3>
+      <small>${total} ${total === 1 ? 'memory' : 'memories'}</small>
+    </div>
+    <form method="GET" action="/bot/${name}/memories" class="filter-bar">
+      <label class="filter-search">
+        <small>${t('mem.search')}</small>
+        <input type="search" name="q" value="${q}" placeholder="${t('mem.search')}">
+      </label>
+      <button type="submit" class="btn-sm"><i data-lucide="search" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('mem.searchBtn')}</button>
+      ${q ? html`<a href="/bot/${name}/memories" role="button" class="btn-sm outline" style="text-decoration:none"><i data-lucide="x" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i></a>` : ''}
     </form>
     <div id="mem-alerts"></div>
-    <table>
-      <thead><tr><th>${t('mem.id')}</th><th>${t('mem.sector')}</th><th>${t('mem.content')}</th><th>${t('mem.salience')}</th><th>${t('mem.created')}</th><th></th></tr></thead>
-      <tbody>
-        ${memories.map(m => html`
-          <tr id="mem-${m.id}">
-            <td>${m.id}</td>
-            <td><small>${m.sector}</small></td>
-            <td title="${m.content}">${truncate(m.content, 100)}</td>
-            <td>
-              <div style="display:flex;align-items:center;gap:0.3rem">
-                <span class="salience-bar" style="width:${Math.round(m.salience / 5 * 60)}px"></span>
-                <input type="number" step="0.1" min="0" max="5" value="${m.salience.toFixed(2)}"
-                  style="width:5rem;padding:0.2rem;font-size:0.8rem"
-                  hx-put="/bot/${name}/memories/${m.id}" hx-target="#mem-alerts" hx-swap="innerHTML"
-                  hx-include="this" name="salience">
-              </div>
-            </td>
-            <td><small>${formatTs(m.created_at)}</small></td>
-            <td><button hx-post="/bot/${name}/memories/${m.id}/delete" hx-target="#mem-${m.id}" hx-swap="outerHTML"
-              hx-confirm="${t('mem.deleteConfirm')}" class="secondary outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">${t('mem.del')}</button></td>
-          </tr>
-        `)}
-        ${memories.length === 0 ? html`<tr><td colspan="6">${t('mem.noMemories')}</td></tr>` : ''}
-      </tbody>
-    </table>
-    ${pagination(page, totalPages, baseUrl)}
+    ${memories.length === 0
+      ? html`<div class="empty-state"><div class="empty-icon"><i data-lucide="brain" style="width:32px;height:32px"></i></div><p>${t('mem.noMemories')}</p></div>`
+      : html`
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th style="width:40px">${t('mem.id')}</th><th style="width:80px">${t('mem.sector')}</th><th>${t('mem.content')}</th><th style="width:130px">${t('mem.salience')}</th><th style="width:140px">${t('mem.created')}</th><th style="width:40px"></th></tr></thead>
+            <tbody>
+              ${memories.map(m => html`
+                <tr id="mem-${m.id}">
+                  <td><small>${m.id}</small></td>
+                  <td><span class="badge badge-optional">${m.sector}</span></td>
+                  <td title="${m.content}" style="font-size:0.78rem">${truncate(m.content, 100)}</td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:0.3rem">
+                      <span class="salience-bar" style="width:${Math.round(m.salience / 5 * 60)}px"></span>
+                      <input type="number" step="0.1" min="0" max="5" value="${m.salience.toFixed(2)}"
+                        style="width:4.5rem;padding:0.2rem 0.35rem;font-size:0.78rem"
+                        hx-put="/bot/${name}/memories/${m.id}" hx-target="#mem-alerts" hx-swap="innerHTML"
+                        hx-include="this" name="salience">
+                    </div>
+                  </td>
+                  <td class="ts-cell">${formatTs(m.created_at)}</td>
+                  <td><button hx-post="/bot/${name}/memories/${m.id}/delete" hx-target="#mem-${m.id}" hx-swap="outerHTML"
+                    hx-confirm="${t('mem.deleteConfirm')}" class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button></td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+        ${pagination(page, totalPages, baseUrl)}
+      `
+    }
   `
   return c.html(layout(`${name} ${t('mem.title')}`, content, `/bot/${name}`, t, lang))
 })

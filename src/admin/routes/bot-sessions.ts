@@ -17,22 +17,31 @@ app.get('/bot/:name/sessions', validateBot, (c) => {
 
   const content = html`
     ${botNav(name, 'sessions', t)}
-    <h3>${t('sess.title')} <small>(${sessions.length})</small></h3>
-    <table>
-      <thead><tr><th>${t('sess.chatId')}</th><th>${t('sess.sessionId')}</th><th>${t('sess.updated')}</th><th></th></tr></thead>
-      <tbody>
-        ${sessions.map(s => html`
-          <tr id="sess-${s.chat_id}">
-            <td>${s.chat_id}</td>
-            <td><small>${s.session_id}</small></td>
-            <td>${formatTs(s.updated_at)}</td>
-            <td><button hx-delete="/bot/${name}/sessions/${s.chat_id}" hx-target="#sess-${s.chat_id}" hx-swap="outerHTML"
-              hx-confirm="${t('sess.clearConfirm')}" class="secondary outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">${t('sess.clear')}</button></td>
-          </tr>
-        `)}
-        ${sessions.length === 0 ? html`<tr><td colspan="4">${t('sess.noSessions')}</td></tr>` : ''}
-      </tbody>
-    </table>
+    <div class="section-header">
+      <h3 style="margin:0"><i data-lucide="link" style="width:15px;height:15px;display:inline-block;vertical-align:middle"></i> ${t('sess.title')}</h3>
+      <small>${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}</small>
+    </div>
+    ${sessions.length === 0
+      ? html`<div class="empty-state"><div class="empty-icon"><i data-lucide="link" style="width:32px;height:32px"></i></div><p>${t('sess.noSessions')}</p></div>`
+      : html`
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>${t('sess.chatId')}</th><th>${t('sess.sessionId')}</th><th style="width:170px">${t('sess.updated')}</th><th style="width:50px"></th></tr></thead>
+            <tbody>
+              ${sessions.map(s => html`
+                <tr id="sess-${s.chat_id}">
+                  <td><small>${s.chat_id}</small></td>
+                  <td><code style="font-size:0.75rem">${s.session_id}</code></td>
+                  <td class="ts-cell">${formatTs(s.updated_at)}</td>
+                  <td><button hx-delete="/bot/${name}/sessions/${s.chat_id}" hx-target="#sess-${s.chat_id}" hx-swap="outerHTML"
+                    hx-confirm="${t('sess.clearConfirm')}" class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button></td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      `
+    }
   `
   return c.html(layout(`${name} ${t('sess.title')}`, content, `/bot/${name}`, t, lang))
 })

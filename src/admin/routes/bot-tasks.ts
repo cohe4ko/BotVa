@@ -18,39 +18,48 @@ app.get('/bot/:name/tasks', validateBot, (c) => {
 
   const content = html`
     ${botNav(name, 'tasks', t)}
-    <h3>${t('tasks.title')} <small>(${tasks.length})</small></h3>
+    <div class="section-header">
+      <h3 style="margin:0"><i data-lucide="clock" style="width:15px;height:15px;display:inline-block;vertical-align:middle"></i> ${t('tasks.title')}</h3>
+      <small>${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}</small>
+    </div>
     <div id="task-alerts"></div>
-    <details>
-      <summary>${t('tasks.createNew')}</summary>
+    <details style="margin-bottom:1rem">
+      <summary><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('tasks.createNew')}</summary>
       <form hx-post="/bot/${name}/tasks" hx-target="#task-alerts" hx-swap="innerHTML">
         <label>${t('tasks.chatId')}<input type="text" name="chat_id" required placeholder="${t('tasks.chatIdPlaceholder')}"></label>
-        <label>${t('tasks.prompt')}<textarea name="prompt" rows="3" required placeholder="${t('tasks.promptPlaceholder')}"></textarea></label>
-        <label>${t('tasks.schedule')}<input type="text" name="schedule" required placeholder="${t('tasks.schedulePlaceholder')}"></label>
-        <button type="submit">${t('tasks.create')}</button>
+        <label style="margin-top:0.5rem">${t('tasks.prompt')}<textarea name="prompt" rows="3" required placeholder="${t('tasks.promptPlaceholder')}"></textarea></label>
+        <label style="margin-top:0.5rem">${t('tasks.schedule')}<input type="text" name="schedule" required placeholder="${t('tasks.schedulePlaceholder')}"></label>
+        <button type="submit" style="margin-top:0.75rem"><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('tasks.create')}</button>
       </form>
     </details>
-    <table>
-      <thead><tr><th>${t('mem.id')}</th><th>${t('tasks.prompt')}</th><th>${t('tasks.schedule')}</th><th>${t('tasks.status')}</th><th>${t('tasks.nextRun')}</th><th>${t('tasks.lastRun')}</th><th></th></tr></thead>
-      <tbody>
-        ${tasks.map(task => html`
-          <tr id="task-${task.id}">
-            <td><small>${task.id.slice(0, 8)}</small></td>
-            <td title="${task.prompt}">${truncate(task.prompt, 60)}</td>
-            <td><code>${task.schedule}</code></td>
-            <td>${taskStatusBadge(task.status)}</td>
-            <td><small>${formatTs(task.next_run)}</small></td>
-            <td><small>${task.last_run ? formatTs(task.last_run) : '—'}</small></td>
-            <td><div class="btn-group">
-              ${task.status === 'active'
-                ? html`<button hx-post="/bot/${name}/tasks/${task.id}/pause" hx-target="#task-${task.id}" hx-swap="outerHTML" class="secondary outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">${t('tasks.pause')}</button>`
-                : html`<button hx-post="/bot/${name}/tasks/${task.id}/resume" hx-target="#task-${task.id}" hx-swap="outerHTML" class="outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">${t('tasks.resume')}</button>`}
-              <button hx-delete="/bot/${name}/tasks/${task.id}" hx-target="#task-${task.id}" hx-swap="outerHTML" hx-confirm="${t('tasks.deleteConfirm')}" class="secondary outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">${t('mem.del')}</button>
-            </div></td>
-          </tr>
-        `)}
-        ${tasks.length === 0 ? html`<tr><td colspan="7">${t('tasks.noTasks')}</td></tr>` : ''}
-      </tbody>
-    </table>
+    ${tasks.length === 0
+      ? html`<div class="empty-state"><div class="empty-icon"><i data-lucide="clock" style="width:32px;height:32px"></i></div><p>${t('tasks.noTasks')}</p></div>`
+      : html`
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th style="width:60px">${t('mem.id')}</th><th>${t('tasks.prompt')}</th><th style="width:100px">${t('tasks.schedule')}</th><th style="width:70px">${t('tasks.status')}</th><th style="width:140px">${t('tasks.nextRun')}</th><th style="width:140px">${t('tasks.lastRun')}</th><th style="width:100px"></th></tr></thead>
+            <tbody>
+              ${tasks.map(task => html`
+                <tr id="task-${task.id}">
+                  <td><small>${task.id.slice(0, 8)}</small></td>
+                  <td title="${task.prompt}" style="font-size:0.78rem">${truncate(task.prompt, 60)}</td>
+                  <td><code>${task.schedule}</code></td>
+                  <td>${taskStatusBadge(task.status)}</td>
+                  <td class="ts-cell">${formatTs(task.next_run)}</td>
+                  <td class="ts-cell">${task.last_run ? formatTs(task.last_run) : '\u2014'}</td>
+                  <td><div class="btn-group">
+                    ${task.status === 'active'
+                      ? html`<button hx-post="/bot/${name}/tasks/${task.id}/pause" hx-target="#task-${task.id}" hx-swap="outerHTML" class="contrast outline btn-sm"><i data-lucide="pause" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button>`
+                      : html`<button hx-post="/bot/${name}/tasks/${task.id}/resume" hx-target="#task-${task.id}" hx-swap="outerHTML" class="outline btn-sm"><i data-lucide="play" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button>`}
+                    <button hx-delete="/bot/${name}/tasks/${task.id}" hx-target="#task-${task.id}" hx-swap="outerHTML" hx-confirm="${t('tasks.deleteConfirm')}" class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button>
+                  </div></td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      `
+    }
   `
   return c.html(layout(`${name} ${t('botnav.tasks')}`, content, `/bot/${name}`, t, lang))
 })

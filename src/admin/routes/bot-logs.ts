@@ -41,11 +41,15 @@ app.get('/bot/:name/logs', validateBot, (c) => {
 
   const content = html`
     ${botNav(name, 'logs', t)}
-    <h3>${t('logs.title')} ${logFile ? html`<small>${logFile}</small>` : ''}</h3>
+    <div class="section-header">
+      <h3 style="margin:0"><i data-lucide="file-text" style="width:15px;height:15px;display:inline-block;vertical-align:middle"></i> ${t('logs.title')}</h3>
+      ${logFile ? html`<small style="font-family:'SF Mono',monospace;font-size:0.72rem">${logFile}</small>` : ''}
+    </div>
     <div class="btn-group" style="margin-bottom:1rem">
-      <a href="/bot/${name}/logs?lines=50" role="button" class="outline">50</a>
-      <a href="/bot/${name}/logs?lines=100" role="button" class="outline">100</a>
-      <a href="/bot/${name}/logs?lines=500" role="button" class="outline">500</a>
+      <a href="/bot/${name}/logs?lines=50" role="button" class="btn-sm ${lines === 50 ? 'active' : 'outline'}" style="text-decoration:none">50</a>
+      <a href="/bot/${name}/logs?lines=100" role="button" class="btn-sm ${lines === 100 ? 'active' : 'outline'}" style="text-decoration:none">100</a>
+      <a href="/bot/${name}/logs?lines=500" role="button" class="btn-sm ${lines === 500 ? 'active' : 'outline'}" style="text-decoration:none">500</a>
+      <span style="font-size:0.72rem;color:var(--mc-text-dim);margin-left:0.25rem"><i data-lucide="refresh-cw" style="width:11px;height:11px;display:inline-block;vertical-align:middle"></i> auto-refresh 5s</span>
     </div>
     <div id="log-content" hx-get="/bot/${name}/logs/tail?lines=${lines}" hx-trigger="every 5s" hx-swap="innerHTML">
       <pre class="log-viewer">${logContent}</pre>

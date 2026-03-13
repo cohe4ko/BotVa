@@ -51,14 +51,27 @@ Describe your configured role and personality.
 ## Knowledge
 List any knowledge files, context documents, or other data you have access to.
 
+## Skills
+If you see any skills (slash commands like /commit, /review-pr, /simplify, etc.) in your instructions, list them with their names and what they do.
+
 Be exhaustive and precise. Do NOT call any tools — just describe what you see in your context.`
 
-const ANALYSIS_PROMPT = `Parse the agent context echo below into a JSON structure. Return ONLY valid JSON, no markdown fences, no explanation.
+function buildAnalysisPrompt(lang: Lang): string {
+  const langInstruction = lang === 'uk'
+    ? 'IMPORTANT: All text values in JSON (description, title, text, reason, systemInstructions, role) MUST be in Ukrainian language.'
+    : 'IMPORTANT: All text values in JSON (description, title, text, reason, systemInstructions, role) MUST be in English.'
+
+  return `Parse the agent context echo below into a JSON structure. Return ONLY valid JSON, no markdown fences, no explanation.
+
+${langInstruction}
 
 Rules:
 - For each tool, assign a "category" based on its function: "filesystem" (read/write/edit files), "search" (grep, glob, find), "execution" (bash, shell), "web" (fetch, search), "media" (image, voice, video, photo), "data" (database, CRM, analytics), "communication" (messaging, email, team chat), "automation" (browser, UI control), "system" (backup, gallery, publishing), "other".
 - For each tool, assign "importance": "high" (core functionality, frequently used), "medium" (useful but situational), "low" (rarely used or niche).
 - Group tools by their "source" field.
+- In "recommendations": give 3-5 actionable tips about the agent's toolset — what could be improved, what seems redundant, what's missing.
+- In "canDisable": list tools/servers that are safe to disable if the bot doesn't need them. Explain WHY for each. Focus on low-importance tools and niche MCP servers.
+- If you see skills (slash commands like /commit, /review-pr, etc.) in the echo, list them in "skills" with name and description.
 
 The JSON must have this exact structure:
 {
@@ -68,6 +81,9 @@ The JSON must have this exact structure:
   "role": "bot role and personality description (1-2 sentences)",
   "knowledge": ["file1.md", "file2.md"],
   "model": "model name if mentioned, otherwise null",
+  "skills": [{"name": "/skill-name", "description": "what it does"}],
+  "recommendations": [{"type": "optimize|warning|tip|missing", "title": "short title", "text": "detailed recommendation"}],
+  "canDisable": [{"name": "tool or server name", "type": "tool|mcp-server", "reason": "why it can be disabled"}],
   "stats": {
     "totalTools": 0,
     "toolsBySource": {"sdk": 0, "builtin": 0, "server-name": 0},
@@ -78,6 +94,7 @@ The JSON must have this exact structure:
 
 Agent context echo:
 `
+}
 
 // --- Types ---
 
@@ -89,6 +106,23 @@ interface ToolInfo {
   importance: string
 }
 
+interface SkillInfo {
+  name: string
+  description: string
+}
+
+interface Recommendation {
+  type: string  // optimize | warning | tip | missing
+  title: string
+  text: string
+}
+
+interface DisableSuggestion {
+  name: string
+  type: string  // tool | mcp-server
+  reason: string
+}
+
 interface AnalysisResult {
   tools: ToolInfo[]
   mcpServers: string[]
@@ -96,6 +130,9 @@ interface AnalysisResult {
   role: string
   knowledge: string[]
   model: string | null
+  skills: SkillInfo[]
+  recommendations: Recommendation[]
+  canDisable: DisableSuggestion[]
   stats: {
     totalTools: number
     toolsBySource: Record<string, number>
@@ -104,26 +141,51 @@ interface AnalysisResult {
   }
 }
 
+interface UsageInfo {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  costUSD: number
+}
+
 interface DiagnosticResult {
   echoText: string
   analysis: AnalysisResult | null
   analysisRaw: string
+  echoUsage?: UsageInfo
+  analysisUsage?: UsageInfo
   error?: string
 }
 
 // --- Helpers ---
 
-async function collectQueryResult(conversation: AsyncIterable<SDKMessage>): Promise<string> {
+async function collectQueryResult(conversation: AsyncIterable<SDKMessage>): Promise<{ text: string; usage?: UsageInfo }> {
   let result = ''
+  let usage: UsageInfo | undefined
   for await (const event of conversation) {
     if (event.type === 'result') {
       result = event.subtype === 'success' ? event.result : (event.errors?.join('\n') ?? 'Error')
+      const models = Object.values(event.modelUsage ?? {})
+      if (models.length > 0) {
+        const totals = models.reduce(
+          (acc: any, m: any) => ({
+            inputTokens: acc.inputTokens + m.inputTokens,
+            outputTokens: acc.outputTokens + m.outputTokens,
+            cacheReadTokens: acc.cacheReadTokens + m.cacheReadInputTokens,
+            cacheCreationTokens: acc.cacheCreationTokens + m.cacheCreationInputTokens,
+            costUSD: acc.costUSD + m.costUSD,
+          }),
+          { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUSD: 0 }
+        )
+        usage = totals
+      }
     }
   }
-  return result
+  return { text: result, usage }
 }
 
-async function runDiagnostics(botName: string): Promise<DiagnosticResult> {
+async function runDiagnostics(botName: string, lang: Lang): Promise<DiagnosticResult> {
   const projectRoot = getProjectRoot()
   const botDir = getBotDir(botName)
   const botEnv = readEnv(botName)
@@ -146,6 +208,7 @@ async function runDiagnostics(botName: string): Promise<DiagnosticResult> {
 
   // Call 1: Echo
   let echoText: string
+  let echoUsage: UsageInfo | undefined
   try {
     const echoConversation = query({
       prompt: ECHO_PROMPT,
@@ -157,7 +220,9 @@ async function runDiagnostics(botName: string): Promise<DiagnosticResult> {
         model: 'sonnet',
       },
     })
-    echoText = await collectQueryResult(echoConversation)
+    const echoResult = await collectQueryResult(echoConversation)
+    echoText = echoResult.text
+    echoUsage = echoResult.usage
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { echoText: '', analysis: null, analysisRaw: '', error: `Echo failed: ${msg}` }
@@ -169,19 +234,22 @@ async function runDiagnostics(botName: string): Promise<DiagnosticResult> {
 
   // Call 2: Analysis
   let analysisRaw: string
+  let analysisUsage: UsageInfo | undefined
   try {
     const analysisConversation = query({
-      prompt: ANALYSIS_PROMPT + echoText,
+      prompt: buildAnalysisPrompt(lang) + echoText,
       options: {
         cwd: '/tmp',
         permissionMode: 'bypassPermissions',
         model: 'haiku',
       },
     })
-    analysisRaw = await collectQueryResult(analysisConversation)
+    const analysisResult = await collectQueryResult(analysisConversation)
+    analysisRaw = analysisResult.text
+    analysisUsage = analysisResult.usage
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { echoText, analysis: null, analysisRaw: '', error: `Analysis failed: ${msg}` }
+    return { echoText, analysis: null, analysisRaw: '', echoUsage, error: `Analysis failed: ${msg}` }
   }
 
   let analysis: AnalysisResult | null = null
@@ -195,7 +263,7 @@ async function runDiagnostics(botName: string): Promise<DiagnosticResult> {
     // fall through
   }
 
-  return { echoText, analysis, analysisRaw }
+  return { echoText, analysis, analysisRaw, echoUsage, analysisUsage }
 }
 
 // --- Category icons & labels ---
@@ -355,8 +423,8 @@ app.get('/bot/:name/diagnostics', (c) => {
     </div>
 
     ${enabledBuiltin.length > 0 ? html`
-      <details style="margin-bottom:1rem">
-        <summary style="cursor:pointer;font-size:0.82rem;color:var(--mc-text-secondary);font-weight:500">
+      <details class="inline" style="margin-bottom:1rem">
+        <summary>
           ${icon('box', 13)} ${t('diag.builtinNote')} (${enabledBuiltin.length})
         </summary>
         <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:0.5rem">
@@ -380,7 +448,7 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
   const lang: Lang = c.get('lang')
   const name = c.req.param('name')
 
-  const result = await runDiagnostics(name)
+  const result = await runDiagnostics(name, lang)
 
   if (result.error) {
     return c.html(html`
@@ -388,8 +456,8 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
         ${icon('alert-circle', 14)} ${result.error}
       </div>
       ${result.echoText ? html`
-        <details style="margin-top:1rem">
-          <summary style="cursor:pointer;font-weight:600">${t('diag.echo')}</summary>
+        <details class="inline" style="margin-top:1rem">
+          <summary>${t('diag.echo')}</summary>
           <pre style="white-space:pre-wrap;font-size:0.78rem;margin-top:0.5rem;padding:1rem;background:var(--mc-bg-alt,var(--mc-surface2));border-radius:6px;max-height:500px;overflow:auto">${result.echoText}</pre>
         </details>
       ` : ''}
@@ -404,8 +472,8 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
         ${icon('alert-triangle', 14)} ${t('diag.jsonParseFailed')}
       </div>
       <pre style="white-space:pre-wrap;font-size:0.78rem;margin-top:0.5rem;padding:1rem;background:var(--mc-surface2);border-radius:6px;max-height:400px;overflow:auto">${result.analysisRaw}</pre>
-      <details style="margin-top:1rem">
-        <summary style="cursor:pointer;font-size:0.85rem;color:var(--mc-text-dim)">${t('diag.rawEcho')}</summary>
+      <details class="inline" style="margin-top:1rem">
+        <summary>${t('diag.rawEcho')}</summary>
         <pre style="white-space:pre-wrap;font-size:0.78rem;margin-top:0.5rem;padding:1rem;background:var(--mc-surface2);border-radius:6px;max-height:500px;overflow:auto">${result.echoText}</pre>
       </details>
     `)
@@ -425,7 +493,87 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
     system: '#64748b', other: '#9ca3af',
   }
 
+  // Token usage from echo call
+  const eu = result.echoUsage
+  const totalTokens = eu ? (eu.inputTokens + eu.outputTokens) : 0
+  const contextTokens = eu ? (eu.inputTokens + eu.cacheReadTokens + eu.cacheCreationTokens) : 0
+
+  // Build context segments for storage bar (approximate distribution)
+  // We estimate proportions based on tool counts per source
+  const toolsBySource = stats.toolsBySource ?? {}
+  const totalToolCount = Object.values(toolsBySource).reduce((a: number, b: number) => a + b, 0) || 1
+  const segmentColors: Record<string, string> = {
+    sdk: '#3b82f6', builtin: '#10b981', manager: '#8b5cf6', colleague: '#8b5cf6',
+  }
+  const defaultMcpColor = '#f97316'
+
+  // Segments: tools per source (proportional), system instructions, knowledge, output
+  interface Segment { label: string; tokens: number; color: string }
+  const segments: Segment[] = []
+
+  if (eu) {
+    // Approximate: input tokens split proportionally by source tool count + fixed chunks for instructions/knowledge
+    const instructionTokensEst = Math.round(eu.inputTokens * 0.15) // ~15% for CLAUDE.md/system
+    const knowledgeTokensEst = Math.round(eu.inputTokens * 0.10 * Math.min(1, (a.knowledge?.length ?? 0) / 3))
+    const toolTokensPool = eu.inputTokens - instructionTokensEst - knowledgeTokensEst
+
+    for (const [src, count] of Object.entries(toolsBySource)) {
+      const pct = (count as number) / totalToolCount
+      segments.push({
+        label: src,
+        tokens: Math.round(toolTokensPool * pct),
+        color: segmentColors[src.toLowerCase()] ?? defaultMcpColor,
+      })
+    }
+    if (instructionTokensEst > 0) {
+      segments.push({ label: lang === 'uk' ? 'Інструкції' : 'Instructions', tokens: instructionTokensEst, color: '#64748b' })
+    }
+    if (knowledgeTokensEst > 0) {
+      segments.push({ label: lang === 'uk' ? 'Знання' : 'Knowledge', tokens: knowledgeTokensEst, color: '#06b6d4' })
+    }
+    segments.push({ label: lang === 'uk' ? 'Відповідь' : 'Output', tokens: eu.outputTokens, color: '#a78bfa' })
+  }
+
+  const formatTokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+
   return c.html(html`
+    <!-- Token usage & storage bar -->
+    ${eu ? html`
+      <div class="table-wrap" style="padding:0.85rem;margin-top:1rem;margin-bottom:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <div style="display:flex;align-items:center;gap:0.4rem">
+            ${icon('gauge', 14)}
+            <span style="font-size:0.72rem;font-weight:600;color:var(--mc-text-dim);text-transform:uppercase;letter-spacing:0.04em">
+              ${lang === 'uk' ? 'Використання контексту' : 'Context Usage'}
+            </span>
+          </div>
+          <div style="display:flex;gap:1rem;font-size:0.72rem;color:var(--mc-text-dim)">
+            <span>${lang === 'uk' ? 'Вхід' : 'Input'}: <strong style="color:var(--mc-text)">${formatTokens(eu.inputTokens)}</strong></span>
+            <span>${lang === 'uk' ? 'Вихід' : 'Output'}: <strong style="color:var(--mc-text)">${formatTokens(eu.outputTokens)}</strong></span>
+            ${eu.cacheReadTokens > 0 ? html`<span>Cache: <strong style="color:var(--mc-text)">${formatTokens(eu.cacheReadTokens)}</strong></span>` : ''}
+            <span>${lang === 'uk' ? 'Всього' : 'Total'}: <strong style="color:var(--mc-text)">${formatTokens(totalTokens)}</strong></span>
+            <span style="color:var(--mc-accent);font-weight:600">$${eu.costUSD.toFixed(4)}</span>
+          </div>
+        </div>
+        <!-- iPhone-style storage bar -->
+        <div style="height:28px;border-radius:6px;overflow:hidden;display:flex;background:var(--mc-surface2);margin-bottom:0.5rem">
+          ${segments.filter(s => s.tokens > 0).map(s => {
+            const pct = Math.max(1, Math.round((s.tokens / Math.max(totalTokens, 1)) * 100))
+            return html`<div style="width:${pct}%;background:${s.color};min-width:3px;position:relative" title="${s.label}: ${formatTokens(s.tokens)}"></div>`
+          })}
+        </div>
+        <!-- Legend -->
+        <div style="display:flex;flex-wrap:wrap;gap:0.6rem;font-size:0.68rem;color:var(--mc-text-secondary)">
+          ${segments.filter(s => s.tokens > 0).map(s => html`
+            <span style="display:inline-flex;align-items:center;gap:0.25rem">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${s.color}"></span>
+              ${s.label} <strong style="color:var(--mc-text)">${formatTokens(s.tokens)}</strong>
+            </span>
+          `)}
+        </div>
+      </div>
+    ` : ''}
+
     <!-- Stats overview -->
     <div class="stats-grid" style="margin-top:1rem">
       <div class="stat-card">
@@ -532,6 +680,84 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
+    <!-- Skills -->
+    ${a.skills && a.skills.length > 0 ? html`
+      <h3>${icon('puzzle')} ${lang === 'uk' ? 'Скіли' : 'Skills'} (${a.skills.length})</h3>
+      <div class="table-wrap" style="margin-bottom:1rem">
+        <table>
+          <thead><tr>
+            <th style="width:160px">${lang === 'uk' ? 'Команда' : 'Command'}</th>
+            <th>${lang === 'uk' ? 'Опис' : 'Description'}</th>
+          </tr></thead>
+          <tbody>
+            ${a.skills.map((s: any) => html`
+              <tr>
+                <td><code style="font-size:0.78rem;color:var(--mc-accent)">${s.name}</code></td>
+                <td style="font-size:0.78rem;color:var(--mc-text-secondary)">${s.description}</td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+    ` : ''}
+
+    <!-- Recommendations -->
+    ${a.recommendations && a.recommendations.length > 0 ? html`
+      <h3>${icon('lightbulb')} ${lang === 'uk' ? 'Рекомендації' : 'Recommendations'}</h3>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem">
+        ${a.recommendations.map((r: any) => {
+          const typeMap: Record<string, { icon: string; bg: string; color: string; border: string }> = {
+            optimize: { icon: 'zap', bg: 'var(--mc-blue-light)', color: 'var(--mc-blue)', border: 'rgba(59,130,246,0.2)' },
+            warning:  { icon: 'alert-triangle', bg: 'var(--mc-yellow-light)', color: 'var(--mc-yellow)', border: 'rgba(245,158,11,0.2)' },
+            tip:      { icon: 'sparkles', bg: 'var(--mc-green-light)', color: 'var(--mc-green)', border: 'rgba(16,185,129,0.2)' },
+            missing:  { icon: 'plus-circle', bg: 'var(--mc-purple-light)', color: 'var(--mc-purple)', border: 'rgba(139,92,246,0.2)' },
+          }
+          const style = typeMap[r.type] ?? typeMap.tip
+          return html`
+            <div style="padding:0.65rem 0.85rem;background:${style.bg};border:1px solid ${style.border};border-radius:var(--radius-sm);display:flex;gap:0.6rem;align-items:flex-start">
+              <span style="color:${style.color};flex-shrink:0;margin-top:1px">${icon(style.icon, 15)}</span>
+              <div>
+                <div style="font-size:0.82rem;font-weight:600;color:var(--mc-text);margin-bottom:0.15rem">${r.title}</div>
+                <div style="font-size:0.78rem;color:var(--mc-text-secondary);line-height:1.45">${r.text}</div>
+              </div>
+            </div>
+          `
+        })}
+      </div>
+    ` : ''}
+
+    <!-- Can Disable -->
+    ${a.canDisable && a.canDisable.length > 0 ? html`
+      <h3>${icon('toggle-left')} ${lang === 'uk' ? 'Можна вимкнути' : 'Can be disabled'}</h3>
+      <div class="table-wrap" style="margin-bottom:1rem">
+        <table>
+          <thead><tr>
+            <th>${lang === 'uk' ? 'Назва' : 'Name'}</th>
+            <th style="width:90px">${lang === 'uk' ? 'Тип' : 'Type'}</th>
+            <th>${lang === 'uk' ? 'Причина' : 'Reason'}</th>
+          </tr></thead>
+          <tbody>
+            ${a.canDisable.map((d: any) => {
+              const isServer = d.type === 'mcp-server'
+              return html`
+                <tr>
+                  <td>
+                    <code style="font-size:0.78rem">${d.name}</code>
+                  </td>
+                  <td>
+                    <span style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:3px;background:${isServer ? 'var(--mc-orange-light)' : 'var(--mc-surface2)'};color:${isServer ? 'var(--mc-orange)' : 'var(--mc-text-dim)'};font-weight:500">
+                      ${icon(isServer ? 'plug' : 'wrench', 10)} ${d.type}
+                    </span>
+                  </td>
+                  <td style="font-size:0.78rem;color:var(--mc-text-secondary)">${d.reason}</td>
+                </tr>
+              `
+            })}
+          </tbody>
+        </table>
+      </div>
+    ` : ''}
+
     <!-- Model -->
     ${a.model ? html`
       <div style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.3rem 0.7rem;background:var(--mc-purple-light);color:var(--mc-purple);border-radius:5px;font-size:0.78rem;font-weight:600;margin-bottom:1rem">
@@ -540,8 +766,8 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
     ` : ''}
 
     <!-- Raw echo -->
-    <details style="margin-top:1rem">
-      <summary style="cursor:pointer;font-size:0.82rem;color:var(--mc-text-dim);font-weight:500">
+    <details class="inline" style="margin-top:1rem">
+      <summary>
         ${icon('code', 13)} ${t('diag.rawEcho')}
       </summary>
       <pre style="white-space:pre-wrap;font-size:0.75rem;margin-top:0.5rem;padding:1rem;background:var(--mc-surface2);border-radius:6px;max-height:500px;overflow:auto;line-height:1.55">${result.echoText}</pre>

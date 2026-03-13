@@ -237,80 +237,81 @@ app.get('/create-bot', (c) => {
   const roleOptions = roles.map(r => html`<option value="${r.slug}" data-description="${r.description}">${r.slug} -- ${r.description}</option>`)
 
   const content = html`
-    <h2>${t('create.title')}</h2>
-
-    <p>${t('create.desc')}</p>
+    <h2 style="margin-bottom:0.25rem"><i data-lucide="plus-circle" style="width:18px;height:18px;display:inline-block;vertical-align:middle"></i> ${t('create.title')}</h2>
+    <p style="margin-bottom:1.25rem">${t('create.desc')}</p>
 
     <div id="create-alerts"></div>
 
     <form method="POST" action="/create-bot">
-      <div class="grid">
-        <label>${t('create.botName')}
-          <input type="text" name="name" required pattern="[a-z][a-z0-9_-]*" placeholder="${t('create.botNamePlaceholder')}"
-            title="${t('config.nameHint')}">
-        </label>
-        <div style="display:flex;gap:0.5rem;align-items:end">
-          <label style="flex:1">${t('create.displayName')}
-            <input type="text" name="display_name" placeholder="${t('create.displayNamePlaceholder')}">
+      <div class="form-section">
+        <div class="grid">
+          <label>${t('create.botName')}
+            <input type="text" name="name" required pattern="[a-z][a-z0-9_-]*" placeholder="${t('create.botNamePlaceholder')}"
+              title="${t('config.nameHint')}">
           </label>
-          <label style="width:5rem">${t('create.emoji')}
-            <input type="text" name="emoji" placeholder="🤖" maxlength="4">
-          </label>
+          <div style="display:flex;gap:0.5rem;align-items:end">
+            <label style="flex:1">${t('create.displayName')}
+              <input type="text" name="display_name" placeholder="${t('create.displayNamePlaceholder')}">
+            </label>
+            <label style="width:5rem">${t('create.emoji')}
+              <input type="text" name="emoji" placeholder="🤖" maxlength="4">
+            </label>
+          </div>
         </div>
       </div>
 
       ${hasRoles ? html`
-        <fieldset>
-          <legend>${t('create.roleTemplate')}</legend>
-          <label>${t('create.chooseRole')}
+        <div class="form-section">
+          <label style="margin-bottom:0"><i data-lucide="sparkles" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('create.roleTemplate')}
             <select name="role" id="role-select">
               <option value="">${t('create.noTemplate')}</option>
               ${roleOptions}
             </select>
           </label>
           <div id="role-preview" style="display:none; margin-top:0.5rem">
-            <details>
+            <details class="inline">
               <summary>${t('create.previewRole')}</summary>
-              <pre id="role-preview-content" style="max-height:400px;overflow:auto;font-size:0.85em;white-space:pre-wrap"></pre>
+              <pre id="role-preview-content" style="max-height:400px;overflow:auto;font-size:0.82rem;white-space:pre-wrap;background:var(--mc-surface2);padding:0.75rem;border-radius:var(--radius-sm)"></pre>
             </details>
           </div>
-        </fieldset>
+        </div>
       ` : ''}
 
-      <fieldset>
-        <legend>${t('create.telegram')}</legend>
+      <div class="form-section">
+        <h4 style="margin:0 0 0.6rem;font-size:0.82rem"><i data-lucide="send" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('create.telegram')}</h4>
         <label>${t('create.botToken')}
           <input type="text" name="token" required placeholder="${t('create.botTokenPlaceholder')}">
         </label>
-        <label>${t('create.allowedChatId')}
+        <label style="margin-top:0.5rem">${t('create.allowedChatId')}
           <input type="text" name="chat_id" placeholder="${t('create.chatIdPlaceholder')}">
         </label>
-      </fieldset>
+      </div>
 
-      <fieldset>
-        <legend>${t('create.apiKeys')}</legend>
+      <div class="form-section">
+        <h4 style="margin:0 0 0.6rem;font-size:0.82rem"><i data-lucide="key" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('create.apiKeys')}</h4>
         <label>${t('create.groqKey')}
           <input type="text" name="groq_key" placeholder="gsk_...">
         </label>
-        <label>${t('create.googleKey')}
+        <label style="margin-top:0.5rem">${t('create.googleKey')}
           <input type="text" name="google_key" placeholder="AIza...">
         </label>
-      </fieldset>
+      </div>
 
-      <fieldset id="personality-section">
-        <legend>${t('create.personalityLabel')}</legend>
-        <label>${t('create.personalityDesc')}
+      <div class="form-section" id="personality-section">
+        <label style="margin-bottom:0"><i data-lucide="file-pen" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('create.personalityDesc')}
           <textarea name="personality" rows="3" placeholder="${t('create.personalityPlaceholder')}"></textarea>
         </label>
-      </fieldset>
+      </div>
 
-      <button type="submit">${t('create.submit')}</button>
+      <button type="submit" style="margin-top:0.25rem"><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('create.submit')}</button>
     </form>
 
-    <h3>${t('create.existingBots')}</h3>
-    <ul>
-      ${existing.map(name => html`<li><a href="/bot/${name}/config">${name}</a></li>`)}
-    </ul>
+    ${existing.length > 0 ? html`
+      <h3 class="section-title" style="margin-top:2rem"><i data-lucide="bot" style="width:15px;height:15px;display:inline-block;vertical-align:middle"></i> ${t('create.existingBots')}</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:0.4rem">
+        ${existing.map(name => html`<a href="/bot/${name}/config" class="badge badge-${name}" style="font-size:0.78rem;padding:0.25rem 0.6rem;text-decoration:none">${name}</a>`)}
+      </div>
+    ` : ''}
 
     ${hasRoles ? html`
       <script>

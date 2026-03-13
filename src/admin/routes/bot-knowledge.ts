@@ -71,17 +71,19 @@ app.get('/bot/:name/knowledge', validateBot, (c) => {
 
     const content = html`
       ${botNav(name, 'knowledge', t)}
-      <h3>${t('know.title')}</h3>
-      <table>
-        <thead><tr><th>${t('know.name')}</th><th>${t('know.size')}</th><th></th></tr></thead>
-        <tbody>
-          ${rootFiles.map(f => html`<tr>
-            <td><a href="/bot/${name}/knowledge?path=${f.path}">${f.name}/</a></td>
-            <td></td>
-            <td></td>
-          </tr>`)}
-        </tbody>
-      </table>
+      <h3 class="section-title"><i data-lucide="book-open" style="width:15px;height:15px;display:inline-block;vertical-align:middle"></i> ${t('know.title')}</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>${t('know.name')}</th><th>${t('know.size')}</th><th style="width:60px"></th></tr></thead>
+          <tbody>
+            ${rootFiles.map(f => html`<tr>
+              <td><a href="/bot/${name}/knowledge?path=${f.path}" style="display:inline-flex;align-items:center;gap:0.35rem"><i data-lucide="folder" style="width:14px;height:14px;display:inline-block;vertical-align:middle;color:var(--mc-yellow)"></i> ${f.name}/</a></td>
+              <td></td>
+              <td></td>
+            </tr>`)}
+          </tbody>
+        </table>
+      </div>
     `
     return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}`, t, lang))
   }
@@ -96,19 +98,35 @@ app.get('/bot/:name/knowledge', validateBot, (c) => {
 
   const content = html`
     ${botNav(name, 'knowledge', t)}
-    <h3>${subpath}/</h3>
-    <p><a href="/bot/${name}/knowledge?path=${parentPath}">${t('know.up')}</a></p>
-    <table>
-      <thead><tr><th>${t('know.name')}</th><th>${t('know.size')}</th><th></th></tr></thead>
-      <tbody>
-        ${files.map(f => html`<tr>
-          <td>${f.isDir ? html`<a href="/bot/${name}/knowledge?path=${f.path}">${f.name}/</a>` : html`<a href="/bot/${name}/knowledge/file?path=${f.path}">${f.name}</a>`}</td>
-          <td><small>${f.isDir ? '' : formatSize(f.size)}</small></td>
-          <td>${!f.isDir ? html`<a href="/bot/${name}/knowledge/file?path=${f.path}">${t('know.edit')}</a>` : ''}</td>
-        </tr>`)}
-        ${files.length === 0 ? html`<tr><td colspan="3">${t('know.emptyDir')}</td></tr>` : ''}
-      </tbody>
-    </table>
+    <div class="breadcrumb">
+      <a href="/bot/${name}/knowledge"><i data-lucide="book-open" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('know.title')}</a>
+      ${parts.map((part, i) => html`
+        <span class="sep">/</span>
+        ${i < parts.length - 1
+          ? html`<a href="/bot/${name}/knowledge?path=${parts.slice(0, i + 1).join('/')}">${part}</a>`
+          : html`<span style="color:var(--mc-text);font-weight:500">${part}</span>`
+        }
+      `)}
+    </div>
+    ${files.length === 0
+      ? html`<div class="empty-state"><div class="empty-icon"><i data-lucide="folder-open" style="width:32px;height:32px"></i></div><p>${t('know.emptyDir')}</p></div>`
+      : html`
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>${t('know.name')}</th><th style="width:80px">${t('know.size')}</th><th style="width:60px"></th></tr></thead>
+            <tbody>
+              ${files.map(f => html`<tr>
+                <td>${f.isDir
+                  ? html`<a href="/bot/${name}/knowledge?path=${f.path}" style="display:inline-flex;align-items:center;gap:0.35rem"><i data-lucide="folder" style="width:14px;height:14px;display:inline-block;vertical-align:middle;color:var(--mc-yellow)"></i> ${f.name}/</a>`
+                  : html`<a href="/bot/${name}/knowledge/file?path=${f.path}" style="display:inline-flex;align-items:center;gap:0.35rem"><i data-lucide="file-text" style="width:14px;height:14px;display:inline-block;vertical-align:middle;color:var(--mc-text-dim)"></i> ${f.name}</a>`}</td>
+                <td><small>${f.isDir ? '' : formatSize(f.size)}</small></td>
+                <td>${!f.isDir ? html`<a href="/bot/${name}/knowledge/file?path=${f.path}" class="btn-sm" role="button" style="text-decoration:none"><i data-lucide="pencil" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></a>` : ''}</td>
+              </tr>`)}
+            </tbody>
+          </table>
+        </div>
+      `
+    }
   `
   return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}`, t, lang))
 })
@@ -124,15 +142,25 @@ app.get('/bot/:name/knowledge/file', validateBot, (c) => {
   let fileContent = ''
   try { fileContent = readFileSync(resolved.full, 'utf-8') } catch { /* new file */ }
 
+  const fileParts = filePath.split('/')
   const content = html`
     ${botNav(name, 'knowledge', t)}
-    <h3>${filePath}</h3>
+    <div class="breadcrumb">
+      <a href="/bot/${name}/knowledge"><i data-lucide="book-open" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('know.title')}</a>
+      ${fileParts.map((part, i) => html`
+        <span class="sep">/</span>
+        ${i < fileParts.length - 1
+          ? html`<a href="/bot/${name}/knowledge?path=${fileParts.slice(0, i + 1).join('/')}">${part}</a>`
+          : html`<span style="color:var(--mc-text);font-weight:500">${part}</span>`
+        }
+      `)}
+    </div>
     <div id="file-alerts"></div>
-    <form hx-post="/bot/${name}/knowledge/file?path=${filePath}" hx-target="#file-alerts" hx-swap="innerHTML">
-      <textarea name="content" class="code" rows="25" style="width:100%">${fileContent}</textarea>
+    <form class="form-section" hx-post="/bot/${name}/knowledge/file?path=${filePath}" hx-target="#file-alerts" hx-swap="innerHTML">
+      <textarea name="content" class="code" rows="25">${fileContent}</textarea>
       <div class="btn-group">
-        <button type="submit">${t('common.save')}</button>
-        <a href="/bot/${name}/knowledge?path=${filePath.split('/').slice(0, -1).join('/')}" role="button" class="secondary outline">${t('know.back')}</a>
+        <button type="submit"><i data-lucide="save" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('common.save')}</button>
+        <a href="/bot/${name}/knowledge?path=${fileParts.slice(0, -1).join('/')}" role="button" class="outline" style="text-decoration:none">${t('know.back')}</a>
       </div>
     </form>
   `
