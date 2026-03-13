@@ -86,6 +86,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'VerifyBackup', icon: 'check-circle', category: 'backup', description: 'Verify backup integrity', available: true },
     { name: 'RestoreBackup', icon: 'rotate-ccw', category: 'backup', description: 'Restore from backup', available: true },
     { name: 'DeleteBackup', icon: 'trash-2', category: 'backup', description: 'Delete backup file', available: true },
+    // Memory
+    { name: 'SearchMemory', icon: 'brain', category: 'memory', description: 'Search bot memory by keywords', available: true },
     // Email
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
@@ -490,6 +492,42 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'DeleteBackup tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Memory search ---
+
+  if (isOn('SearchMemory')) tools.push(
+    tool(
+      'SearchMemory',
+      'Search your memory for information about past conversations, facts, or events. Use this when the user asks about something you discussed before, or when you need to recall specific details. The automatic memory injection gives you recent context, but this tool lets you search deeper.',
+      {
+        query: z.string().describe('Keywords to search for in memory (e.g. "birthday", "project deadline", "doctor appointment")'),
+        limit: z.number().optional().describe('Max results to return (default 10)'),
+      },
+      async (args) => {
+        usedTools.add('SearchMemory')
+        try {
+          const chatIdStr = String(chatId)
+          const { searchMemories, touchMemory } = await import('./db.js')
+          const results = searchMemories(chatIdStr, args.query, args.limit ?? 10)
+          if (results.length === 0) {
+            return { content: [{ type: 'text' as const, text: `No memories found for "${args.query}"` }] }
+          }
+          // Boost salience for accessed memories
+          for (const m of results) touchMemory(m.id)
+          const lines = results.map(m => {
+            const date = new Date(m.created_at * 1000).toISOString().slice(0, 10)
+            const sector = m.sector === 'semantic' ? 'fact' : 'event'
+            return `[${date}] (${sector}, salience: ${m.salience.toFixed(2)}) ${m.content}`
+          })
+          return { content: [{ type: 'text' as const, text: `Found ${results.length} memories:\n\n${lines.join('\n\n')}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SearchMemory tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
