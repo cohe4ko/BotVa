@@ -59,6 +59,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
   const config = readConfig()
 
   const hasGroq = !!env['GROQ_API_KEY']
+  const hasSmtp = !!env['SMTP_HOST'] && !!env['SMTP_USER'] && !!env['SMTP_PASS']
 
   const defs: Omit<BuiltinToolDef, 'enabled'>[] = [
     // Standard Claude agent tools (always available, not toggleable)
@@ -85,6 +86,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'VerifyBackup', icon: 'check-circle', category: 'backup', description: 'Verify backup integrity', available: true },
     { name: 'RestoreBackup', icon: 'rotate-ccw', category: 'backup', description: 'Restore from backup', available: true },
     { name: 'DeleteBackup', icon: 'trash-2', category: 'backup', description: 'Delete backup file', available: true },
+    // Email
+    { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
     { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video to chat', available: true },
   ]
@@ -487,6 +490,54 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'DeleteBackup tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Email (SMTP) ---
+
+  const hasSmtp = !!env['SMTP_HOST'] && !!env['SMTP_USER'] && !!env['SMTP_PASS']
+  if (hasSmtp && isOn('SendEmail')) tools.push(
+    tool(
+      'SendEmail',
+      'Send a beautifully formatted email via SMTP. Write the body in markdown — it will be automatically converted to a styled HTML email with proper typography. Use this when the user asks to send an email, notify someone by email, or forward information via email.',
+      {
+        to: z.string().describe('Recipient email address (or comma-separated for multiple)'),
+        subject: z.string().describe('Email subject line'),
+        body: z.string().describe('Email body in markdown format. Use headings, lists, bold, links etc. — they will be rendered as styled HTML'),
+        cc: z.string().optional().describe('CC recipients (comma-separated)'),
+        replyTo: z.string().optional().describe('Reply-To address'),
+      },
+      async (args) => {
+        usedTools.add('SendEmail')
+        try {
+          const nodemailer = await import('nodemailer')
+          const { markdownToEmailHtml } = await import('./email-template.js')
+          const port = parseInt(env['SMTP_PORT'] || '587', 10)
+          const transporter = nodemailer.createTransport({
+            host: env['SMTP_HOST'],
+            port,
+            secure: port === 465,
+            auth: { user: env['SMTP_USER'], pass: env['SMTP_PASS'] },
+          })
+          const from = env['SMTP_FROM'] || env['SMTP_USER']
+          const signature = env['SMTP_SIGNATURE'] || undefined
+          const html = markdownToEmailHtml(args.body, signature)
+          const info = await transporter.sendMail({
+            from,
+            to: args.to,
+            cc: args.cc,
+            replyTo: args.replyTo,
+            subject: args.subject,
+            text: args.body,
+            html,
+          })
+          return { content: [{ type: 'text' as const, text: `Email sent to ${args.to} (messageId: ${info.messageId})` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SendEmail tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
