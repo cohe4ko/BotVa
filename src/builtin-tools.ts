@@ -20,6 +20,7 @@ export interface BuiltinToolDef {
   condition?: string  // env var or feature required (for display)
   available: boolean  // whether requirements are met
   enabled: boolean    // user toggle
+  system?: boolean    // true = standard Claude agent tool, can't be toggled
 }
 
 function readConfig(): Record<string, boolean> {
@@ -56,7 +57,15 @@ export function getBuiltinToolDefs(): BuiltinToolDef[] {
   const hasPublishSsh = !!env['PUBLISH_SSH_HOST']
   const config = readConfig()
 
+  const hasGroq = !!env['GROQ_API_KEY']
+
   const defs: Omit<BuiltinToolDef, 'enabled'>[] = [
+    // Standard Claude agent tools (always available, not toggleable)
+    { name: 'Bash', icon: 'terminal', category: 'standard', description: 'Shell commands', available: true, system: true },
+    { name: 'FileSystem', icon: 'folder', category: 'standard', description: 'Read, write, edit files', available: true, system: true },
+    { name: 'WebSearch', icon: 'search', category: 'standard', description: 'Web search', available: true, system: true },
+    { name: 'WebFetch', icon: 'globe', category: 'standard', description: 'Fetch web pages', available: true, system: true },
+    { name: 'VoiceSTT', icon: 'mic', category: 'standard', description: 'Speech-to-text (Groq Whisper)', condition: 'GROQ_API_KEY', available: hasGroq, system: true },
     // Image
     { name: 'GenerateImage', icon: 'image', category: 'image', description: 'Generate image from prompt', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
     { name: 'EditImage', icon: 'pen-tool', category: 'image', description: 'Edit image with instruction', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },

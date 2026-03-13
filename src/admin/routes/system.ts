@@ -367,6 +367,7 @@ function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, str
 // --- Builtin tools table ---
 
 const CATEGORY_LABELS: Record<string, { en: string; uk: string }> = {
+  standard: { en: 'Standard (Claude)', uk: 'Стандартні (Claude)' },
   image: { en: 'Image', uk: 'Зображення' },
   voice: { en: 'Voice', uk: 'Голос' },
   publish: { en: 'Publishing', uk: 'Публікація' },
@@ -407,16 +408,17 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc) {
                       : html`<span class="badge badge-missing" style="font-size:0.65rem">${icon('x', 9)} ${tool.condition}</span>`)
                     : html`<span style="color:var(--mc-text-dim);font-size:0.7rem">—</span>`
                   }</td>
-                  <td>
-                    <button
+                  <td>${tool.system
+                    ? html`<span class="badge badge-set" style="font-size:0.65rem">${icon('check', 9)} system</span>`
+                    : html`<button
                       hx-post="/system/tool-toggle/${tool.name}"
                       hx-target="#builtin-tools-table"
                       hx-swap="outerHTML"
                       class="btn-sm ${tool.enabled && tool.available ? '' : 'secondary outline'}"
                       style="min-width:60px;${tool.enabled && tool.available ? 'background:var(--mc-green);color:#fff;border-color:var(--mc-green)' : ''}"
                       ${!tool.available ? 'disabled' : ''}
-                    >${tool.enabled ? html`${icon('check', 11)} ${t('sys.skillOn')}` : html`${icon('x', 11)} ${t('sys.skillOff')}`}</button>
-                  </td>
+                    >${tool.enabled ? html`${icon('check', 11)} ${t('sys.skillOn')}` : html`${icon('x', 11)} ${t('sys.skillOff')}`}</button>`
+                  }</td>
                 </tr>
               `)}
             `
@@ -433,7 +435,7 @@ app.post('/system/tool-toggle/:name', (c) => {
   const name = c.req.param('name')
   const tools = getBuiltinToolDefs()
   const current = tools.find(t => t.name === name)
-  if (current) {
+  if (current && !current.system) {
     setToolEnabled(name, !current.enabled)
   }
   return c.html(renderBuiltinToolsTable(getBuiltinToolDefs(), t))
