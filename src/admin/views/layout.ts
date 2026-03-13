@@ -122,7 +122,10 @@ const NAV_SECTIONS = [
 
 export function botNav(botName: string, currentSection: string, t?: TFunc): HtmlContent {
   const _t = t ?? ((k: string) => k)
+  const currentNav = NAV_SECTIONS.find(s => s.id === currentSection)
+  const bgIcon = currentNav?.icon ?? 'bot'
   return html`
+    <div class="page-bg-icon"><i data-lucide="${bgIcon}"></i></div>
     <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
       <span class="badge badge-${botName}" style="font-size:0.85rem;padding:0.3rem 0.7rem">${botName}</span>
     </div>
