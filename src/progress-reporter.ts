@@ -2,6 +2,7 @@ import type { Api } from 'grammy'
 import { InlineKeyboard } from 'grammy'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { logger } from './logger.js'
+import { createBotT, type BotLang, type BotT } from './bot-i18n.js'
 
 const THROTTLE_MS = 1500
 const MAX_LINES = 20
@@ -159,12 +160,14 @@ export class ProgressReporter {
   private hasStreaming = false // true if stream_events are active (skip text in assistant)
   private cleanupDelayMs: number
   private cuteMode: boolean
+  private t: BotT
 
-  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean) {
+  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang) {
     this.chatId = chatId
     this.api = api
     this.cleanupDelayMs = cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS
     this.cuteMode = cuteMode ?? false
+    this.t = createBotT(lang ?? 'uk')
   }
 
   handleEvent = (event: SDKMessage): void => {
@@ -259,8 +262,8 @@ export class ProgressReporter {
         const err = event.error as { type?: string; message?: string }
         const errorType = err.type ?? 'unknown'
         const errorLabels: Record<string, string> = this.cuteMode
-          ? { rate_limit: CUTE_STATUSES.rateLimit, billing_error: CUTE_STATUSES.billing, authentication_failed: CUTE_STATUSES.authError, server_error: CUTE_STATUSES.serverError }
-          : { rate_limit: '⏳ Rate limit, чекаю...', billing_error: '💳 Billing помилка', authentication_failed: '🔑 Auth помилка', server_error: '🔥 Server помилка' }
+          ? { rate_limit: this.t('progress.cute.rateLimit'), billing_error: this.t('progress.cute.billing'), authentication_failed: this.t('progress.cute.authError'), server_error: this.t('progress.cute.serverError') }
+          : { rate_limit: this.t('progress.rateLimit'), billing_error: this.t('progress.billing'), authentication_failed: this.t('progress.authError'), server_error: this.t('progress.serverError') }
         this.addLine(errorLabels[errorType] ?? `⚠️ ${errorType}`)
         return true
       }
@@ -279,11 +282,23 @@ export class ProgressReporter {
           if (name === 'Agent') this.subagentTools.add(block.id)
           const detailStr = detail ? ` <code>${escapeHtml(detail)}</code>` : ''
           if (this.cuteMode) {
-            let cute = CUTE_TOOL_NAMES[name]
+            const cuteToolKeys: Record<string, string> = {
+              Read: 'progress.cute.read', Write: 'progress.cute.write', Edit: 'progress.cute.edit',
+              Glob: 'progress.cute.glob', Grep: 'progress.cute.grep', Bash: 'progress.cute.bash',
+              WebSearch: 'progress.cute.websearch', WebFetch: 'progress.cute.webfetch',
+              Agent: 'progress.cute.agent', TodoWrite: 'progress.cute.todowrite',
+              TodoRead: 'progress.cute.todoread', NotebookEdit: 'progress.cute.notebookedit',
+              Skill: 'progress.cute.skill',
+            }
+            const cuteMcpKeys: Record<string, string> = {
+              'bitrix24': 'progress.cute.bitrix24', 'home-assistant': 'progress.cute.homeassistant',
+              'stagehand': 'progress.cute.stagehand', 'playwright': 'progress.cute.playwright',
+              'macos-control': 'progress.cute.macoscontrol', 'google-workspace': 'progress.cute.googleworkspace',
+            }
+            let cute = cuteToolKeys[name] ? this.t(cuteToolKeys[name]) : undefined
             if (!cute) {
-              // Try MCP prefix match (e.g. "bitrix24_search" → "bitrix24")
-              const mcpPrefix = Object.keys(CUTE_MCP_PREFIXES).find(p => name.startsWith(p + '_'))
-              cute = mcpPrefix ? CUTE_MCP_PREFIXES[mcpPrefix] : `🔮 робимо магію`
+              const mcpPrefix = Object.keys(cuteMcpKeys).find(p => name.startsWith(p + '_'))
+              cute = mcpPrefix ? this.t(cuteMcpKeys[mcpPrefix]) : this.t('progress.cute.default')
             }
             this.addLine(`${indent}${cute}${detailStr}`)
           } else {
@@ -390,14 +405,14 @@ export class ProgressReporter {
       const auth = event as any
       if (auth.isAuthenticating) {
         if (this.cuteMode) {
-          this.addLine(`<i>${CUTE_STATUSES.auth}</i>`)
+          this.addLine(`<i>${this.t('progress.cute.auth')}</i>`)
         } else {
           const output = (auth.output ?? []) as string[]
-          const lastLine = output[output.length - 1] ?? 'авторизація...'
+          const lastLine = output[output.length - 1] ?? this.t('progress.auth')
           this.addLine(`🔐 <i>${escapeHtml(lastLine.slice(0, 80))}</i>`)
         }
       } else if (auth.error) {
-        this.addLine(this.cuteMode ? `<i>${CUTE_STATUSES.authFail}</i>` : `🔐 ❌ <i>${escapeHtml(String(auth.error).slice(0, 80))}</i>`)
+        this.addLine(this.cuteMode ? `<i>${this.t('progress.cute.authFail')}</i>` : `🔐 ❌ <i>${escapeHtml(String(auth.error).slice(0, 80))}</i>`)
       }
       return true
     }
@@ -408,7 +423,7 @@ export class ProgressReporter {
 
       // Compacting
       if (sys.subtype === 'status' && sys.status === 'compacting') {
-        this.addLine(this.cuteMode ? `<i>${CUTE_STATUSES.compacting}</i>` : '📦 <i>стискаю контекст...</i>')
+        this.addLine(this.cuteMode ? `<i>${this.t('progress.cute.compacting')}</i>` : this.t('progress.compacting'))
         return true
       }
 
@@ -417,10 +432,10 @@ export class ProgressReporter {
         const pre = sys.compact_metadata?.pre_tokens
         if (pre) {
           if (this.cuteMode) {
-            this.addLine(`<i>${CUTE_STATUSES.compacted}</i>`)
+            this.addLine(`<i>${this.t('progress.cute.compacted')}</i>`)
           } else {
             const k = pre >= 1000 ? `${(pre / 1000).toFixed(0)}k` : String(pre)
-            this.addLine(`📦 <i>контекст стиснений (було ${k} токенів)</i>`)
+            this.addLine(this.t('progress.compacted', { k }))
           }
         }
         return true
@@ -429,7 +444,7 @@ export class ProgressReporter {
       // Hook response
       if (sys.subtype === 'hook_response') {
         if (sys.exit_code && sys.exit_code !== 0) {
-          this.addLine(this.cuteMode ? `<i>${CUTE_STATUSES.hookFail}</i>` : `⚙️ hook <b>${escapeHtml(sys.hook_name ?? '')}</b> failed (exit ${sys.exit_code})`)
+          this.addLine(this.cuteMode ? `<i>${this.t('progress.cute.hookFail')}</i>` : `⚙️ hook <b>${escapeHtml(sys.hook_name ?? '')}</b> failed (exit ${sys.exit_code})`)
           return true
         }
       }
@@ -444,9 +459,9 @@ export class ProgressReporter {
         // Simple cute summary
         if (res.duration_ms) {
           const dur = formatDuration(res.duration_ms)
-          this.addLine(`<i>✨ готово за ${dur}</i>`)
+          this.addLine(`<i>${this.t('progress.doneIn', { duration: dur })}</i>`)
         } else {
-          this.addLine('<i>✨ готово!</i>')
+          this.addLine(`<i>${this.t('progress.done')}</i>`)
         }
         return true
       }
@@ -533,7 +548,7 @@ export class ProgressReporter {
     this.dirty = false
 
     const text = this.lines.join('\n') || '...'
-    const stopLabel = this.cuteMode ? '🛑 Стапе!' : '⏹ Стоп'
+    const stopLabel = this.cuteMode ? this.t('progress.cute.stop') : this.t('progress.stop')
     const keyboard = new InlineKeyboard().text(stopLabel, `stop:${this.chatId}`)
 
     try {

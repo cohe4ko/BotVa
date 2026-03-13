@@ -20,6 +20,7 @@ import { isDuplicate, markProcessed } from './deduplication.js'
 import { shouldUseTelegraph, createTelegraphPage } from './telegraph.js'
 import { generateImage, editImage } from './imagen.js'
 import { getModel, setModel, MODELS, getModelLabel } from './model.js'
+import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } from './bot-i18n.js'
 
 // --- AskUserQuestion pending responses ---
 const pendingQuestions = new Map<string, {
@@ -258,7 +259,7 @@ async function handleMessage(
   const chatId = ctx.chat?.id
   if (!chatId) return
   if (!isAuthorised(chatId)) {
-    await ctx.reply(`Немає доступу. Твій chat ID: ${chatId}`)
+    await ctx.reply(chatT(String(chatId))('auth.denied', { chatId }))
     return
   }
 
@@ -289,7 +290,8 @@ async function handleMessage(
     const delaySetting = getChatSetting(chatIdStr, 'progress_delay')
     const delayMs = delaySetting === 'inf' ? Infinity : delaySetting ? parseInt(delaySetting, 10) * 1000 : undefined
     const cuteMode = getChatSetting(chatIdStr, 'progress_style') === 'blonde'
-    const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode)
+    const lang = getChatLang(chatIdStr)
+    const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang)
 
     // Loop: run agent, check for follow-up messages (like typing in CLI while agent runs)
     while (true) {
@@ -331,7 +333,7 @@ async function handleMessage(
             const text = `❓ <b>${escapeHtml(q.header)}</b>\n\n${escapeHtml(q.question)}\n\n${q.options.map(o => `• <b>${escapeHtml(o.label)}</b> — ${escapeHtml(o.description)}`).join('\n')}`
             const keyboard = q.options.map(o => [{ text: o.label, callback_data: `ask:${o.label}` }])
             // Add "Other" option
-            keyboard.push([{ text: '✏️ Інше (пропустити)', callback_data: 'ask:__skip__' }])
+            keyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
 
             await ctx.api.sendMessage(chatId, text, {
               parse_mode: 'HTML',
@@ -348,7 +350,7 @@ async function handleMessage(
 
             if (answer !== '__skip__') answers.push(`${q.header}: ${answer}`)
           }
-          return answers.join('; ') || 'Користувач пропустив питання'
+          return answers.join('; ') || chatT(chatIdStr)('cb.userSkipped')
         }
 
         const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, getModel(chatIdStr), askUserHandler)
@@ -373,7 +375,7 @@ async function handleMessage(
         clearCancelled(chatIdStr)
         logger.info({ chatId: chatIdStr }, 'Follow-up received, resuming with new message')
         // Wrap follow-up so agent processes it AND continues original task
-        currentMessage = `[Користувач додав повідомлення під час твоєї роботи]: ${followup}\n\nВрахуй це повідомлення і продовжуй виконувати попереднє завдання.`
+        currentMessage = chatT(chatIdStr)('followup.prefix', { text: followup })
         continue
       }
 
@@ -382,7 +384,7 @@ async function handleMessage(
 
       // No follow-up — send the result
       if (!text) {
-        await ctx.reply('(без відповіді)')
+        await ctx.reply(chatT(chatIdStr)('auth.noReply'))
         return
       }
 
@@ -457,7 +459,7 @@ export function createBot(): Bot {
           }
         } catch { /* ignore */ }
       } else {
-        await ctx.answerCallbackQuery({ text: 'Питання вже не актуальне' })
+        await ctx.answerCallbackQuery({ text: chatT(chatIdStr)('cb.questionExpired') })
       }
       return
     }
@@ -466,14 +468,15 @@ export function createBot(): Bot {
       if (!isAuthorised(ctx.chat!.id)) return
       const { isAdminRunning, stopAdmin } = await import('./admin/on-demand.js')
       const status = isAdminRunning()
+      const _t = chatT(String(ctx.chat!.id))
       if (!status.running) {
-        await ctx.answerCallbackQuery({ text: 'Admin panel не запущена' })
+        await ctx.answerCallbackQuery({ text: _t('admin.notRunning') })
       } else {
         stopAdmin()
-        await ctx.answerCallbackQuery({ text: 'Зупинено' })
+        await ctx.answerCallbackQuery({ text: _t('admin.stoppedShort') })
       }
       try {
-        await ctx.editMessageText('Admin panel зупинено.')
+        await ctx.editMessageText(_t('admin.stopped'))
       } catch {}
       return
     }
@@ -482,7 +485,8 @@ export function createBot(): Bot {
       const targetChatId = ctx.callbackQuery.data.split(':')[1]
       if (String(ctx.chat?.id) === targetChatId) {
         const interrupted = await interruptRequest(targetChatId)
-        await ctx.answerCallbackQuery({ text: interrupted ? 'Зупиняю...' : 'Нічого зупиняти' })
+        const _t = chatT(targetChatId)
+        await ctx.answerCallbackQuery({ text: interrupted ? _t('cb.stopping') : _t('cb.nothingToStop') })
       }
       return // don't pass to next middleware
     }
@@ -491,12 +495,13 @@ export function createBot(): Bot {
       const chatIdStr = String(ctx.chat?.id)
       if (!isAuthorised(ctx.chat!.id)) return
       const val = ctx.callbackQuery.data.replace('delay:', '')
+      const _t = chatT(chatIdStr)
       const DELAY_OPTIONS = [
-        { id: '0', label: '0с', description: 'одразу' },
-        { id: '15', label: '15с', description: '15 секунд' },
-        { id: '30', label: '30с', description: '30 секунд' },
-        { id: '60', label: '60с', description: '1 хвилина' },
-        { id: 'inf', label: '∞', description: 'не видаляти' },
+        { id: '0', label: '0с', descKey: 'delay.0' },
+        { id: '15', label: '15с', descKey: 'delay.15' },
+        { id: '30', label: '30с', descKey: 'delay.30' },
+        { id: '60', label: '60с', descKey: 'delay.60' },
+        { id: 'inf', label: '∞', descKey: 'delay.inf' },
       ]
       if (val === '0') {
         deleteChatSetting(chatIdStr, 'progress_delay')
@@ -506,8 +511,8 @@ export function createBot(): Bot {
       } else {
         setChatSetting(chatIdStr, 'progress_delay', val)
       }
-      const currentLabel = DELAY_OPTIONS.find(o => o.id === val)?.description ?? val
-      await ctx.answerCallbackQuery({ text: `Затримка: ${currentLabel}` })
+      const currentLabel = _t(DELAY_OPTIONS.find(o => o.id === val)?.descKey ?? 'delay.0')
+      await ctx.answerCallbackQuery({ text: _t('delay.feedback', { label: currentLabel }) })
 
       const keyboard = DELAY_OPTIONS.map(o => {
         const btnLabel = o.id === val ? `✓ ${o.label}` : o.label
@@ -515,10 +520,10 @@ export function createBot(): Bot {
       })
       const lines = DELAY_OPTIONS.map(o => {
         const marker = o.id === val ? '→' : '  '
-        return `${marker} <b>${o.label}</b> — ${o.description}`
+        return `${marker} <b>${o.label}</b> — ${_t(o.descKey)}`
       })
       await ctx.editMessageText(
-        `Затримка видалення прогресу: <b>${currentLabel}</b>\n\n${lines.join('\n')}`,
+        `${_t('delay.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
       )
       return
@@ -528,29 +533,30 @@ export function createBot(): Bot {
       const chatIdStr = String(ctx.chat?.id)
       if (!isAuthorised(ctx.chat!.id)) return
       const val = ctx.callbackQuery.data.replace('show_team_work:', '')
+      const _t = chatT(chatIdStr)
       const SHOW_OPTIONS = [
-        { id: 'all', label: '📢 Все', description: 'запит, відповідь, typing' },
-        { id: 'result', label: '📋 Запит і відповідь', description: 'тільки результат' },
-        { id: 'none', label: '🔇 Нічого', description: 'не показувати' },
+        { id: 'all', labelKey: 'teamwork.all.label', descKey: 'teamwork.all' },
+        { id: 'result', labelKey: 'teamwork.result.label', descKey: 'teamwork.result' },
+        { id: 'none', labelKey: 'teamwork.none.label', descKey: 'teamwork.none' },
       ]
       if (val === 'none') {
         deleteChatSetting(chatIdStr, 'show_team_work')
       } else {
         setChatSetting(chatIdStr, 'show_team_work', val)
       }
-      const currentLabel = SHOW_OPTIONS.find(o => o.id === val)?.description ?? val
-      await ctx.answerCallbackQuery({ text: `Видимість: ${currentLabel}` })
+      const currentLabel = _t(SHOW_OPTIONS.find(o => o.id === val)?.descKey ?? 'teamwork.none')
+      await ctx.answerCallbackQuery({ text: _t('teamwork.feedback', { label: currentLabel }) })
 
       const keyboard = SHOW_OPTIONS.map(o => {
-        const btnLabel = o.id === val ? `✓ ${o.label}` : o.label
+        const btnLabel = o.id === val ? `✓ ${_t(o.labelKey)}` : _t(o.labelKey)
         return [{ text: btnLabel, callback_data: `show_team_work:${o.id}` }]
       })
       const lines = SHOW_OPTIONS.map(o => {
         const marker = o.id === val ? '→' : '  '
-        return `${marker} ${o.label} — ${o.description}`
+        return `${marker} ${_t(o.labelKey)} — ${_t(o.descKey)}`
       })
       await ctx.editMessageText(
-        `Видимість командної роботи: <b>${currentLabel}</b>\n\n${lines.join('\n')}`,
+        `${_t('teamwork.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
       )
       return
@@ -560,28 +566,29 @@ export function createBot(): Bot {
       const chatIdStr = String(ctx.chat?.id)
       if (!isAuthorised(ctx.chat!.id)) return
       const val = ctx.callbackQuery.data.replace('style:', '')
+      const _t = chatT(chatIdStr)
       const STYLE_OPTIONS = [
-        { id: 'brunette', label: '👩‍💻 Брюнетка', description: 'технічний стиль' },
-        { id: 'blonde', label: '👱‍♀️ Блондинка', description: 'милий стиль' },
+        { id: 'brunette', labelKey: 'style.brunette.label', descKey: 'style.brunette' },
+        { id: 'blonde', labelKey: 'style.blonde.label', descKey: 'style.blonde' },
       ]
       if (val === 'brunette') {
         deleteChatSetting(chatIdStr, 'progress_style')
       } else {
         setChatSetting(chatIdStr, 'progress_style', val)
       }
-      const currentLabel = STYLE_OPTIONS.find(o => o.id === val)?.description ?? val
-      await ctx.answerCallbackQuery({ text: `Стиль: ${currentLabel}` })
+      const currentLabel = _t(STYLE_OPTIONS.find(o => o.id === val)?.descKey ?? 'style.brunette')
+      await ctx.answerCallbackQuery({ text: _t('style.feedback', { label: currentLabel }) })
 
       const keyboard = STYLE_OPTIONS.map(o => {
-        const btnLabel = o.id === val ? `✓ ${o.label}` : o.label
+        const btnLabel = o.id === val ? `✓ ${_t(o.labelKey)}` : _t(o.labelKey)
         return [{ text: btnLabel, callback_data: `style:${o.id}` }]
       })
       const lines = STYLE_OPTIONS.map(o => {
         const marker = o.id === val ? '→' : '  '
-        return `${marker} ${o.label} — ${o.description}`
+        return `${marker} ${_t(o.labelKey)} — ${_t(o.descKey)}`
       })
       await ctx.editMessageText(
-        `Стиль прогресу: <b>${currentLabel}</b>\n\n${lines.join('\n')}`,
+        `${_t('style.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
       )
       return
@@ -592,25 +599,54 @@ export function createBot(): Bot {
       if (!isAuthorised(ctx.chat!.id)) return
       const modelId = ctx.callbackQuery.data.replace('model:', '')
       const validIds = MODELS.map(m => m.id)
+      const _t = chatT(chatIdStr)
       if (!validIds.includes(modelId)) {
-        await ctx.answerCallbackQuery({ text: 'Невідома модель' })
+        await ctx.answerCallbackQuery({ text: _t('cb.unknownModel') })
         return
       }
       setModel(chatIdStr, modelId)
       const label = getModelLabel(modelId)
-      await ctx.answerCallbackQuery({ text: `Модель: ${label}` })
+      await ctx.answerCallbackQuery({ text: _t('cmd.model.set', { label }) })
 
       // Update the message with new selection
       const lines = MODELS.map(m => {
         const marker = m.id === modelId ? '→' : '  '
-        return `${marker} <b>${m.label}</b> — ${m.description}`
+        return `${marker} <b>${m.label}</b> — ${_t(`model.${m.id}`)}`
       })
       const keyboard = MODELS.map(m => {
         const btnLabel = m.id === modelId ? `✓ ${m.label}` : m.label
         return [{ text: btnLabel, callback_data: `model:${m.id}` }]
       })
       await ctx.editMessageText(
-        `Модель: <b>${label}</b>\n\n${lines.join('\n')}`,
+        `${_t('cmd.model.title', { label })}\n\n${lines.join('\n')}`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
+      )
+      return
+    }
+    // Language selection callback
+    if (ctx.callbackQuery?.data?.startsWith('lang:')) {
+      const chatIdStr = String(ctx.chat?.id)
+      if (!isAuthorised(ctx.chat!.id)) return
+      const langId = ctx.callbackQuery.data.replace('lang:', '') as BotLang
+      if (langId !== 'en' && langId !== 'uk') return
+      setChatLang(chatIdStr, langId)
+      const _t = chatT(chatIdStr)
+      await ctx.answerCallbackQuery({ text: _t('cmd.lang.set') })
+
+      const LANG_OPTIONS: { id: BotLang; labelKey: string }[] = [
+        { id: 'en', labelKey: 'lang.en' },
+        { id: 'uk', labelKey: 'lang.uk' },
+      ]
+      const lines = LANG_OPTIONS.map(o => {
+        const marker = o.id === langId ? '→' : '  '
+        return `${marker} <b>${_t(o.labelKey)}</b>`
+      })
+      const keyboard = LANG_OPTIONS.map(o => {
+        const label = o.id === langId ? `✓ ${_t(o.labelKey)}` : _t(o.labelKey)
+        return [{ text: label, callback_data: `lang:${o.id}` }]
+      })
+      await ctx.editMessageText(
+        `${_t('cmd.lang.title', { label: _t(`lang.${langId}`) })}\n\n${lines.join('\n')}`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
       )
       return
@@ -619,15 +655,16 @@ export function createBot(): Bot {
     if (ctx.message?.text === '/cancel') {
       const chatIdStr = String(ctx.chat?.id)
       if (!isAuthorised(ctx.chat!.id)) return
+      const _t = chatT(chatIdStr)
       const cancelled = await cancelRequest(chatIdStr)
       const cleared = clearQueue(chatIdStr)
       if (cancelled || cleared > 0) {
         const parts: string[] = []
-        if (cancelled) parts.push('запит скасовано')
-        if (cleared > 0) parts.push(`${cleared} в черзі очищено`)
+        if (cancelled) parts.push(_t('cancel.request'))
+        if (cleared > 0) parts.push(_t('cancel.queue', { n: cleared }))
         await ctx.reply(parts.join(', '))
       } else {
-        await ctx.reply('Нічого скасовувати.')
+        await ctx.reply(_t('cancel.nothing'))
       }
       return
     }
@@ -655,14 +692,13 @@ export function createBot(): Bot {
 
   bot.command('start', async (ctx) => {
     const chatId = ctx.chat.id
-    await ctx.reply(
-      `BotVa на зв'язку.\n\nТвій chat ID: <code>${chatId}</code>\n\n/chatid -- показати chat ID\n/newchat -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/memory -- останні спогади\n/voice -- перемкнути голосові відповіді\n/usage -- використання за годину/добу/тиждень\n/stats -- перемкнути статистику під повідомленнями\n/img -- згенерувати зображення\nФото + /edit -- відредагувати зображення\n/admin -- адмін панель`,
-      { parse_mode: 'HTML' }
-    )
+    const t = chatT(String(chatId))
+    await ctx.reply(t('cmd.start', { chatId }), { parse_mode: 'HTML' })
   })
 
   bot.command('chatid', async (ctx) => {
-    await ctx.reply(`Твій chat ID: <code>${ctx.chat.id}</code>`, { parse_mode: 'HTML' })
+    const t = chatT(String(ctx.chat.id))
+    await ctx.reply(t('cmd.chatid', { chatId: ctx.chat.id }), { parse_mode: 'HTML' })
   })
 
   // /cancel handled in pre-middleware above
@@ -671,48 +707,51 @@ export function createBot(): Bot {
     const chatIdStr = String(ctx.chat.id)
     clearSession(chatIdStr)
     logAudit(chatIdStr, 'session_clear')
-    await ctx.reply('Сесію очищено. Починаємо з нуля.')
+    await ctx.reply(chatT(chatIdStr)('cmd.newchat'))
   })
 
   bot.command('forget', async (ctx) => {
     const chatIdStr = String(ctx.chat.id)
     clearSession(chatIdStr)
     logAudit(chatIdStr, 'session_clear')
-    await ctx.reply('Сесію очищено. Починаємо з нуля.')
+    await ctx.reply(chatT(chatIdStr)('cmd.newchat'))
   })
 
   bot.command('memory', async (ctx) => {
     const chatId = String(ctx.chat.id)
     if (!isAuthorised(ctx.chat.id)) return
+    const t = chatT(chatId)
     const memories = getAllMemories(chatId, 10)
     if (memories.length === 0) {
-      await ctx.reply('Спогадів поки немає.')
+      await ctx.reply(t('cmd.memory.empty'))
       return
     }
     const lines = memories.map(
       (m, i) => `${i + 1}. [${m.sector}] ${m.content.slice(0, 100)}${m.content.length > 100 ? '...' : ''} (salience: ${m.salience.toFixed(2)})`
     )
-    await ctx.reply(`Останні спогади:\n\n${lines.join('\n')}`)
+    await ctx.reply(`${t('cmd.memory.title')}\n\n${lines.join('\n')}`)
   })
 
   bot.command('voice', async (ctx) => {
     const chatId = String(ctx.chat.id)
+    const t = chatT(chatId)
     const caps = voiceCapabilities()
     if (!caps.tts) {
-      await ctx.reply('TTS не налаштовано. Голосові відповіді недоступні.')
+      await ctx.reply(t('cmd.voice.noTts'))
       return
     }
     if (getChatSetting(chatId, 'voice') === '1') {
       deleteChatSetting(chatId, 'voice')
-      await ctx.reply('Голосові відповіді ВИМКНЕНО.')
+      await ctx.reply(t('cmd.voice.off'))
     } else {
       setChatSetting(chatId, 'voice', '1')
-      await ctx.reply('Голосові відповіді УВІМКНЕНО.')
+      await ctx.reply(t('cmd.voice.on'))
     }
   })
 
   bot.command('usage', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
+    const t = chatT(String(ctx.chat.id))
     const now = Math.floor(Date.now() / 1000)
     const weekAgo = now - 7 * 24 * 60 * 60
     const dayAgo = now - 24 * 60 * 60
@@ -726,13 +765,13 @@ export function createBot(): Bot {
     const usd = (n: number) => `$${n.toFixed(4)}`
 
     const lines = [
-      '<b>Використання BotVa</b>',
+      t('cmd.usage.title'),
       '',
-      `<b>За годину:</b> ${hour.requests} запитів | ${k(hour.inputTokens + hour.outputTokens)} токенів | ${usd(hour.costUSD)}`,
-      `<b>За добу:</b> ${day.requests} запитів | ${k(day.inputTokens + day.outputTokens)} токенів | ${usd(day.costUSD)}`,
-      `<b>За тиждень:</b> ${week.requests} запитів | ${k(week.inputTokens + week.outputTokens)} токенів | ${usd(week.costUSD)}`,
+      t('cmd.usage.hour', { requests: hour.requests, tokens: k(hour.inputTokens + hour.outputTokens), cost: usd(hour.costUSD) }),
+      t('cmd.usage.day', { requests: day.requests, tokens: k(day.inputTokens + day.outputTokens), cost: usd(day.costUSD) }),
+      t('cmd.usage.week', { requests: week.requests, tokens: k(week.inputTokens + week.outputTokens), cost: usd(week.costUSD) }),
       '',
-      `Деталі за тиждень:`,
+      `${t('cmd.usage.details')}`,
       `  in: ${k(week.inputTokens)} | out: ${k(week.outputTokens)}`,
       `  cache read: ${k(week.cacheReadTokens)} | cache new: ${k(week.cacheCreationTokens)}`,
     ]
@@ -741,12 +780,13 @@ export function createBot(): Bot {
 
   bot.command('stats', async (ctx) => {
     const chatId = String(ctx.chat.id)
+    const t = chatT(chatId)
     if (getChatSetting(chatId, 'stats') === '1') {
       deleteChatSetting(chatId, 'stats')
-      await ctx.reply('Статистика під повідомленнями ВИМКНЕНА.')
+      await ctx.reply(t('cmd.stats.off'))
     } else {
       setChatSetting(chatId, 'stats', '1')
-      await ctx.reply('Статистика під повідомленнями УВІМКНЕНА.')
+      await ctx.reply(t('cmd.stats.on'))
     }
   })
 
@@ -756,15 +796,14 @@ export function createBot(): Bot {
     const text = ctx.message?.text ?? ''
     const args = text.replace(/^\/schedule\s*/, '').trim()
 
+    const t = chatT(chatId)
     if (!args) {
-      await ctx.reply(
-        'Використання:\n/schedule create "промпт" "cron"\n/schedule list\n/schedule delete <id>\n/schedule pause <id>\n/schedule resume <id>'
-      )
+      await ctx.reply(t('cmd.schedule.help'))
       return
     }
 
     // Forward to schedule-cli logic inline
-    await ctx.reply(`Використай CLI: node dist/schedule-cli.js ${args}`)
+    await ctx.reply(t('cmd.schedule.cli', { args }))
   })
 
   // Image generation
@@ -773,8 +812,9 @@ export function createBot(): Bot {
     const text = ctx.message?.text ?? ''
     const prompt = text.replace(/^\/img\s*/, '').trim()
 
+    const t = chatT(String(ctx.chat.id))
     if (!prompt) {
-      await ctx.reply('Використання: /img <опис зображення>')
+      await ctx.reply(t('cmd.img.usage'))
       return
     }
 
@@ -787,17 +827,18 @@ export function createBot(): Bot {
           caption: result.text?.slice(0, 1024) ?? undefined,
         })
       } else {
-        await ctx.reply(result.text ?? 'Не вдалося згенерувати зображення.')
+        await ctx.reply(result.text ?? t('cmd.img.fail'))
       }
     } catch (err) {
       logger.error({ err }, 'Image generation failed')
-      await ctx.reply(`Помилка генерації: ${err instanceof Error ? err.message : String(err)}`)
+      await ctx.reply(t('cmd.img.error', { err: err instanceof Error ? err.message : String(err) }))
     }
   })
 
   bot.command('model', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const chatIdStr = String(ctx.chat.id)
+    const t = chatT(chatIdStr)
     const text = ctx.message?.text ?? ''
     const args = text.split(' ').slice(1).join(' ').trim().toLowerCase()
 
@@ -807,11 +848,11 @@ export function createBot(): Bot {
     // Direct: /model sonnet
     if (args) {
       if (!validIds.includes(args)) {
-        await ctx.reply(`Невідома модель: ${args}\nДоступні: ${validIds.join(', ')}`)
+        await ctx.reply(t('cmd.model.unknown', { args, models: validIds.join(', ') }))
         return
       }
       setModel(chatIdStr, args)
-      await ctx.reply(`Модель: ${getModelLabel(args)}`)
+      await ctx.reply(t('cmd.model.set', { label: getModelLabel(args) }))
       return
     }
 
@@ -823,11 +864,11 @@ export function createBot(): Bot {
 
     const lines = MODELS.map(m => {
       const marker = m.id === currentModel ? '→' : '  '
-      return `${marker} <b>${m.label}</b> — ${m.description}`
+      return `${marker} <b>${m.label}</b> — ${t(`model.${m.id}`)}`
     })
 
     await ctx.reply(
-      `Модель: <b>${getModelLabel(currentModel)}</b>\n\n${lines.join('\n')}`,
+      `${t('cmd.model.title', { label: getModelLabel(currentModel) })}\n\n${lines.join('\n')}`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
     )
   })
@@ -835,27 +876,27 @@ export function createBot(): Bot {
   bot.command('style', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const chatIdStr = String(ctx.chat.id)
+    const t = chatT(chatIdStr)
     const current = getChatSetting(chatIdStr, 'progress_style') ?? 'brunette'
 
     const STYLE_OPTIONS = [
-      { id: 'brunette', label: '👩‍💻 Брюнетка', description: 'технічний стиль' },
-      { id: 'blonde', label: '👱‍♀️ Блондинка', description: 'милий стиль' },
+      { id: 'brunette', labelKey: 'style.brunette.label', descKey: 'style.brunette' },
+      { id: 'blonde', labelKey: 'style.blonde.label', descKey: 'style.blonde' },
     ]
 
     const keyboard = STYLE_OPTIONS.map(o => {
-      const label = o.id === current ? `✓ ${o.label}` : o.label
+      const label = o.id === current ? `✓ ${t(o.labelKey)}` : t(o.labelKey)
       return [{ text: label, callback_data: `style:${o.id}` }]
     })
 
-    const currentOption = STYLE_OPTIONS.find(o => o.id === current)
-    const currentLabel = currentOption?.description ?? current
+    const currentLabel = t(STYLE_OPTIONS.find(o => o.id === current)?.descKey ?? 'style.brunette')
     const lines = STYLE_OPTIONS.map(o => {
       const marker = o.id === current ? '→' : '  '
-      return `${marker} ${o.label} — ${o.description}`
+      return `${marker} ${t(o.labelKey)} — ${t(o.descKey)}`
     })
 
     await ctx.reply(
-      `Стиль прогресу: <b>${currentLabel}</b>\n\n${lines.join('\n')}`,
+      `${t('style.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
     )
   })
@@ -863,28 +904,28 @@ export function createBot(): Bot {
   bot.command('show_team_work', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const chatIdStr = String(ctx.chat.id)
+    const t = chatT(chatIdStr)
     const current = getChatSetting(chatIdStr, 'show_team_work') ?? 'none'
 
     const SHOW_OPTIONS = [
-      { id: 'all', label: '📢 Все', description: 'запит, відповідь, typing' },
-      { id: 'result', label: '📋 Запит і відповідь', description: 'тільки результат' },
-      { id: 'none', label: '🔇 Нічого', description: 'не показувати' },
+      { id: 'all', labelKey: 'teamwork.all.label', descKey: 'teamwork.all' },
+      { id: 'result', labelKey: 'teamwork.result.label', descKey: 'teamwork.result' },
+      { id: 'none', labelKey: 'teamwork.none.label', descKey: 'teamwork.none' },
     ]
 
     const keyboard = SHOW_OPTIONS.map(o => {
-      const label = o.id === current ? `✓ ${o.label}` : o.label
+      const label = o.id === current ? `✓ ${t(o.labelKey)}` : t(o.labelKey)
       return [{ text: label, callback_data: `show_team_work:${o.id}` }]
     })
 
-    const currentOption = SHOW_OPTIONS.find(o => o.id === current)
-    const currentLabel = currentOption?.description ?? current
+    const currentLabel = t(SHOW_OPTIONS.find(o => o.id === current)?.descKey ?? 'teamwork.none')
     const lines = SHOW_OPTIONS.map(o => {
       const marker = o.id === current ? '→' : '  '
-      return `${marker} ${o.label} — ${o.description}`
+      return `${marker} ${t(o.labelKey)} — ${t(o.descKey)}`
     })
 
     await ctx.reply(
-      `Видимість командної роботи: <b>${currentLabel}</b>\n\n${lines.join('\n')}`,
+      `${t('teamwork.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
     )
   })
@@ -892,14 +933,15 @@ export function createBot(): Bot {
   bot.command('delay', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const chatIdStr = String(ctx.chat.id)
+    const t = chatT(chatIdStr)
     const current = getChatSetting(chatIdStr, 'progress_delay')
 
     const DELAY_OPTIONS = [
-      { id: '0', label: '0с', description: 'одразу' },
-      { id: '15', label: '15с', description: '15 секунд' },
-      { id: '30', label: '30с', description: '30 секунд' },
-      { id: '60', label: '60с', description: '1 хвилина' },
-      { id: 'inf', label: '∞', description: 'не видаляти' },
+      { id: '0', label: '0с', descKey: 'delay.0' },
+      { id: '15', label: '15с', descKey: 'delay.15' },
+      { id: '30', label: '30с', descKey: 'delay.30' },
+      { id: '60', label: '60с', descKey: 'delay.60' },
+      { id: 'inf', label: '∞', descKey: 'delay.inf' },
     ]
 
     const keyboard = DELAY_OPTIONS.map(o => {
@@ -907,21 +949,21 @@ export function createBot(): Bot {
       return [{ text: label, callback_data: `delay:${o.id}` }]
     })
 
-    const currentOption = current ? DELAY_OPTIONS.find(o => o.id === current) : null
-    const currentLabel = currentOption?.description ?? 'за замовчуванням (~18с)'
+    const currentLabel = current ? t(DELAY_OPTIONS.find(o => o.id === current)?.descKey ?? 'delay.0') : t('delay.default')
     const lines = DELAY_OPTIONS.map(o => {
       const marker = current && o.id === current ? '→' : '  '
-      return `${marker} <b>${o.label}</b> — ${o.description}`
+      return `${marker} <b>${o.label}</b> — ${t(o.descKey)}`
     })
 
     await ctx.reply(
-      `Затримка видалення прогресу: <b>${currentLabel}</b>\n\n${lines.join('\n')}`,
+      `${t('delay.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
     )
   })
 
   bot.command('admin', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
+    const t = chatT(String(ctx.chat.id))
 
     const { isAdminRunning, startAdmin } = await import('./admin/on-demand.js')
 
@@ -929,10 +971,10 @@ export function createBot(): Bot {
     if (status.running) {
       const url = `${status.url}/?token=${status.token}`
       await ctx.reply(
-        'Admin panel працює:',
+        t('admin.running'),
         { reply_markup: { inline_keyboard: [
-          [{ text: '🔧 Відкрити', url }],
-          [{ text: '🛑 Зупинити', callback_data: 'admin:stop' }],
+          [{ text: t('admin.open'), url }],
+          [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
         ] } }
       )
       return
@@ -942,17 +984,45 @@ export function createBot(): Bot {
     const chatId = ctx.chat.id
 
     const { url } = startAdmin(port, BOT_NAME, () => {
-      ctx.api.sendMessage(chatId, 'Admin panel зупинено (20 хв неактивності).').catch(() => {})
+      ctx.api.sendMessage(chatId, t('admin.idle')).catch(() => {})
     })
 
     await ctx.reply(
-      'Admin panel запущено:',
+      t('admin.started'),
       {
         reply_markup: { inline_keyboard: [
-          [{ text: '🔧 Відкрити', url }],
-          [{ text: '🛑 Зупинити', callback_data: 'admin:stop' }],
+          [{ text: t('admin.open'), url }],
+          [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
         ] },
       }
+    )
+  })
+
+  // Language switch
+  bot.command('lang', async (ctx) => {
+    if (!isAuthorised(ctx.chat.id)) return
+    const chatIdStr = String(ctx.chat.id)
+    const t = chatT(chatIdStr)
+    const currentLang = getChatLang(chatIdStr)
+
+    const LANG_OPTIONS: { id: BotLang; labelKey: string }[] = [
+      { id: 'en', labelKey: 'lang.en' },
+      { id: 'uk', labelKey: 'lang.uk' },
+    ]
+
+    const keyboard = LANG_OPTIONS.map(o => {
+      const label = o.id === currentLang ? `✓ ${t(o.labelKey)}` : t(o.labelKey)
+      return [{ text: label, callback_data: `lang:${o.id}` }]
+    })
+
+    const lines = LANG_OPTIONS.map(o => {
+      const marker = o.id === currentLang ? '→' : '  '
+      return `${marker} <b>${t(o.labelKey)}</b>`
+    })
+
+    await ctx.reply(
+      `${t('cmd.lang.title', { label: t(`lang.${currentLang}`) })}\n\n${lines.join('\n')}`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
     )
   })
 
@@ -960,7 +1030,7 @@ export function createBot(): Bot {
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
     // skip known bot commands (they have their own handlers above)
-    if (/^\/(start|chatid|newchat|forget|memory|voice|usage|stats|schedule|img|model|cancel|delay|style|show_team_work|admin)\b/.test(text)) return
+    if (/^\/(start|chatid|newchat|forget|memory|voice|usage|stats|schedule|img|model|cancel|delay|style|show_team_work|admin|lang)\b/.test(text)) return
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
     if (text.startsWith('/')) {
@@ -974,9 +1044,10 @@ export function createBot(): Bot {
     const chatId = ctx.chat.id
     if (!isAuthorised(chatId)) return
 
+    const t = chatT(String(chatId))
     const caps = voiceCapabilities()
     if (!caps.stt) {
-      await ctx.reply('Транскрипцію голосу не налаштовано. Додай GROQ_API_KEY в .env')
+      await ctx.reply(t('cmd.voice.noStt'))
       return
     }
 
@@ -988,7 +1059,7 @@ export function createBot(): Bot {
       await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true)
     } catch (err) {
       logger.error({ err }, 'Voice processing failed')
-      await ctx.reply('Не вдалося обробити голосове повідомлення.')
+      await ctx.reply(t('cmd.voice.fail'))
     }
   })
 
@@ -1005,9 +1076,10 @@ export function createBot(): Bot {
 
       // If caption starts with /edit -- use Nano Banana 2 for editing
       if (caption.startsWith('/edit')) {
+        const t = chatT(String(chatId))
         const editPrompt = caption.replace(/^\/edit\s*/, '').trim()
         if (!editPrompt) {
-          await ctx.reply('Додай опис що змінити: /edit <опис>')
+          await ctx.reply(t('cmd.edit.usage'))
           return
         }
         await ctx.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
@@ -1018,11 +1090,11 @@ export function createBot(): Bot {
               caption: result.text?.slice(0, 1024) ?? undefined,
             })
           } else {
-            await ctx.reply(result.text ?? 'Не вдалося відредагувати зображення.')
+            await ctx.reply(result.text ?? t('cmd.edit.fail'))
           }
         } catch (err) {
           logger.error({ err }, 'Image editing failed')
-          await ctx.reply(`Помилка редагування: ${err instanceof Error ? err.message : String(err)}`)
+          await ctx.reply(t('cmd.edit.error', { err: err instanceof Error ? err.message : String(err) }))
         }
         return
       }
@@ -1032,7 +1104,7 @@ export function createBot(): Bot {
       await handleMessage(ctx, message)
     } catch (err) {
       logger.error({ err }, 'Photo processing failed')
-      await ctx.reply('Не вдалося обробити фото.')
+      await ctx.reply(chatT(String(chatId))('media.photoFail'))
     }
   })
 
@@ -1048,7 +1120,7 @@ export function createBot(): Bot {
       await handleMessage(ctx, message)
     } catch (err) {
       logger.error({ err }, 'Document processing failed')
-      await ctx.reply('Не вдалося обробити документ.')
+      await ctx.reply(chatT(String(chatId))('media.docFail'))
     }
   })
 
@@ -1064,7 +1136,7 @@ export function createBot(): Bot {
       await handleMessage(ctx, message)
     } catch (err) {
       logger.error({ err }, 'Video processing failed')
-      await ctx.reply('Не вдалося обробити відео.')
+      await ctx.reply(chatT(String(chatId))('media.videoFail'))
     }
   })
 
@@ -1073,22 +1145,29 @@ export function createBot(): Bot {
     logger.error({ err: err.error }, 'Bot error')
   })
 
-  // Register commands menu in Telegram
-  bot.api.setMyCommands([
-    { command: 'start', description: 'Почати роботу' },
-    { command: 'newchat', description: 'Нова сесія (очистити контекст)' },
-    { command: 'cancel', description: 'Скасувати поточний запит' },
-    { command: 'voice', description: 'Увімк/вимк голосові відповіді' },
-    { command: 'usage', description: 'Статистика використання' },
-    { command: 'stats', description: 'Увімк/вимк статистику під повідомленнями' },
-    { command: 'memory', description: 'Показати останні спогади' },
-    { command: 'img', description: 'Згенерувати зображення' },
-    { command: 'delay', description: 'Затримка видалення прогресу' },
-    { command: 'style', description: 'Стиль прогресу (блондинка/брюнетка)' },
-    { command: 'chatid', description: 'Показати chat ID' },
-    { command: 'show_team_work', description: 'Видимість командної роботи' },
-    { command: 'admin', description: 'Запустити/зупинити адмін панель' },
-  ]).catch(err => logger.error({ err }, 'Failed to set bot commands'))
+  // Register commands menu in Telegram (both languages)
+  const tUk = createBotT('uk')
+  const tEn = createBotT('en')
+  const cmds = (t: BotT) => [
+    { command: 'start', description: t('menu.start') },
+    { command: 'newchat', description: t('menu.newchat') },
+    { command: 'cancel', description: t('menu.cancel') },
+    { command: 'voice', description: t('menu.voice') },
+    { command: 'usage', description: t('menu.usage') },
+    { command: 'stats', description: t('menu.stats') },
+    { command: 'memory', description: t('menu.memory') },
+    { command: 'img', description: t('menu.img') },
+    { command: 'delay', description: t('menu.delay') },
+    { command: 'style', description: t('menu.style') },
+    { command: 'chatid', description: t('menu.chatid') },
+    { command: 'show_team_work', description: t('menu.show_team_work') },
+    { command: 'lang', description: t('menu.lang') },
+    { command: 'admin', description: t('menu.admin') },
+  ]
+  // Default commands in Ukrainian
+  bot.api.setMyCommands(cmds(tUk)).catch(err => logger.error({ err }, 'Failed to set bot commands'))
+  // English commands for en language
+  bot.api.setMyCommands(cmds(tEn), { language_code: 'en' }).catch(err => logger.error({ err }, 'Failed to set EN bot commands'))
 
   return bot
 }

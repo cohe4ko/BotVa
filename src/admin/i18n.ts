@@ -537,8 +537,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'config.invalidName': 'Невірне ім\'я. Маленькі літери, цифри, дефіси.',
     'config.botExists': 'Бот "{name}" вже існує.',
     'config.botDeleted': 'Бот "{name}" заархівований і видалений.',
-    'config.archivePath': 'Архів: `workspace/archive/{archive}`',
-    'config.restoreHint': 'Для відновлення: `tar -xzf workspace/archive/{archive} -C bots/`',
+    'config.archivePath': 'Архів: `archive/{archive}`',
+    'config.restoreHint': 'Для відновлення: `tar -xzf archive/{archive} -C bots/`',
 
     // Create bot
     'create.title': 'Створити нового бота',

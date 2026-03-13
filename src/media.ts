@@ -1,10 +1,10 @@
 import { writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs'
 import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
-import { PROJECT_ROOT } from './config.js'
+import { PROJECT_ROOT, BOT_NAME } from './config.js'
 import { logger } from './logger.js'
 
-export const UPLOADS_DIR = resolve(PROJECT_ROOT, 'workspace', 'uploads')
+export const UPLOADS_DIR = resolve(PROJECT_ROOT, 'workspace', BOT_NAME, 'uploads')
 
 export function ensureUploadsDir(): void {
   mkdirSync(UPLOADS_DIR, { recursive: true })

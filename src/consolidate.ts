@@ -93,7 +93,8 @@ export async function runDailyConsolidation(
 
   // Notify user
   if (sendMessage && ALLOWED_CHAT_ID) {
-    await sendMessage(ALLOWED_CHAT_ID, `🧠 Консолідація пам'яті за ${targetDate} завершена.`).catch(() => {})
+    const { chatT } = await import('./bot-i18n.js')
+    await sendMessage(ALLOWED_CHAT_ID, chatT(ALLOWED_CHAT_ID)('consolidate.done', { date: targetDate })).catch(() => {})
   }
 
   logger.info({ targetDate }, 'Daily consolidation complete')

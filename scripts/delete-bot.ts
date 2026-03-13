@@ -7,7 +7,7 @@ import { execSync } from 'child_process'
 const ROOT = resolve(import.meta.dirname, '..')
 const BOTS_DIR = resolve(ROOT, 'bots')
 const TEAM_JSON = resolve(ROOT, 'workspace/team.json')
-const ARCHIVE_DIR = resolve(ROOT, 'workspace/archive')
+const ARCHIVE_DIR = resolve(ROOT, 'archive')
 
 function main() {
   const args = process.argv.slice(2)
@@ -17,7 +17,7 @@ function main() {
     console.log(`
 Usage: npm run delete-bot -- <bot-name>
 
-Archives the bot folder to workspace/archive/ then deletes it.
+Archives the bot folder to archive/ then deletes it.
 `)
     process.exit(0)
   }
@@ -48,7 +48,7 @@ Archives the bot folder to workspace/archive/ then deletes it.
 
   console.log(`Archiving ${slug}...`)
   execSync(`tar -czf "${archivePath}" -C "${BOTS_DIR}" "${slug}"`, { timeout: 30000 })
-  console.log(`  Saved to workspace/archive/${archiveName}`)
+  console.log(`  Saved to archive/${archiveName}`)
 
   // Delete
   rmSync(botDir, { recursive: true, force: true })
@@ -67,7 +67,7 @@ Archives the bot folder to workspace/archive/ then deletes it.
   }
 
   console.log(`\nBot "${slug}" deleted.`)
-  console.log(`To restore: tar -xzf workspace/archive/${archiveName} -C bots/`)
+  console.log(`To restore: tar -xzf archive/${archiveName} -C bots/`)
 }
 
 main()

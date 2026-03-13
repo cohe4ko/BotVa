@@ -4,6 +4,7 @@ dist/
 .mcp.json
 store/
 workspace/
+archive/
 *.log
 *.pid
 bots/

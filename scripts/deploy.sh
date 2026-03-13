@@ -161,7 +161,7 @@ do_setup() {
   fi
 
   # Create workspace
-  mkdir -p workspace/uploads workspace/gallery
+  mkdir -p workspace/gallery
   info "workspace/ directories created"
 
   echo -e "\n${BOLD}Setup complete!${NC}"
