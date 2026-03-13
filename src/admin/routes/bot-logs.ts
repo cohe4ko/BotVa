@@ -5,11 +5,12 @@ import { getBotDir } from '../db-multi.js'
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { validateBot, botName } from '../bot-middleware.js'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 
 function tailFile(path: string, lines = 100): string {
-  if (!existsSync(path)) return '(no log file found)'
+  if (!existsSync(path)) return ''
   return readFileSync(path, 'utf-8').split('\n').slice(-lines).join('\n')
 }
 
@@ -31,14 +32,16 @@ function findLogFile(botDir: string, botNameStr?: string): string | null {
 }
 
 app.get('/bot/:name/logs', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const logFile = findLogFile(getBotDir(name), name)
   const lines = parseInt(c.req.query('lines') || '100', 10)
-  const logContent = logFile ? tailFile(logFile, lines) : '(no log file found)'
+  const logContent = logFile ? tailFile(logFile, lines) : t('logs.noFile')
 
   const content = html`
-    ${botNav(name, 'logs')}
-    <h3>Logs ${logFile ? html`<small>${logFile}</small>` : ''}</h3>
+    ${botNav(name, 'logs', t)}
+    <h3>${t('logs.title')} ${logFile ? html`<small>${logFile}</small>` : ''}</h3>
     <div class="btn-group" style="margin-bottom:1rem">
       <a href="/bot/${name}/logs?lines=50" role="button" class="outline">50</a>
       <a href="/bot/${name}/logs?lines=100" role="button" class="outline">100</a>
@@ -48,14 +51,15 @@ app.get('/bot/:name/logs', validateBot, (c) => {
       <pre class="log-viewer">${logContent}</pre>
     </div>
   `
-  return c.html(layout(`${name} Logs`, content, `/bot/${name}`))
+  return c.html(layout(`${name} ${t('logs.title')}`, content, `/bot/${name}`, t, lang))
 })
 
 app.get('/bot/:name/logs/tail', validateBot, (c) => {
+  const t: TFunc = c.get('t')
   const name = botName(c)
   const logFile = findLogFile(getBotDir(name), name)
   const lines = parseInt(c.req.query('lines') || '100', 10)
-  return c.html(html`<pre class="log-viewer">${logFile ? tailFile(logFile, lines) : '(no log file found)'}</pre>`)
+  return c.html(html`<pre class="log-viewer">${logFile ? tailFile(logFile, lines) : t('logs.noFile')}</pre>`)
 })
 
 export default app

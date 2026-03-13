@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { serve } from '@hono/node-server'
 import { authMiddleware, setAuthCookie, loginPage } from './auth.js'
+import { i18nMiddleware, type I18nEnv } from './i18n.js'
 import dashboard from './routes/dashboard.js'
 import botConfig from './routes/bot-config.js'
 import botKnowledge from './routes/bot-knowledge.js'
@@ -19,8 +20,8 @@ import gallery from './routes/gallery.js'
 import storage from './routes/storage.js'
 import team from './routes/team.js'
 
-export function createAdminApp(): Hono {
-  const app = new Hono()
+export function createAdminApp(): Hono<I18nEnv> {
+  const app = new Hono<I18nEnv>()
 
   // Static files
   app.use('/static/*', serveStatic({ root: 'src/admin/' }))
@@ -30,13 +31,17 @@ export function createAdminApp(): Hono {
   // Auth
   app.use('*', authMiddleware)
 
+  // i18n
+  app.use('*', i18nMiddleware)
+
   app.post('/login', async (c) => {
     const body = await c.req.parseBody()
     const token = String(body['token'] ?? '')
     if (setAuthCookie(c, token)) {
       return c.redirect('/')
     }
-    return c.html(loginPage('Invalid token'))
+    const t = c.get('t')
+    return c.html(loginPage(t('auth.invalid'), t))
   })
 
   // Routes

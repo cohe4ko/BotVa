@@ -4,8 +4,9 @@ import { layout, botNav, icon } from '../views/layout.js'
 import { formatTs, pagination } from '../views/components.js'
 import { getAuditLogs, countAuditLogs, getAuditEventTypes } from '../db-multi.js'
 import { validateBot, botName } from '../bot-middleware.js'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 const PER_PAGE = 50
 
 function escapeHtml(s: string): string {
@@ -26,6 +27,8 @@ function eventBadge(type: string) {
 }
 
 app.get('/bot/:name/audit', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
   const eventType = c.req.query('type') ?? ''
@@ -40,39 +43,39 @@ app.get('/bot/:name/audit', validateBot, (c) => {
   const baseUrl = `/bot/${name}/audit?${eventType ? `type=${eventType}&` : ''}${search ? `q=${encodeURIComponent(search)}&` : ''}`
 
   const content = html`
-    ${botNav(name, 'audit')}
+    ${botNav(name, 'audit', t)}
 
     <div class="section-header">
-      <h3>${icon('scroll-text')} Audit Log</h3>
-      <small>${total} events</small>
+      <h3>${icon('scroll-text')} ${t('audit.title')}</h3>
+      <small>${t('audit.events', { count: total })}</small>
     </div>
 
     <form method="GET" action="/bot/${name}/audit" class="filter-bar">
       <label>
-        <small>Type</small>
+        <small>${t('audit.type')}</small>
         <select name="type" style="min-width:140px">
-          <option value="">All types</option>
-          ${eventTypes.map(t => html`<option value="${t}" ${t === eventType ? 'selected' : ''}>${t}</option>`)}
+          <option value="">${t('audit.allTypes')}</option>
+          ${eventTypes.map(tp => html`<option value="${tp}" ${tp === eventType ? 'selected' : ''}>${tp}</option>`)}
         </select>
       </label>
       <label class="filter-search">
-        <small>Search</small>
-        <input type="text" name="q" value="${search}" placeholder="Search in detail...">
+        <small>${t('audit.search')}</small>
+        <input type="text" name="q" value="${search}" placeholder="${t('audit.searchPlaceholder')}">
       </label>
-      <button type="submit" class="btn-sm">${icon('search', 13)} Filter</button>
-      ${(eventType || search) ? html`<a href="/bot/${name}/audit" role="button" class="btn-sm" style="text-decoration:none">${icon('x', 13)} Clear</a>` : ''}
+      <button type="submit" class="btn-sm">${icon('search', 13)} ${t('audit.filter')}</button>
+      ${(eventType || search) ? html`<a href="/bot/${name}/audit" role="button" class="btn-sm" style="text-decoration:none">${icon('x', 13)} ${t('audit.clear')}</a>` : ''}
     </form>
 
     ${logs.length === 0
-      ? html`<div class="empty-state"><div class="empty-icon">${icon('scroll-text', 32)}</div><p>No audit events found</p></div>`
+      ? html`<div class="empty-state"><div class="empty-icon">${icon('scroll-text', 32)}</div><p>${t('audit.noEvents')}</p></div>`
       : html`
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th style="width:170px">Time</th>
-                <th style="width:140px">Type</th>
-                <th>Detail</th>
+                <th style="width:170px">${t('audit.time')}</th>
+                <th style="width:140px">${t('audit.type')}</th>
+                <th>${t('audit.detail')}</th>
               </tr>
             </thead>
             <tbody>
@@ -91,7 +94,7 @@ app.get('/bot/:name/audit', validateBot, (c) => {
     }
   `
 
-  return c.html(layout(`${name} Audit`, content, `/bot/${name}`))
+  return c.html(layout(`${name} ${t('botnav.audit')}`, content, `/bot/${name}`, t, lang))
 })
 
 export default app

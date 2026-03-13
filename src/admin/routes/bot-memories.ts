@@ -4,11 +4,14 @@ import { layout, botNav } from '../views/layout.js'
 import { alert, formatTs, truncate, pagination } from '../views/components.js'
 import { getMemories, countMemories, updateMemorySalience, deleteMemory } from '../db-multi.js'
 import { validateBot, botName } from '../bot-middleware.js'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 const PAGE_SIZE = 30
 
 app.get('/bot/:name/memories', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const q = c.req.query('q') || ''
   const page = parseInt(c.req.query('page') || '1', 10)
@@ -25,15 +28,15 @@ app.get('/bot/:name/memories', validateBot, (c) => {
   const baseUrl = `/bot/${name}/memories${q ? `?q=${encodeURIComponent(q)}` : ''}`
 
   const content = html`
-    ${botNav(name, 'memories')}
-    <h3>Memories <small>(${total})</small></h3>
+    ${botNav(name, 'memories', t)}
+    <h3>${t('mem.title')} <small>(${total})</small></h3>
     <form method="GET" action="/bot/${name}/memories" role="search">
-      <input type="search" name="q" value="${q}" placeholder="Search memories (FTS)...">
-      <button type="submit">Search</button>
+      <input type="search" name="q" value="${q}" placeholder="${t('mem.search')}">
+      <button type="submit">${t('mem.searchBtn')}</button>
     </form>
     <div id="mem-alerts"></div>
     <table>
-      <thead><tr><th>ID</th><th>Sector</th><th>Content</th><th>Salience</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>${t('mem.id')}</th><th>${t('mem.sector')}</th><th>${t('mem.content')}</th><th>${t('mem.salience')}</th><th>${t('mem.created')}</th><th></th></tr></thead>
       <tbody>
         ${memories.map(m => html`
           <tr id="mem-${m.id}">
@@ -51,25 +54,26 @@ app.get('/bot/:name/memories', validateBot, (c) => {
             </td>
             <td><small>${formatTs(m.created_at)}</small></td>
             <td><button hx-post="/bot/${name}/memories/${m.id}/delete" hx-target="#mem-${m.id}" hx-swap="outerHTML"
-              hx-confirm="Delete this memory?" class="secondary outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">Del</button></td>
+              hx-confirm="${t('mem.deleteConfirm')}" class="secondary outline" style="padding:0.2rem 0.5rem;font-size:0.8rem">${t('mem.del')}</button></td>
           </tr>
         `)}
-        ${memories.length === 0 ? html`<tr><td colspan="6">No memories found</td></tr>` : ''}
+        ${memories.length === 0 ? html`<tr><td colspan="6">${t('mem.noMemories')}</td></tr>` : ''}
       </tbody>
     </table>
     ${pagination(page, totalPages, baseUrl)}
   `
-  return c.html(layout(`${name} Memories`, content, `/bot/${name}`))
+  return c.html(layout(`${name} ${t('mem.title')}`, content, `/bot/${name}`, t, lang))
 })
 
 app.put('/bot/:name/memories/:id', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
   const name = botName(c)
   const id = parseInt(c.req.param('id')!, 10)
   const body = await c.req.parseBody()
   const salience = parseFloat(String(body['salience'] ?? '1'))
-  if (isNaN(salience) || salience < 0 || salience > 5) return c.html(alert('error', 'Salience must be 0-5'))
+  if (isNaN(salience) || salience < 0 || salience > 5) return c.html(alert('error', t('mem.salienceRange')))
   updateMemorySalience(name, id, salience)
-  return c.html(alert('success', `Memory #${id} salience updated to ${salience.toFixed(2)}`))
+  return c.html(alert('success', t('mem.salienceUpdated', { id: String(id), value: salience.toFixed(2) })))
 })
 
 app.delete('/bot/:name/memories/:id', validateBot, (c) => {

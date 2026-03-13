@@ -6,8 +6,9 @@ import { getBotDir } from '../db-multi.js'
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'fs'
 import { resolve, relative, join } from 'path'
 import { validateBot, botName } from '../bot-middleware.js'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 
 function listFiles(dir: string, base: string) {
   if (!existsSync(dir)) return []
@@ -53,6 +54,8 @@ function formatSize(bytes: number): string {
 }
 
 app.get('/bot/:name/knowledge', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const subpath = c.req.query('path') || ''
   const botDir = getBotDir(name)
@@ -67,10 +70,10 @@ app.get('/bot/:name/knowledge', validateBot, (c) => {
     })
 
     const content = html`
-      ${botNav(name, 'knowledge')}
-      <h3>Knowledge</h3>
+      ${botNav(name, 'knowledge', t)}
+      <h3>${t('know.title')}</h3>
       <table>
-        <thead><tr><th>Name</th><th>Size</th><th></th></tr></thead>
+        <thead><tr><th>${t('know.name')}</th><th>${t('know.size')}</th><th></th></tr></thead>
         <tbody>
           ${rootFiles.map(f => html`<tr>
             <td><a href="/bot/${name}/knowledge?path=${f.path}">${f.name}/</a></td>
@@ -80,69 +83,72 @@ app.get('/bot/:name/knowledge', validateBot, (c) => {
         </tbody>
       </table>
     `
-    return c.html(layout(`${name} Knowledge`, content, `/bot/${name}`))
+    return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}`, t, lang))
   }
 
   // Sub-level: resolve and list
   const resolved = resolveKnowledgePath(name, subpath)
-  if (!resolved) return c.html(layout(`${name} Knowledge`, html`${botNav(name, 'knowledge')}${alert('error', 'Invalid path')}`, `/bot/${name}`))
+  if (!resolved) return c.html(layout(`${name} ${t('know.title')}`, html`${botNav(name, 'knowledge', t)}${alert('error', t('know.invalidPath'))}`, `/bot/${name}`, t, lang))
 
   const files = listFiles(resolved.full, resolved.base)
   const parts = subpath.split('/')
   const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : ''
 
   const content = html`
-    ${botNav(name, 'knowledge')}
+    ${botNav(name, 'knowledge', t)}
     <h3>${subpath}/</h3>
-    <p><a href="/bot/${name}/knowledge?path=${parentPath}">.. (up)</a></p>
+    <p><a href="/bot/${name}/knowledge?path=${parentPath}">${t('know.up')}</a></p>
     <table>
-      <thead><tr><th>Name</th><th>Size</th><th></th></tr></thead>
+      <thead><tr><th>${t('know.name')}</th><th>${t('know.size')}</th><th></th></tr></thead>
       <tbody>
         ${files.map(f => html`<tr>
           <td>${f.isDir ? html`<a href="/bot/${name}/knowledge?path=${f.path}">${f.name}/</a>` : html`<a href="/bot/${name}/knowledge/file?path=${f.path}">${f.name}</a>`}</td>
           <td><small>${f.isDir ? '' : formatSize(f.size)}</small></td>
-          <td>${!f.isDir ? html`<a href="/bot/${name}/knowledge/file?path=${f.path}">Edit</a>` : ''}</td>
+          <td>${!f.isDir ? html`<a href="/bot/${name}/knowledge/file?path=${f.path}">${t('know.edit')}</a>` : ''}</td>
         </tr>`)}
-        ${files.length === 0 ? html`<tr><td colspan="3">Empty directory</td></tr>` : ''}
+        ${files.length === 0 ? html`<tr><td colspan="3">${t('know.emptyDir')}</td></tr>` : ''}
       </tbody>
     </table>
   `
-  return c.html(layout(`${name} Knowledge`, content, `/bot/${name}`))
+  return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}`, t, lang))
 })
 
 app.get('/bot/:name/knowledge/file', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const filePath = c.req.query('path') || ''
   const resolved = resolveKnowledgePath(name, filePath)
-  if (!resolved) return c.html(layout(`${name} Knowledge`, html`${botNav(name, 'knowledge')}${alert('error', 'Invalid path')}`, `/bot/${name}`))
+  if (!resolved) return c.html(layout(`${name} ${t('know.title')}`, html`${botNav(name, 'knowledge', t)}${alert('error', t('know.invalidPath'))}`, `/bot/${name}`, t, lang))
 
   let fileContent = ''
   try { fileContent = readFileSync(resolved.full, 'utf-8') } catch { /* new file */ }
 
   const content = html`
-    ${botNav(name, 'knowledge')}
+    ${botNav(name, 'knowledge', t)}
     <h3>${filePath}</h3>
     <div id="file-alerts"></div>
     <form hx-post="/bot/${name}/knowledge/file?path=${filePath}" hx-target="#file-alerts" hx-swap="innerHTML">
       <textarea name="content" class="code" rows="25" style="width:100%">${fileContent}</textarea>
       <div class="btn-group">
-        <button type="submit">Save</button>
-        <a href="/bot/${name}/knowledge?path=${filePath.split('/').slice(0, -1).join('/')}" role="button" class="secondary outline">Back</a>
+        <button type="submit">${t('common.save')}</button>
+        <a href="/bot/${name}/knowledge?path=${filePath.split('/').slice(0, -1).join('/')}" role="button" class="secondary outline">${t('know.back')}</a>
       </div>
     </form>
   `
-  return c.html(layout(`${name} Knowledge — ${filePath}`, content, `/bot/${name}`))
+  return c.html(layout(`${name} ${t('know.title')} — ${filePath}`, content, `/bot/${name}`, t, lang))
 })
 
 app.post('/bot/:name/knowledge/file', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
   const name = botName(c)
   const filePath = c.req.query('path') || ''
   const resolved = resolveKnowledgePath(name, filePath)
-  if (!resolved) return c.html(alert('error', 'Invalid path'))
+  if (!resolved) return c.html(alert('error', t('know.invalidPath')))
 
   const body = await c.req.parseBody()
   writeFileSync(resolved.full, String(body['content'] ?? ''), 'utf-8')
-  return c.html(alert('success', 'File saved.'))
+  return c.html(alert('success', t('know.fileSaved')))
 })
 
 export default app

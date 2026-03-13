@@ -5,8 +5,9 @@ import { getBotNames, getBotDir, getProjectRoot } from '../db-multi.js'
 import { execSync } from 'child_process'
 import { existsSync, unlinkSync, statSync, readdirSync } from 'fs'
 import { resolve, join, relative } from 'path'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 
 function duSize(dir: string): string {
   try { return execSync(`du -sh "${dir}" 2>/dev/null`, { encoding: 'utf-8' }).split('\t')[0].trim() }
@@ -117,28 +118,29 @@ function scanLargeFiles(minSizeKb: number = 1024): FileStat[] {
 // --- Routes ---
 
 app.get('/storage', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const stats = getStorageStats()
-  const totalBytes = stats.reduce((s, d) => s + d.bytes, 0)
 
   const content = html`
-    <h2>${icon('hard-drive')} Storage</h2>
+    <h2>${icon('hard-drive')} ${t('stor.title')}</h2>
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">${icon('hard-drive', 12)} Total project</div>
+        <div class="stat-label">${icon('hard-drive', 12)} ${t('stor.totalProject')}</div>
         <div class="stat-number">${duSize(getProjectRoot())}</div>
       </div>
       ${stats.slice(0, 11).map(d => html`
         <div class="stat-card">
           <div class="stat-label">${icon(d.icon, 12)} ${d.name}</div>
           <div class="stat-number">${d.size}</div>
-          <div style="font-size:0.7rem;color:var(--mc-text-dim)">${d.files.toLocaleString()} files</div>
+          <div style="font-size:0.7rem;color:var(--mc-text-dim)">${d.files.toLocaleString()} ${t('stor.files')}</div>
         </div>
       `)}
     </div>
 
-    <h3>${icon('search')} Large Files</h3>
-    <p style="font-size:0.85rem;color:var(--mc-text-secondary)">Scan for files larger than 10 MB (excludes node_modules, .git, dist, venv).</p>
+    <h3>${icon('search')} ${t('stor.largeFiles')}</h3>
+    <p style="font-size:0.85rem;color:var(--mc-text-secondary)">${t('stor.largeFilesDesc')}</p>
 
     <div id="scan-results">
       <button
@@ -148,17 +150,18 @@ app.get('/storage', (c) => {
         hx-indicator="#scan-spinner"
         class="outline"
         style="margin-bottom:1rem"
-      >${icon('radar', 13)} Scan</button>
-      <span id="scan-spinner" class="htmx-indicator" style="margin-left:0.5rem;font-size:0.85rem;color:var(--mc-text-dim)">Scanning...</span>
+      >${icon('radar', 13)} ${t('stor.scan')}</button>
+      <span id="scan-spinner" class="htmx-indicator" style="margin-left:0.5rem;font-size:0.85rem;color:var(--mc-text-dim)">${t('stor.scanning')}</span>
     </div>
   `
 
-  return c.html(layout('Storage', content, '/storage'))
+  return c.html(layout(t('stor.title'), content, '/storage', t, lang))
 })
 
 // HTMX: scan for large files
 app.get('/storage/scan', (c) => {
-  const files = scanLargeFiles(10240) // > 1MB
+  const t: TFunc = c.get('t')
+  const files = scanLargeFiles(10240) // > 10MB
   const totalBytes = files.reduce((s, f) => s + f.bytes, 0)
 
   return c.html(html`
@@ -169,22 +172,22 @@ app.get('/storage/scan', (c) => {
         hx-swap="innerHTML"
         hx-indicator="#scan-spinner2"
         class="outline btn-sm"
-      >${icon('refresh-cw', 12)} Rescan</button>
-      <span id="scan-spinner2" class="htmx-indicator" style="font-size:0.85rem;color:var(--mc-text-dim)">Scanning...</span>
+      >${icon('refresh-cw', 12)} ${t('stor.rescan')}</button>
+      <span id="scan-spinner2" class="htmx-indicator" style="font-size:0.85rem;color:var(--mc-text-dim)">${t('stor.scanning')}</span>
       <span style="font-size:0.85rem;color:var(--mc-text-secondary)">
-        Found <strong>${files.length}</strong> files, total <strong>${formatSize(totalBytes)}</strong>
+        ${t('stor.found')} <strong>${files.length}</strong> ${t('stor.files')}, ${t('stor.total')} <strong>${formatSize(totalBytes)}</strong>
       </span>
     </div>
 
-    <form hx-post="/storage/delete" hx-target="#scan-results" hx-swap="innerHTML" hx-confirm="Are you sure you want to delete the selected files? This cannot be undone!">
+    <form hx-post="/storage/delete" hx-target="#scan-results" hx-swap="innerHTML" hx-confirm="${t('stor.deleteConfirm')}">
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th style="width:40px"><input type="checkbox" id="select-all" onchange="document.querySelectorAll('input[name=files]').forEach(cb => cb.checked = this.checked)"></th>
-              <th>File</th>
-              <th style="width:80px">Ext</th>
-              <th style="width:100px;text-align:right">Size</th>
+              <th>${t('stor.file')}</th>
+              <th style="width:80px">${t('stor.ext')}</th>
+              <th style="width:100px;text-align:right">${t('stor.size')}</th>
             </tr>
           </thead>
           <tbody>
@@ -196,14 +199,14 @@ app.get('/storage/scan', (c) => {
                 <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${f.size}</td>
               </tr>
             `)}
-            ${files.length === 0 ? html`<tr><td colspan="4" style="text-align:center;color:var(--mc-text-dim)">No large files found</td></tr>` : ''}
+            ${files.length === 0 ? html`<tr><td colspan="4" style="text-align:center;color:var(--mc-text-dim)">${t('stor.noLargeFiles')}</td></tr>` : ''}
           </tbody>
         </table>
       </div>
       ${files.length > 0 ? html`
         <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.75rem">
           <button type="submit" class="outline" style="color:var(--mc-red);border-color:var(--mc-red)">
-            ${icon('trash-2', 13)} Delete selected
+            ${icon('trash-2', 13)} ${t('stor.deleteSelected')}
           </button>
           <span id="selected-count" style="font-size:0.8rem;color:var(--mc-text-dim)"></span>
         </div>
@@ -213,7 +216,7 @@ app.get('/storage/scan', (c) => {
             var counter = document.getElementById('selected-count');
             function update() {
               var n = document.querySelectorAll('input[name=files]:checked').length;
-              counter.textContent = n > 0 ? n + ' selected' : '';
+              counter.textContent = n > 0 ? n + ' ${t('stor.selected')}' : '';
             }
             cbs.forEach(function(cb) { cb.addEventListener('change', update); });
             document.getElementById('select-all').addEventListener('change', update);
@@ -226,6 +229,7 @@ app.get('/storage/scan', (c) => {
 
 // Delete selected files
 app.post('/storage/delete', async (c) => {
+  const t: TFunc = c.get('t')
   const body = await c.req.parseBody({ all: true })
   const root = getProjectRoot()
 
@@ -277,7 +281,7 @@ app.post('/storage/delete', async (c) => {
 
   return c.html(html`
     <div style="padding:0.75rem;margin-bottom:0.75rem;border-radius:6px;background:var(--mc-bg-secondary);border:1px solid var(--mc-border)">
-      ${icon('check', 14)} Deleted <strong>${deleted}</strong> file${deleted !== 1 ? 's' : ''}
+      ${icon('check', 14)} ${t('stor.deleted')} <strong>${deleted}</strong> ${t('stor.files')}
       ${errors.length > 0 ? html`
         <div style="margin-top:0.5rem;color:var(--mc-red);font-size:0.8rem">
           ${errors.map(e => html`<div>${icon('alert-circle', 11)} ${e}</div>`)}
@@ -292,22 +296,22 @@ app.post('/storage/delete', async (c) => {
         hx-swap="innerHTML"
         hx-indicator="#scan-spinner3"
         class="outline btn-sm"
-      >${icon('refresh-cw', 12)} Rescan</button>
-      <span id="scan-spinner3" class="htmx-indicator" style="font-size:0.85rem;color:var(--mc-text-dim)">Scanning...</span>
+      >${icon('refresh-cw', 12)} ${t('stor.rescan')}</button>
+      <span id="scan-spinner3" class="htmx-indicator" style="font-size:0.85rem;color:var(--mc-text-dim)">${t('stor.scanning')}</span>
       <span style="font-size:0.85rem;color:var(--mc-text-secondary)">
-        Found <strong>${files.length}</strong> files, total <strong>${formatSize(totalBytes)}</strong>
+        ${t('stor.found')} <strong>${files.length}</strong> ${t('stor.files')}, ${t('stor.total')} <strong>${formatSize(totalBytes)}</strong>
       </span>
     </div>
 
-    <form hx-post="/storage/delete" hx-target="#scan-results" hx-swap="innerHTML" hx-confirm="Are you sure you want to delete the selected files? This cannot be undone!">
+    <form hx-post="/storage/delete" hx-target="#scan-results" hx-swap="innerHTML" hx-confirm="${t('stor.deleteConfirm')}">
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th style="width:40px"><input type="checkbox" id="select-all" onchange="document.querySelectorAll('input[name=files]').forEach(cb => cb.checked = this.checked)"></th>
-              <th>File</th>
-              <th style="width:80px">Ext</th>
-              <th style="width:100px;text-align:right">Size</th>
+              <th>${t('stor.file')}</th>
+              <th style="width:80px">${t('stor.ext')}</th>
+              <th style="width:100px;text-align:right">${t('stor.size')}</th>
             </tr>
           </thead>
           <tbody>
@@ -319,14 +323,14 @@ app.post('/storage/delete', async (c) => {
                 <td style="text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap">${f.size}</td>
               </tr>
             `)}
-            ${files.length === 0 ? html`<tr><td colspan="4" style="text-align:center;color:var(--mc-text-dim)">No large files found</td></tr>` : ''}
+            ${files.length === 0 ? html`<tr><td colspan="4" style="text-align:center;color:var(--mc-text-dim)">${t('stor.noLargeFiles')}</td></tr>` : ''}
           </tbody>
         </table>
       </div>
       ${files.length > 0 ? html`
         <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.75rem">
           <button type="submit" class="outline" style="color:var(--mc-red);border-color:var(--mc-red)">
-            ${icon('trash-2', 13)} Delete selected
+            ${icon('trash-2', 13)} ${t('stor.deleteSelected')}
           </button>
           <span id="selected-count" style="font-size:0.8rem;color:var(--mc-text-dim)"></span>
         </div>
@@ -336,7 +340,7 @@ app.post('/storage/delete', async (c) => {
             var counter = document.getElementById('selected-count');
             function update() {
               var n = document.querySelectorAll('input[name=files]:checked').length;
-              counter.textContent = n > 0 ? n + ' selected' : '';
+              counter.textContent = n > 0 ? n + ' ${t('stor.selected')}' : '';
             }
             cbs.forEach(function(cb) { cb.addEventListener('change', update); });
             document.getElementById('select-all').addEventListener('change', update);

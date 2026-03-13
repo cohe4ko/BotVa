@@ -1,15 +1,17 @@
 import { html } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
+import type { TFunc } from '../i18n.js'
 
 export function alert(type: 'success' | 'error' | 'warning', message: string): HtmlEscapedString {
   const icons = { success: 'check-circle', error: 'x-circle', warning: 'alert-triangle' }
   return html`<div class="alert alert-${type}"><i data-lucide="${icons[type]}" style="width:15px;height:15px;flex-shrink:0"></i> ${message}</div>` as HtmlEscapedString
 }
 
-export function statusBadge(running: boolean): HtmlEscapedString {
+export function statusBadge(running: boolean, t?: TFunc): HtmlEscapedString {
+  const _t = t ?? ((k: string) => k)
   return running
-    ? html`<span class="badge badge-running"><i data-lucide="circle" style="width:8px;height:8px;fill:currentColor"></i> running</span>` as HtmlEscapedString
-    : html`<span class="badge badge-stopped"><i data-lucide="circle" style="width:8px;height:8px;fill:currentColor"></i> stopped</span>` as HtmlEscapedString
+    ? html`<span class="badge badge-running"><i data-lucide="circle" style="width:8px;height:8px;fill:currentColor"></i> ${_t('status.running')}</span>` as HtmlEscapedString
+    : html`<span class="badge badge-stopped"><i data-lucide="circle" style="width:8px;height:8px;fill:currentColor"></i> ${_t('status.stopped')}</span>` as HtmlEscapedString
 }
 
 export function taskStatusBadge(status: string): HtmlEscapedString {

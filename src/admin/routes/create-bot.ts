@@ -6,8 +6,9 @@ import { getBotNames, getProjectRoot } from '../db-multi.js'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import { DatabaseSync } from 'node:sqlite'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 
 function getRolesDir(): string {
   return resolve(getProjectRoot(), 'roles')
@@ -227,6 +228,8 @@ app.get('/api/role-preview/:role', (c) => {
 })
 
 app.get('/create-bot', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const existing = getBotNames()
   const roles = getAvailableRoles()
   const hasRoles = roles.length > 0
@@ -234,23 +237,23 @@ app.get('/create-bot', (c) => {
   const roleOptions = roles.map(r => html`<option value="${r.slug}" data-description="${r.description}">${r.slug} -- ${r.description}</option>`)
 
   const content = html`
-    <h2>Create New Bot</h2>
+    <h2>${t('create.title')}</h2>
 
-    <p>Creates a new bot directory under <code>bots/</code> with all required files and database.</p>
+    <p>${t('create.desc')}</p>
 
     <div id="create-alerts"></div>
 
     <form method="POST" action="/create-bot">
       <div class="grid">
-        <label>Bot name (lowercase, no spaces)
-          <input type="text" name="name" required pattern="[a-z][a-z0-9_-]*" placeholder="e.g. tutor, writer, coder"
-            title="Lowercase letters, digits, hyphens, underscores. Start with a letter.">
+        <label>${t('create.botName')}
+          <input type="text" name="name" required pattern="[a-z][a-z0-9_-]*" placeholder="${t('create.botNamePlaceholder')}"
+            title="${t('config.nameHint')}">
         </label>
         <div style="display:flex;gap:0.5rem;align-items:end">
-          <label style="flex:1">Display name
-            <input type="text" name="display_name" placeholder="e.g. Мій Помічник">
+          <label style="flex:1">${t('create.displayName')}
+            <input type="text" name="display_name" placeholder="${t('create.displayNamePlaceholder')}">
           </label>
-          <label style="width:5rem">Emoji
+          <label style="width:5rem">${t('create.emoji')}
             <input type="text" name="emoji" placeholder="🤖" maxlength="4">
           </label>
         </div>
@@ -258,16 +261,16 @@ app.get('/create-bot', (c) => {
 
       ${hasRoles ? html`
         <fieldset>
-          <legend>Role Template</legend>
-          <label>Choose a role
+          <legend>${t('create.roleTemplate')}</legend>
+          <label>${t('create.chooseRole')}
             <select name="role" id="role-select">
-              <option value="">-- No template (blank bot) --</option>
+              <option value="">${t('create.noTemplate')}</option>
               ${roleOptions}
             </select>
           </label>
           <div id="role-preview" style="display:none; margin-top:0.5rem">
             <details>
-              <summary>Preview role template</summary>
+              <summary>${t('create.previewRole')}</summary>
               <pre id="role-preview-content" style="max-height:400px;overflow:auto;font-size:0.85em;white-space:pre-wrap"></pre>
             </details>
           </div>
@@ -275,36 +278,36 @@ app.get('/create-bot', (c) => {
       ` : ''}
 
       <fieldset>
-        <legend>Telegram</legend>
-        <label>Bot Token (from @BotFather)
-          <input type="text" name="token" required placeholder="123456:ABC-DEF...">
+        <legend>${t('create.telegram')}</legend>
+        <label>${t('create.botToken')}
+          <input type="text" name="token" required placeholder="${t('create.botTokenPlaceholder')}">
         </label>
-        <label>Allowed Chat ID
-          <input type="text" name="chat_id" placeholder="e.g. 82244336 (get via /chatid)">
+        <label>${t('create.allowedChatId')}
+          <input type="text" name="chat_id" placeholder="${t('create.chatIdPlaceholder')}">
         </label>
       </fieldset>
 
       <fieldset>
-        <legend>API Keys (optional, can be added later)</legend>
-        <label>Groq API Key (voice transcription)
+        <legend>${t('create.apiKeys')}</legend>
+        <label>${t('create.groqKey')}
           <input type="text" name="groq_key" placeholder="gsk_...">
         </label>
-        <label>Google API Key (image generation, Stagehand browser)
+        <label>${t('create.googleKey')}
           <input type="text" name="google_key" placeholder="AIza...">
         </label>
       </fieldset>
 
       <fieldset id="personality-section">
-        <legend>Personality</legend>
-        <label>Bot description / personality
-          <textarea name="personality" rows="3" placeholder="Brief description of what this bot does and how it behaves..."></textarea>
+        <legend>${t('create.personalityLabel')}</legend>
+        <label>${t('create.personalityDesc')}
+          <textarea name="personality" rows="3" placeholder="${t('create.personalityPlaceholder')}"></textarea>
         </label>
       </fieldset>
 
-      <button type="submit">Create Bot</button>
+      <button type="submit">${t('create.submit')}</button>
     </form>
 
-    <h3>Existing bots</h3>
+    <h3>${t('create.existingBots')}</h3>
     <ul>
       ${existing.map(name => html`<li><a href="/bot/${name}/config">${name}</a></li>`)}
     </ul>
@@ -336,10 +339,12 @@ app.get('/create-bot', (c) => {
     ` : ''}
   `
 
-  return c.html(layout('Create Bot', content, '/create-bot'))
+  return c.html(layout(t('create.title'), content, '/create-bot', t, lang))
 })
 
 app.post('/create-bot', async (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const body = await c.req.parseBody()
   const name = String(body['name'] ?? '').toLowerCase().trim()
   const displayName = String(body['display_name'] ?? '') || name
@@ -353,25 +358,25 @@ app.post('/create-bot', async (c) => {
 
   // Validate
   if (!name || !/^[a-z][a-z0-9_-]*$/.test(name)) {
-    return c.html(layout('Create Bot', html`${alert('error', 'Invalid bot name. Use lowercase letters, digits, hyphens.')} <a href="/create-bot">Back</a>`, '/create-bot'))
+    return c.html(layout(t('create.title'), html`${alert('error', t('create.invalidName'))} <a href="/create-bot">${t('common.back')}</a>`, '/create-bot', t, lang))
   }
 
   if (!token) {
-    return c.html(layout('Create Bot', html`${alert('error', 'Telegram bot token is required.')} <a href="/create-bot">Back</a>`, '/create-bot'))
+    return c.html(layout(t('create.title'), html`${alert('error', t('create.tokenRequired'))} <a href="/create-bot">${t('common.back')}</a>`, '/create-bot', t, lang))
   }
 
   const root = getProjectRoot()
   const botDir = resolve(root, 'bots', name)
 
   if (existsSync(botDir)) {
-    return c.html(layout('Create Bot', html`${alert('error', `Bot "${name}" already exists.`)} <a href="/create-bot">Back</a>`, '/create-bot'))
+    return c.html(layout(t('create.title'), html`${alert('error', t('config.botExists', { name }))} <a href="/create-bot">${t('common.back')}</a>`, '/create-bot', t, lang))
   }
 
   // Validate role if provided
   if (role) {
     const rolePath = resolve(getRolesDir(), `${role}.md`)
     if (!existsSync(rolePath)) {
-      return c.html(layout('Create Bot', html`${alert('error', `Role "${role}" not found.`)} <a href="/create-bot">Back</a>`, '/create-bot'))
+      return c.html(layout(t('create.title'), html`${alert('error', t('create.roleNotFound', { role }))} <a href="/create-bot">${t('common.back')}</a>`, '/create-bot', t, lang))
     }
   }
 
@@ -415,15 +420,16 @@ app.post('/create-bot', async (c) => {
     const description = roleInfo?.description || personality || `${displayName} bot`
     addToTeamJson(root, name, description)
 
+    const roleStr = role ? t('create.withRole', { role }) : ''
     const content = html`
-      ${alert('success', `Bot "${name}" created successfully${role ? ` with role "${role}"` : ''}!`)}
-      <h3>Next steps</h3>
+      ${alert('success', t('create.success', { name, role: roleStr }))}
+      <h3>${t('create.nextSteps')}</h3>
       <ol>
-        <li>Review and customize: <a href="/bot/${name}/config">${name} Config</a></li>
-        <li>Start the bot: go to <a href="/">Dashboard</a> and click Start</li>
-        <li>Send <code>/chatid</code> to your bot in Telegram to get the chat ID (if you didn't set it)</li>
+        <li>${t('create.reviewCustomize')} <a href="/bot/${name}/config">${name} ${t('botnav.config')}</a></li>
+        <li>${t('create.startBot')}</li>
+        <li>${t('create.getChatId')}</li>
       </ol>
-      <h3>Created files</h3>
+      <h3>${t('create.createdFiles')}</h3>
       <pre>bots/${name}/
   .env              -- Telegram token, API keys
   CLAUDE.md         -- Bot personality and instructions${role ? ` (role: ${role})` : ''}
@@ -436,15 +442,15 @@ app.post('/create-bot', async (c) => {
   store/
     botva.db   -- SQLite database (initialized)</pre>
       <div class="btn-group">
-        <a href="/bot/${name}/config" role="button">Configure ${name}</a>
-        <a href="/create-bot" role="button" class="secondary outline">Create another</a>
+        <a href="/bot/${name}/config" role="button">${t('create.configureBot', { name })}</a>
+        <a href="/create-bot" role="button" class="secondary outline">${t('create.createAnother')}</a>
       </div>
     `
 
-    return c.html(layout(`${name} Created`, content, '/create-bot'))
+    return c.html(layout(`${name} Created`, content, '/create-bot', t, lang))
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return c.html(layout('Create Bot', html`${alert('error', `Failed to create bot: ${msg}`)} <a href="/create-bot">Back</a>`, '/create-bot'))
+    return c.html(layout(t('create.title'), html`${alert('error', t('create.failed', { msg }))} <a href="/create-bot">${t('common.back')}</a>`, '/create-bot', t, lang))
   }
 })
 

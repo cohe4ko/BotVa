@@ -10,12 +10,17 @@ import { validateEnv, verifyTelegramToken } from '../env-validator.js'
 import { execSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, renameSync } from 'fs'
 import { resolve } from 'path'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const MODELS = [
-  { id: 'opus', label: 'Opus — Most capable' },
-  { id: 'sonnet', label: 'Sonnet — Balanced' },
-  { id: 'haiku', label: 'Haiku — Fast & light' },
-]
+function getModelLabels(t: TFunc) {
+  return [
+    { id: 'opus', label: t('config.opusDesc') },
+    { id: 'sonnet', label: t('config.sonnetDesc') },
+    { id: 'haiku', label: t('config.haikuDesc') },
+  ]
+}
+
+const MODEL_IDS = ['opus', 'sonnet', 'haiku']
 
 function getAgentSettings(name: string): { model: string; temperature: string } {
   try {
@@ -32,110 +37,114 @@ function getAgentSettings(name: string): { model: string; temperature: string } 
   }
 }
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 
 app.get('/bot/:name/config', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const envContent = readEnvRaw(name)
   const claudeContent = readClaudeMd(name)
   const status = getBotStatus(name)
+  const MODELS = getModelLabels(t)
 
   const agentSettings = getAgentSettings(name)
 
   const content = html`
-    ${botNav(name, 'config')}
+    ${botNav(name, 'config', t)}
     <div id="config-alerts"></div>
 
-    <h3>${icon('cpu')} Agent Settings</h3>
+    <h3>${icon('cpu')} ${t('config.agentSettings')}</h3>
     <form hx-post="/bot/${name}/config/agent" hx-target="#config-alerts" hx-swap="innerHTML">
       <div class="grid">
-        <label>Model
+        <label>${t('config.model')}
           <select name="model">
             ${MODELS.map(m => html`<option value="${m.id}" ${m.id === agentSettings.model ? 'selected' : ''}>${m.label}</option>`)}
           </select>
         </label>
-        <label>Temperature: <output id="temp-val">${agentSettings.temperature}</output>
+        <label>${t('config.temperature')}: <output id="temp-val">${agentSettings.temperature}</output>
           <input type="range" name="temperature" min="0" max="1" step="0.1" value="${agentSettings.temperature}"
             oninput="document.getElementById('temp-val').textContent=this.value">
           <small style="display:block;color:var(--pico-muted-color);margin-top:4px">
-            0 — strict, deterministic (code, math, data extraction)<br>
-            0.3–0.5 — balanced (analysis, summaries, structured answers)<br>
-            0.7–0.8 — creative writing, brainstorming<br>
-            1.0 — maximum creativity and variety
+            ${t('config.tempStrict')}<br>
+            ${t('config.tempBalanced')}<br>
+            ${t('config.tempCreative')}<br>
+            ${t('config.tempMax')}
           </small>
         </label>
       </div>
-      <button type="submit">Save Agent Settings</button>
+      <button type="submit">${t('config.saveAgent')}</button>
     </form>
 
-    <h3>${icon('file-key')} Environment</h3>
+    <h3>${icon('file-key')} ${t('config.environment')}</h3>
     <form hx-post="/bot/${name}/config/env" hx-target="#config-alerts" hx-swap="innerHTML">
       <textarea name="env" class="code" rows="15" style="width:100%">${envContent}</textarea>
       <div class="btn-group">
-        <button type="submit">Save .env</button>
-        <button type="button" hx-post="/bot/${name}/config/verify-token" hx-target="#config-alerts" hx-swap="innerHTML" class="outline">Verify Token</button>
-        ${status.running ? html`<button type="button" hx-post="/bot/${name}/restart" hx-target="#config-alerts" hx-swap="innerHTML" class="contrast outline">Restart bot</button>` : ''}
+        <button type="submit">${t('config.saveEnv')}</button>
+        <button type="button" hx-post="/bot/${name}/config/verify-token" hx-target="#config-alerts" hx-swap="innerHTML" class="outline">${t('config.verifyToken')}</button>
+        ${status.running ? html`<button type="button" hx-post="/bot/${name}/restart" hx-target="#config-alerts" hx-swap="innerHTML" class="contrast outline">${t('config.restartBot')}</button>` : ''}
       </div>
     </form>
 
-    <h3>${icon('file-pen')} Personality (CLAUDE.md)</h3>
+    <h3>${icon('file-pen')} ${t('config.personality')}</h3>
     <form hx-post="/bot/${name}/config/claude" hx-target="#config-alerts" hx-swap="innerHTML">
       <textarea name="claude" class="code" rows="20" style="width:100%">${claudeContent}</textarea>
-      <button type="submit">Save CLAUDE.md</button>
+      <button type="submit">${t('config.saveClaude')}</button>
     </form>
 
     <details style="margin-top:2rem">
-      <summary style="cursor:pointer">${icon('pencil')} Rename bot</summary>
+      <summary style="cursor:pointer">${icon('pencil')} ${t('config.rename')}</summary>
       <form method="POST" action="/bot/${name}/rename" style="margin-top:0.5rem">
         <div style="display:flex;gap:0.5rem;align-items:end">
-          <label style="flex:1">New name (lowercase, no spaces)
+          <label style="flex:1">${t('config.newName')}
             <input type="text" name="new_name" required pattern="[a-z][a-z0-9_-]*" placeholder="${name}"
-              title="Lowercase letters, digits, hyphens, underscores. Start with a letter.">
+              title="${t('config.nameHint')}">
           </label>
-          <button type="submit" style="margin-bottom:0">Rename</button>
+          <button type="submit" style="margin-bottom:0">${t('config.renameBtn')}</button>
         </div>
       </form>
     </details>
 
     <details style="margin-top:0.5rem">
-      <summary style="color:var(--pico-del-color);cursor:pointer">${icon('trash-2')} Delete bot</summary>
-      <p style="margin-top:0.5rem">Bot folder will be archived to <code>workspace/archive/</code> before deletion.</p>
-      <form method="POST" action="/bot/${name}/delete" onsubmit="return confirm('Delete bot ${name}? Archive will be saved to workspace/archive/')">
-        <button type="submit" class="secondary" style="background:var(--pico-del-color);border-color:var(--pico-del-color)">Archive & Delete ${name}</button>
+      <summary style="color:var(--pico-del-color);cursor:pointer">${icon('trash-2')} ${t('config.delete')}</summary>
+      <p style="margin-top:0.5rem">${t('config.deleteArchiveNote')}</p>
+      <form method="POST" action="/bot/${name}/delete" onsubmit="return confirm('${t('config.deleteConfirm', { name })}')">
+        <button type="submit" class="secondary" style="background:var(--pico-del-color);border-color:var(--pico-del-color)">${t('config.deleteBtn', { name })}</button>
       </form>
     </details>
   `
 
-  return c.html(layout(`${name} Config`, content, `/bot/${name}`))
+  return c.html(layout(`${name} ${t('botnav.config')}`, content, `/bot/${name}`, t, lang))
 })
 
 app.post('/bot/:name/config/agent', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
   const name = botName(c)
   const body = await c.req.parseBody()
   const model = String(body['model'] ?? 'sonnet')
   const temperature = String(body['temperature'] ?? '1')
   const chatId = readEnv(name)['ALLOWED_CHAT_ID'] ?? ''
   if (!chatId) {
-    return c.html(alert('warning', 'No ALLOWED_CHAT_ID set. Configure .env first.'))
+    return c.html(alert('warning', t('config.noChatId')))
   }
-  const validModels = MODELS.map(m => m.id)
-  if (!validModels.includes(model)) {
-    return c.html(alert('error', 'Invalid model.'))
+  if (!MODEL_IDS.includes(model)) {
+    return c.html(alert('error', t('config.invalidModel')))
   }
   const temp = parseFloat(temperature)
   if (isNaN(temp) || temp < 0 || temp > 1) {
-    return c.html(alert('error', 'Temperature must be 0-1.'))
+    return c.html(alert('error', t('config.tempRange')))
   }
   try {
     upsertSetting(name, chatId, 'model', model)
     upsertSetting(name, chatId, 'temperature', temperature)
   } catch {
-    return c.html(alert('warning', 'Agent settings not saved — bot has never been started (no database yet). Start the bot first.'))
+    return c.html(alert('warning', t('config.noDb')))
   }
-  return c.html(alert('success', `Agent settings saved: model=${model}, temperature=${temperature}`))
+  return c.html(alert('success', t('config.agentSaved', { model, temperature })))
 })
 
 app.post('/bot/:name/config/env', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
   const name = botName(c)
   const body = await c.req.parseBody()
   const envRaw = String(body['env'] ?? '')
@@ -156,46 +165,50 @@ app.post('/bot/:name/config/env', validateBot, async (c) => {
   if (errors.length > 0) {
     writeEnvRaw(name, envRaw) // Save anyway, but warn
     return c.html(html`
-      ${alert('warning', '.env saved with validation warnings:')}
+      ${alert('warning', t('config.envWarnings'))}
       <ul style="margin:0.5rem 0">
         ${errors.map(e => html`<li><b>${e.key}</b>: ${e.message}</li>`)}
       </ul>
-      <small>Restart required for changes to take effect.</small>
+      <small>${t('config.restartRequired')}</small>
     `)
   }
 
   writeEnvRaw(name, envRaw)
-  return c.html(alert('success', '.env saved. Restart required for changes to take effect.'))
+  return c.html(alert('success', t('config.envSaved')))
 })
 
 app.post('/bot/:name/config/verify-token', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
   const name = botName(c)
   const env = readEnv(name)
   const token = env['TELEGRAM_BOT_TOKEN']
   if (!token) {
-    return c.html(alert('error', 'No TELEGRAM_BOT_TOKEN in .env'))
+    return c.html(alert('error', t('config.noTelegramToken')))
   }
   const result = await verifyTelegramToken(token)
   if (result.ok) {
-    return c.html(alert('success', `Token valid: ${result.botName}`))
+    return c.html(alert('success', t('config.tokenValid', { name: result.botName ?? '' })))
   }
-  return c.html(alert('error', `Token invalid: ${result.error}`))
+  return c.html(alert('error', t('config.tokenInvalid', { error: result.error ?? '' })))
 })
 
 app.post('/bot/:name/config/claude', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
   const name = botName(c)
   const body = await c.req.parseBody()
   writeClaudeMd(name, String(body['claude'] ?? ''))
-  return c.html(alert('success', 'CLAUDE.md saved.'))
+  return c.html(alert('success', t('config.claudeSaved')))
 })
 
 app.post('/bot/:name/rename', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const body = await c.req.parseBody()
   const newName = String(body['new_name'] ?? '').toLowerCase().trim()
 
   if (!newName || !/^[a-z][a-z0-9_-]*$/.test(newName)) {
-    return c.html(layout('Rename Bot', html`${alert('error', 'Invalid name. Lowercase letters, digits, hyphens.')} <a href="/bot/${name}/config">Back</a>`, `/bot/${name}`))
+    return c.html(layout(t('config.rename'), html`${alert('error', t('config.invalidName'))} <a href="/bot/${name}/config">${t('common.back')}</a>`, `/bot/${name}`, t, lang))
   }
   if (newName === name) {
     return c.redirect(`/bot/${name}/config`)
@@ -206,7 +219,7 @@ app.post('/bot/:name/rename', validateBot, async (c) => {
   const newDir = resolve(root, 'bots', newName)
 
   if (existsSync(newDir)) {
-    return c.html(layout('Rename Bot', html`${alert('error', `Bot "${newName}" already exists.`)} <a href="/bot/${name}/config">Back</a>`, `/bot/${name}`))
+    return c.html(layout(t('config.rename'), html`${alert('error', t('config.botExists', { name: newName }))} <a href="/bot/${name}/config">${t('common.back')}</a>`, `/bot/${name}`, t, lang))
   }
 
   // Stop bot
@@ -234,6 +247,8 @@ app.post('/bot/:name/rename', validateBot, async (c) => {
 })
 
 app.post('/bot/:name/delete', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const name = botName(c)
   const root = getProjectRoot()
   const botDir = getBotDir(name)
@@ -243,7 +258,7 @@ app.post('/bot/:name/delete', validateBot, async (c) => {
   await new Promise(r => setTimeout(r, 500))
 
   // Archive
-  const archiveDir = resolve(root, 'workspace', 'archive')
+  const archiveDir = resolve(root, 'archive')
   mkdirSync(archiveDir, { recursive: true })
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const archiveName = `${name}_${ts}.tar.gz`
@@ -253,7 +268,7 @@ app.post('/bot/:name/delete', validateBot, async (c) => {
     execSync(`tar -czf "${archivePath}" -C "${resolve(root, 'bots')}" "${name}"`, { timeout: 30000 })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return c.html(layout('Delete Bot', html`${alert('error', `Archive failed: ${msg}`)} <a href="/bot/${name}/config">Back</a>`, `/bot/${name}`))
+    return c.html(layout(t('config.delete'), html`${alert('error', `Archive failed: ${msg}`)} <a href="/bot/${name}/config">${t('common.back')}</a>`, `/bot/${name}`, t, lang))
   }
 
   // Remove bot directory
@@ -270,12 +285,12 @@ app.post('/bot/:name/delete', validateBot, async (c) => {
   }
 
   const content = html`
-    ${alert('success', `Bot "${name}" archived and deleted.`)}
-    <p>Archive: <code>workspace/archive/${archiveName}</code></p>
-    <p>To restore: <code>tar -xzf workspace/archive/${archiveName} -C bots/</code></p>
-    <a href="/" role="button">Dashboard</a>
+    ${alert('success', t('config.botDeleted', { name }))}
+    <p>${t('config.archivePath', { archive: archiveName })}</p>
+    <p>${t('config.restoreHint', { archive: archiveName })}</p>
+    <a href="/" role="button">${t('nav.dashboard')}</a>
   `
-  return c.html(layout('Bot Deleted', content, '/'))
+  return c.html(layout(t('config.delete'), content, '/', t, lang))
 })
 
 export default app

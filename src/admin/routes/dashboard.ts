@@ -5,10 +5,13 @@ import { statusBadge, formatCost, formatTs } from '../views/components.js'
 import { getBotNames, getUsageSummary, getHealthMetrics } from '../db-multi.js'
 import { getBotStatus, startBot, stopBot, restartBot, getBotUptime, isSelf as isSelfBot } from '../bot-control.js'
 import { validateBot, botName } from '../bot-middleware.js'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 
 app.get('/', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
   const todayTs = Math.floor(todayStart.getTime() / 1000)
@@ -29,30 +32,30 @@ app.get('/', (c) => {
 
   const content = html`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
-      <h2 style="margin:0">${icon('layout-dashboard')} Dashboard</h2>
-      <a href="/create-bot" style="font-size:0.82rem">${icon('plus', 14)} Create bot</a>
+      <h2 style="margin:0">${icon('layout-dashboard')} ${t('dash.title')}</h2>
+      <a href="/create-bot" style="font-size:0.82rem">${icon('plus', 14)} ${t('dash.createBot')}</a>
     </div>
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">${icon('activity', 12)} Bots online</div>
+        <div class="stat-label">${icon('activity', 12)} ${t('dash.botsOnline')}</div>
         <div class="stat-number">${runningCount}<small style="font-size:0.55em;color:var(--mc-text-dim);font-weight:400"> / ${bots.length}</small></div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">${icon('message-square', 12)} Requests today</div>
+        <div class="stat-label">${icon('message-square', 12)} ${t('dash.requestsToday')}</div>
         <div class="stat-number">${totalRequests}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">${icon('credit-card', 12)} Cost today</div>
+        <div class="stat-label">${icon('credit-card', 12)} ${t('dash.costToday')}</div>
         <div class="stat-number">${formatCost(totalCost)}</div>
       </div>
     </div>
 
     ${bots.length > 0 ? html`
     <div class="btn-group" style="margin-bottom:1rem" id="bulk-controls">
-      <button hx-post="/bots/restart-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="Restart all bots?" class="btn-sm contrast outline">${icon('refresh-cw', 12)} Restart All</button>
-      <button hx-post="/bots/stop-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="Stop all bots?" class="btn-sm secondary outline">${icon('square', 12)} Stop All</button>
-      <button hx-post="/bots/start-all" hx-target="#bulk-controls" hx-swap="innerHTML" class="btn-sm outline">${icon('play', 12)} Start All</button>
+      <button hx-post="/bots/restart-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="${t('dash.confirmRestartAll')}" class="btn-sm contrast outline">${icon('refresh-cw', 12)} ${t('dash.restartAll')}</button>
+      <button hx-post="/bots/stop-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="${t('dash.confirmStopAll')}" class="btn-sm secondary outline">${icon('square', 12)} ${t('dash.stopAll')}</button>
+      <button hx-post="/bots/start-all" hx-target="#bulk-controls" hx-swap="innerHTML" class="btn-sm outline">${icon('play', 12)} ${t('dash.startAll')}</button>
     </div>
     ` : ''}
 
@@ -61,65 +64,65 @@ app.get('/', (c) => {
         <div class="card">
           <header>
             <span class="badge badge-${b.name}">${b.name}</span>
-            ${statusBadge(b.running)}
+            ${statusBadge(b.running, t)}
             ${b.pid ? html`<small style="margin-left:auto;color:var(--mc-text-dim)">PID ${b.pid}</small>` : ''}
           </header>
           <div class="card-stats">
             <div class="stat-row">
               <span class="icon">${icon('send', 12)}</span>
-              <span>Requests: <span class="stat-value">${b.usage.requests}</span></span>
+              <span>${t('dash.requests')}: <span class="stat-value">${b.usage.requests}</span></span>
               <span style="margin-left:0.5rem">${icon('credit-card', 12)}</span>
-              <span>Cost: <span class="stat-value">${formatCost(b.usage.costUSD)}</span></span>
+              <span>${t('dash.cost')}: <span class="stat-value">${formatCost(b.usage.costUSD)}</span></span>
             </div>
             ${b.uptime ? html`
               <div class="stat-row">
                 <span class="icon">${icon('timer', 12)}</span>
-                <span>Uptime: <span class="stat-value">${b.uptime}</span></span>
+                <span>${t('dash.uptime')}: <span class="stat-value">${b.uptime}</span></span>
               </div>
             ` : ''}
             ${b.health.lastActivity ? html`
               <div class="stat-row">
                 <span class="icon">${icon('clock', 12)}</span>
-                <span>Last: <span class="stat-value">${formatTs(b.health.lastActivity)}</span></span>
+                <span>${t('dash.last')}: <span class="stat-value">${formatTs(b.health.lastActivity)}</span></span>
               </div>
             ` : ''}
             ${b.health.avgResponseTimeMs !== null ? html`
               <div class="stat-row">
                 <span class="icon">${icon('zap', 12)}</span>
-                <span>Avg response: <span class="stat-value">${(b.health.avgResponseTimeMs / 1000).toFixed(1)}s</span></span>
+                <span>${t('dash.avgResponse')}: <span class="stat-value">${(b.health.avgResponseTimeMs / 1000).toFixed(1)}s</span></span>
               </div>
             ` : ''}
             ${b.health.errorCount24h > 0 ? html`
               <div class="stat-row">
                 <span class="icon">${icon('alert-triangle', 12)}</span>
-                <span class="stat-error">Errors 24h: ${b.health.errorCount24h}</span>
+                <span class="stat-error">${t('dash.errors24h')}: ${b.health.errorCount24h}</span>
               </div>
             ` : ''}
           </div>
           <div class="btn-group" id="controls-${b.name}">
             ${b.running
               ? html`
-                <button hx-post="/bot/${b.name}/stop" hx-target="#controls-${b.name}" hx-swap="outerHTML" class="btn-sm secondary outline">${icon('square', 11)} Stop</button>
-                <button hx-post="/bot/${b.name}/restart" hx-target="#controls-${b.name}" hx-swap="outerHTML" class="btn-sm contrast outline">${icon('refresh-cw', 11)} Restart</button>
+                <button hx-post="/bot/${b.name}/stop" hx-target="#controls-${b.name}" hx-swap="outerHTML" class="btn-sm secondary outline">${icon('square', 11)} ${t('dash.stop')}</button>
+                <button hx-post="/bot/${b.name}/restart" hx-target="#controls-${b.name}" hx-swap="outerHTML" class="btn-sm contrast outline">${icon('refresh-cw', 11)} ${t('dash.restart')}</button>
               `
               : html`
-                <button hx-post="/bot/${b.name}/start" hx-target="#controls-${b.name}" hx-swap="outerHTML" class="btn-sm outline">${icon('play', 11)} Start</button>
+                <button hx-post="/bot/${b.name}/start" hx-target="#controls-${b.name}" hx-swap="outerHTML" class="btn-sm outline">${icon('play', 11)} ${t('dash.start')}</button>
               `
             }
           </div>
           <div class="card-links">
-            <a href="/bot/${b.name}/config">${icon('settings', 11)} Config</a>
-            <a href="/bot/${b.name}/memories">${icon('brain', 11)} Memories</a>
-            <a href="/bot/${b.name}/usage">${icon('bar-chart-3', 11)} Usage</a>
-            <a href="/bot/${b.name}/audit">${icon('scroll-text', 11)} Audit</a>
-            <a href="/bot/${b.name}/logs">${icon('file-text', 11)} Logs</a>
+            <a href="/bot/${b.name}/config">${icon('settings', 11)} ${t('dash.config')}</a>
+            <a href="/bot/${b.name}/memories">${icon('brain', 11)} ${t('dash.memories')}</a>
+            <a href="/bot/${b.name}/usage">${icon('bar-chart-3', 11)} ${t('dash.usage')}</a>
+            <a href="/bot/${b.name}/audit">${icon('scroll-text', 11)} ${t('dash.audit')}</a>
+            <a href="/bot/${b.name}/logs">${icon('file-text', 11)} ${t('dash.logs')}</a>
           </div>
         </div>
       `)}
     </div>
   `
 
-  return c.html(layout('Dashboard', content, '/'))
+  return c.html(layout(t('dash.title'), content, '/', t, lang))
 })
 
 function refreshResponse(c: import('hono').Context) {

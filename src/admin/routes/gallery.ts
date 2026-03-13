@@ -3,12 +3,15 @@ import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { pagination, formatTs } from '../views/components.js'
 import { getGalleryImages, countGalleryImages, getBotNames } from '../db-multi.js'
+import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const PER_PAGE = 24
 
-const app = new Hono()
+const app = new Hono<I18nEnv>()
 
 app.get('/gallery', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
   const bot = c.req.query('bot') || undefined
   const total = countGalleryImages(bot)
@@ -20,23 +23,23 @@ app.get('/gallery', (c) => {
   const baseUrl = bot ? `/gallery?bot=${bot}` : '/gallery'
 
   const content = html`
-    <h2>${icon('image')} Gallery</h2>
+    <h2>${icon('image')} ${t('gallery.title')}</h2>
 
     <div class="filter-bar">
-      <label>Bot
+      <label>${t('gallery.bot')}
         <select onchange="location.href='/gallery'+(this.value ? '?bot='+this.value : '')">
-          <option value="">All bots</option>
+          <option value="">${t('gallery.allBots')}</option>
           ${bots.map(b => html`<option value="${b}" ${b === bot ? 'selected' : ''}>${b}</option>`)}
         </select>
       </label>
       <div style="flex:1"></div>
-      <small style="color:var(--mc-text-dim);align-self:center">${total} images</small>
+      <small style="color:var(--mc-text-dim);align-self:center">${total} ${t('gallery.images')}</small>
     </div>
 
     ${images.length === 0 ? html`
       <div class="empty-state">
         <div class="empty-icon"><i data-lucide="image-off" style="width:40px;height:40px"></i></div>
-        <p>No images yet</p>
+        <p>${t('gallery.noImages')}</p>
       </div>
     ` : html`
       <div class="gallery-grid">
@@ -92,7 +95,7 @@ app.get('/gallery', (c) => {
     </script>
   `
 
-  return c.html(layout('Gallery', content, '/gallery'))
+  return c.html(layout(t('gallery.title'), content, '/gallery', t, lang))
 })
 
 export default app
