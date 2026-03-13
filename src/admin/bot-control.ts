@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'fs'
+import { existsSync, readFileSync, statSync, openSync, mkdirSync } from 'fs'
 import { resolve } from 'path'
 import { spawn } from 'child_process'
 import { getBotDir, getProjectRoot, type BotName } from './db-multi.js'
@@ -72,11 +72,13 @@ export function isSelf(name: BotName): boolean {
 
 function spawnBot(name: BotName): void {
   const root = getProjectRoot()
+  const logPath = `/tmp/botva-${name}.log`
+  const logFd = openSync(logPath, 'a')
   const child = spawn('node', ['dist/index.js'], {
     cwd: root,
     env: { ...process.env, BOT_NAME: name },
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', logFd, logFd],
   })
   child.unref()
 }
