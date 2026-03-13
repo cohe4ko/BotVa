@@ -11,6 +11,7 @@ import { execSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, renameSync } from 'fs'
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
+import { createBackup } from '../../backup/engine.js'
 
 function getModelLabels(t: TFunc) {
   return [
@@ -54,8 +55,8 @@ app.get('/bot/:name/config', validateBot, (c) => {
     ${botNav(name, 'config', t)}
     <div id="config-alerts"></div>
 
-    <h3>${icon('cpu')} ${t('config.agentSettings')}</h3>
-    <form hx-post="/bot/${name}/config/agent" hx-target="#config-alerts" hx-swap="innerHTML">
+    <h3 class="section-title">${icon('cpu')} ${t('config.agentSettings')}</h3>
+    <form class="form-section" hx-post="/bot/${name}/config/agent" hx-target="#config-alerts" hx-swap="innerHTML">
       <div class="grid">
         <label>${t('config.model')}
           <select name="model">
@@ -65,53 +66,50 @@ app.get('/bot/:name/config', validateBot, (c) => {
         <label>${t('config.temperature')}: <output id="temp-val">${agentSettings.temperature}</output>
           <input type="range" name="temperature" min="0" max="1" step="0.1" value="${agentSettings.temperature}"
             oninput="document.getElementById('temp-val').textContent=this.value">
-          <small style="display:block;color:var(--pico-muted-color);margin-top:4px">
-            ${t('config.tempStrict')}<br>
-            ${t('config.tempBalanced')}<br>
-            ${t('config.tempCreative')}<br>
-            ${t('config.tempMax')}
-          </small>
+          <small>${t('config.tempStrict')}<br>${t('config.tempBalanced')}<br>${t('config.tempCreative')}<br>${t('config.tempMax')}</small>
         </label>
       </div>
-      <button type="submit">${t('config.saveAgent')}</button>
+      <button type="submit">${icon('save', 13)} ${t('config.saveAgent')}</button>
     </form>
 
-    <h3>${icon('file-key')} ${t('config.environment')}</h3>
-    <form hx-post="/bot/${name}/config/env" hx-target="#config-alerts" hx-swap="innerHTML">
-      <textarea name="env" class="code" rows="15" style="width:100%">${envContent}</textarea>
+    <h3 class="section-title">${icon('file-key')} ${t('config.environment')}</h3>
+    <form class="form-section" hx-post="/bot/${name}/config/env" hx-target="#config-alerts" hx-swap="innerHTML">
+      <textarea name="env" class="code" rows="15">${envContent}</textarea>
       <div class="btn-group">
-        <button type="submit">${t('config.saveEnv')}</button>
-        <button type="button" hx-post="/bot/${name}/config/verify-token" hx-target="#config-alerts" hx-swap="innerHTML" class="outline">${t('config.verifyToken')}</button>
-        ${status.running ? html`<button type="button" hx-post="/bot/${name}/restart" hx-target="#config-alerts" hx-swap="innerHTML" class="contrast outline">${t('config.restartBot')}</button>` : ''}
+        <button type="submit">${icon('save', 13)} ${t('config.saveEnv')}</button>
+        <button type="button" hx-post="/bot/${name}/config/verify-token" hx-target="#config-alerts" hx-swap="innerHTML" class="outline">${icon('shield-check', 13)} ${t('config.verifyToken')}</button>
+        ${status.running ? html`<button type="button" hx-post="/bot/${name}/restart" hx-target="#config-alerts" hx-swap="innerHTML" class="contrast outline">${icon('refresh-cw', 13)} ${t('config.restartBot')}</button>` : ''}
       </div>
     </form>
 
-    <h3>${icon('file-pen')} ${t('config.personality')}</h3>
-    <form hx-post="/bot/${name}/config/claude" hx-target="#config-alerts" hx-swap="innerHTML">
-      <textarea name="claude" class="code" rows="20" style="width:100%">${claudeContent}</textarea>
-      <button type="submit">${t('config.saveClaude')}</button>
+    <h3 class="section-title">${icon('file-pen')} ${t('config.personality')}</h3>
+    <form class="form-section" hx-post="/bot/${name}/config/claude" hx-target="#config-alerts" hx-swap="innerHTML">
+      <textarea name="claude" class="code" rows="20">${claudeContent}</textarea>
+      <button type="submit">${icon('save', 13)} ${t('config.saveClaude')}</button>
     </form>
 
-    <details style="margin-top:2rem">
-      <summary style="cursor:pointer">${icon('pencil')} ${t('config.rename')}</summary>
-      <form method="POST" action="/bot/${name}/rename" style="margin-top:0.5rem">
-        <div style="display:flex;gap:0.5rem;align-items:end">
-          <label style="flex:1">${t('config.newName')}
-            <input type="text" name="new_name" required pattern="[a-z][a-z0-9_-]*" placeholder="${name}"
-              title="${t('config.nameHint')}">
-          </label>
-          <button type="submit" style="margin-bottom:0">${t('config.renameBtn')}</button>
-        </div>
-      </form>
-    </details>
+    <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:1.5rem">
+      <details>
+        <summary>${icon('pencil')} ${t('config.rename')}</summary>
+        <form method="POST" action="/bot/${name}/rename">
+          <div style="display:flex;gap:0.5rem;align-items:end">
+            <label style="flex:1">${t('config.newName')}
+              <input type="text" name="new_name" required pattern="[a-z][a-z0-9_-]*" placeholder="${name}"
+                title="${t('config.nameHint')}">
+            </label>
+            <button type="submit">${icon('pencil', 13)} ${t('config.renameBtn')}</button>
+          </div>
+        </form>
+      </details>
 
-    <details style="margin-top:0.5rem">
-      <summary style="color:var(--pico-del-color);cursor:pointer">${icon('trash-2')} ${t('config.delete')}</summary>
-      <p style="margin-top:0.5rem">${t('config.deleteArchiveNote')}</p>
-      <form method="POST" action="/bot/${name}/delete" onsubmit="return confirm('${t('config.deleteConfirm', { name })}')">
-        <button type="submit" class="secondary" style="background:var(--pico-del-color);border-color:var(--pico-del-color)">${t('config.deleteBtn', { name })}</button>
-      </form>
-    </details>
+      <details class="danger">
+        <summary>${icon('trash-2')} ${t('config.delete')}</summary>
+        <p>${t('config.deleteArchiveNote')}</p>
+        <form method="POST" action="/bot/${name}/delete" onsubmit="return confirm('${t('config.deleteConfirm', { name })}')">
+          <button type="submit" class="danger">${icon('trash-2', 13)} ${t('config.deleteBtn', { name })}</button>
+        </form>
+      </details>
+    </div>
   `
 
   return c.html(layout(`${name} ${t('botnav.config')}`, content, `/bot/${name}`, t, lang))
@@ -257,18 +255,14 @@ app.post('/bot/:name/delete', validateBot, async (c) => {
   stopBot(name)
   await new Promise(r => setTimeout(r, 500))
 
-  // Archive
-  const archiveDir = resolve(root, 'archive')
-  mkdirSync(archiveDir, { recursive: true })
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const archiveName = `${name}_${ts}.tar.gz`
-  const archivePath = resolve(archiveDir, archiveName)
-
+  // Backup before delete
+  let backupFilename: string
   try {
-    execSync(`tar -czf "${archivePath}" -C "${resolve(root, 'bots')}" "${name}"`, { timeout: 30000 })
+    const info = createBackup({ type: 'bot', botName: name })
+    backupFilename = info.filename
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return c.html(layout(t('config.delete'), html`${alert('error', `Archive failed: ${msg}`)} <a href="/bot/${name}/config">${t('common.back')}</a>`, `/bot/${name}`, t, lang))
+    return c.html(layout(t('config.delete'), html`${alert('error', `Backup failed: ${msg}`)} <a href="/bot/${name}/config">${t('common.back')}</a>`, `/bot/${name}`, t, lang))
   }
 
   // Remove bot directory
@@ -286,8 +280,8 @@ app.post('/bot/:name/delete', validateBot, async (c) => {
 
   const content = html`
     ${alert('success', t('config.botDeleted', { name }))}
-    <p>${t('config.archivePath', { archive: archiveName })}</p>
-    <p>${t('config.restoreHint', { archive: archiveName })}</p>
+    <p>${t('config.backupPath', { filename: backupFilename })}</p>
+    <p>${t('config.restoreHint2')}</p>
     <a href="/" role="button">${t('nav.dashboard')}</a>
   `
   return c.html(layout(t('config.delete'), content, '/', t, lang))

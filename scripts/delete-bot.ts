@@ -1,13 +1,12 @@
 #!/usr/bin/env tsx
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs'
 import { resolve } from 'path'
-import { execSync } from 'child_process'
+import { createBackup } from '../src/backup/engine.js'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const BOTS_DIR = resolve(ROOT, 'bots')
 const TEAM_JSON = resolve(ROOT, 'workspace/team.json')
-const ARCHIVE_DIR = resolve(ROOT, 'archive')
 
 function main() {
   const args = process.argv.slice(2)
@@ -17,7 +16,7 @@ function main() {
     console.log(`
 Usage: npm run delete-bot -- <bot-name>
 
-Archives the bot folder to archive/ then deletes it.
+Creates a backup in backups/ then deletes the bot.
 `)
     process.exit(0)
   }
@@ -40,15 +39,10 @@ Archives the bot folder to archive/ then deletes it.
     } catch { /* not running */ }
   }
 
-  // Archive
-  mkdirSync(ARCHIVE_DIR, { recursive: true })
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const archiveName = `${slug}_${ts}.tar.gz`
-  const archivePath = resolve(ARCHIVE_DIR, archiveName)
-
-  console.log(`Archiving ${slug}...`)
-  execSync(`tar -czf "${archivePath}" -C "${BOTS_DIR}" "${slug}"`, { timeout: 30000 })
-  console.log(`  Saved to archive/${archiveName}`)
+  // Backup
+  console.log(`Backing up ${slug}...`)
+  const info = createBackup({ type: 'bot', botName: slug })
+  console.log(`  Saved to backups/${info.filename}`)
 
   // Delete
   rmSync(botDir, { recursive: true, force: true })
@@ -67,7 +61,7 @@ Archives the bot folder to archive/ then deletes it.
   }
 
   console.log(`\nBot "${slug}" deleted.`)
-  console.log(`To restore: tar -xzf archive/${archiveName} -C bots/`)
+  console.log(`To restore: ./scripts/deploy.sh restore backups/${info.filename}`)
 }
 
 main()

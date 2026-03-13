@@ -98,9 +98,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'config.nameHint': 'Lowercase letters, digits, hyphens, underscores. Start with a letter.',
     'config.renameBtn': 'Rename',
     'config.delete': 'Delete bot',
-    'config.deleteArchiveNote': 'Bot folder will be archived to `archive/` before deletion.',
-    'config.deleteConfirm': 'Delete bot {name}? Archive will be saved to archive/',
-    'config.deleteBtn': 'Archive & Delete {name}',
+    'config.deleteArchiveNote': 'Bot backup will be created in `backups/` before deletion.',
+    'config.deleteConfirm': 'Delete bot {name}? Backup will be saved to backups/',
+    'config.deleteBtn': 'Backup & Delete {name}',
     'config.noChatId': 'No ALLOWED_CHAT_ID set. Configure .env first.',
     'config.invalidModel': 'Invalid model.',
     'config.tempRange': 'Temperature must be 0-1.',
@@ -115,9 +115,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'config.claudeSaved': 'CLAUDE.md saved.',
     'config.invalidName': 'Invalid name. Lowercase letters, digits, hyphens.',
     'config.botExists': 'Bot "{name}" already exists.',
-    'config.botDeleted': 'Bot "{name}" archived and deleted.',
-    'config.archivePath': 'Archive: `archive/{archive}`',
-    'config.restoreHint': 'To restore: `tar -xzf archive/{archive} -C bots/`',
+    'config.botDeleted': 'Bot "{name}" backed up and deleted.',
+    'config.backupPath': 'Backup: `backups/{filename}`',
+    'config.restoreHint2': 'To restore: go to Backup page or use `./scripts/deploy.sh restore backups/<file>`',
 
     // Create bot
     'create.title': 'Create New Bot',
@@ -470,6 +470,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'diag.detectedModel': 'Detected model',
     'diag.builtinNote': 'Builtin tools (not included in probe, require Telegram context)',
     'diag.jsonParseFailed': 'Could not parse analysis as JSON. Raw output below:',
+    'diag.recommendations': 'Recommendations',
+    'diag.canDisable': 'Can be disabled',
+    'diag.skills': 'Skills',
 
     // Common
     'common.save': 'Save',
@@ -567,9 +570,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'config.nameHint': 'Маленькі літери, цифри, дефіси, підкреслення. Починається з літери.',
     'config.renameBtn': 'Перейменувати',
     'config.delete': 'Видалити бота',
-    'config.deleteArchiveNote': 'Папка бота буде заархівована в `archive/` перед видаленням.',
-    'config.deleteConfirm': 'Видалити бота {name}? Архів буде збережено в archive/',
-    'config.deleteBtn': 'Архівувати і видалити {name}',
+    'config.deleteArchiveNote': 'Бекап бота буде створено в `backups/` перед видаленням.',
+    'config.deleteConfirm': 'Видалити бота {name}? Бекап буде збережено в backups/',
+    'config.deleteBtn': 'Бекап і видалити {name}',
     'config.noChatId': 'ALLOWED_CHAT_ID не встановлено. Налаштуйте .env спочатку.',
     'config.invalidModel': 'Невірна модель.',
     'config.tempRange': 'Температура повинна бути 0-1.',
@@ -584,9 +587,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'config.claudeSaved': 'CLAUDE.md збережено.',
     'config.invalidName': 'Невірне ім\'я. Маленькі літери, цифри, дефіси.',
     'config.botExists': 'Бот "{name}" вже існує.',
-    'config.botDeleted': 'Бот "{name}" заархівований і видалений.',
-    'config.archivePath': 'Архів: `archive/{archive}`',
-    'config.restoreHint': 'Для відновлення: `tar -xzf archive/{archive} -C bots/`',
+    'config.botDeleted': 'Бот "{name}" збекаплений і видалений.',
+    'config.backupPath': 'Бекап: `backups/{filename}`',
+    'config.restoreHint2': 'Для відновлення: перейдіть на сторінку Бекап або `./scripts/deploy.sh restore backups/<файл>`',
 
     // Create bot
     'create.title': 'Створити нового бота',
@@ -939,6 +942,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'diag.detectedModel': 'Виявлена модель',
     'diag.builtinNote': 'Вбудовані інструменти (не включені в probe, потребують Telegram контексту)',
     'diag.jsonParseFailed': 'Не вдалось розпарсити аналіз як JSON. Сирий вивід нижче:',
+    'diag.recommendations': 'Рекомендації',
+    'diag.canDisable': 'Можна вимкнути',
+    'diag.skills': 'Скіли',
 
     // Common
     'common.save': 'Зберегти',
