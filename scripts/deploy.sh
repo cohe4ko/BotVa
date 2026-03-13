@@ -65,10 +65,10 @@ do_setup() {
 
   # Check bots directory
   if [ ${#BOTS[@]} -eq 0 ]; then
-    warn "No bots found in bots/. Create one:"
-    echo "  mkdir -p bots/mybot"
-    echo "  cp .env.example bots/mybot/.env"
-    echo "  # Edit bots/mybot/.env with your tokens"
+    warn "No bots configured yet. Starting admin panel for setup..."
+    echo ""
+    do_admin
+    return
   else
     info "Found bots: ${BOTS[*]}"
     echo ""
