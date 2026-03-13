@@ -63,11 +63,12 @@ BotVa/
 │   ├── admin/              # Web admin panel
 │   └── ...
 ├── roles/                  # Personality templates
-├── mcp-servers/            # MCP server integrations
-│   ├── bitrix24/           # Bitrix24 CRM
-│   ├── meta-ads-mcp/       # Meta/Facebook Ads
-│   ├── colleague/          # Inter-bot communication
-│   └── manager/            # Bot management tools
+├── mcp-servers/            # MCP server integrations (see below)
+│   ├── bitrix24/
+│   ├── meta-ads-mcp/
+│   ├── colleague/
+│   ├── manager/
+│   └── pubmed/
 ├── scripts/
 │   └── deploy.sh           # Deploy & management script
 ├── bots/                   # Bot configs & data (gitignored)
@@ -107,6 +108,18 @@ Each bot lives in `bots/<name>/` with its own `.env` file. See `.env.example` fo
 Assign a role to a bot by referencing it in `core/personality.md`. Available templates in `roles/`:
 
 `personal-assistant`, `manager`, `researcher`, `academic`, `creative`, `health-advisor`, `knowledge-base`, `planner`, `product-market`, `sales`, `webmaster`
+
+## MCP Servers
+
+During setup you can choose which MCP servers to install. All are optional.
+
+| Server | Language | Description |
+|--------|----------|-------------|
+| **bitrix24** | Node.js | Bitrix24 CRM — manage leads, contacts, deals, companies, tasks. Requires `BITRIX24_WEBHOOK_URL` |
+| **meta-ads-mcp** | Node.js | Meta Marketing API — create and manage Facebook/Instagram ad campaigns, audiences, analytics. Requires `META_ACCESS_TOKEN` |
+| **colleague** | Node.js | Inter-bot communication — lets bots ask each other questions via Unix sockets. Used for multi-bot teamwork |
+| **manager** | Node.js | Manager bot coordination — allows a designated manager bot to delegate tasks and collect reports from other bots |
+| **pubmed** | Python | PubMed article search — keyword and advanced search, article metadata, PDF download, deep paper analysis. Requires Python 3 |
 
 ## Admin Panel
 

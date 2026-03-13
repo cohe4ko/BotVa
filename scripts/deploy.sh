@@ -56,9 +56,29 @@ do_setup() {
   # Build MCP servers
   echo -e "\n${BOLD}MCP Servers (optional integrations):${NC}"
 
+  # Descriptions for known MCP servers
+  mcp_desc() {
+    case "$1" in
+      bitrix24)     echo "Bitrix24 CRM — leads, contacts, deals, companies" ;;
+      meta-ads-mcp) echo "Meta Ads — Facebook/Instagram ad campaigns" ;;
+      colleague)    echo "Inter-bot communication via Unix sockets" ;;
+      manager)      echo "Manager bot coordination tools" ;;
+      pubmed)       echo "PubMed article search & analysis (Python)" ;;
+      *)            echo "" ;;
+    esac
+  }
+
   AVAILABLE_MCP=()
+  MCP_TYPES=()
   for mcp in mcp-servers/*/; do
-    [ -f "$mcp/package.json" ] && AVAILABLE_MCP+=("$(basename "$mcp")")
+    name=$(basename "$mcp")
+    if [ -f "$mcp/package.json" ]; then
+      AVAILABLE_MCP+=("$name")
+      MCP_TYPES+=("node")
+    elif [ -f "$mcp/requirements.txt" ]; then
+      AVAILABLE_MCP+=("$name")
+      MCP_TYPES+=("python")
+    fi
   done
 
   if [ ${#AVAILABLE_MCP[@]} -eq 0 ]; then
@@ -66,8 +86,10 @@ do_setup() {
   else
     echo ""
     for i in "${!AVAILABLE_MCP[@]}"; do
-      echo "  $((i+1)). ${AVAILABLE_MCP[$i]}"
+      desc=$(mcp_desc "${AVAILABLE_MCP[$i]}")
+      echo "  $((i+1)). ${AVAILABLE_MCP[$i]}  ${YELLOW}— ${desc}${NC}"
     done
+    echo ""
     echo "  a. All"
     echo "  s. Skip"
     echo ""
@@ -78,23 +100,36 @@ do_setup() {
     else
       if [ "$mcp_choice" = "a" ]; then
         SELECTED_MCP=("${AVAILABLE_MCP[@]}")
+        SELECTED_TYPES=("${MCP_TYPES[@]}")
       else
         SELECTED_MCP=()
+        SELECTED_TYPES=()
         for num in $mcp_choice; do
           idx=$((num - 1))
           if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#AVAILABLE_MCP[@]}" ]; then
             SELECTED_MCP+=("${AVAILABLE_MCP[$idx]}")
+            SELECTED_TYPES+=("${MCP_TYPES[$idx]}")
           fi
         done
       fi
 
       echo ""
-      for name in "${SELECTED_MCP[@]}"; do
+      for i in "${!SELECTED_MCP[@]}"; do
+        name="${SELECTED_MCP[$i]}"
+        type="${SELECTED_TYPES[$i]}"
         echo "  Building $name..."
-        if (cd "mcp-servers/$name" && npm install && npm run build) 2>&1; then
-          info "MCP: $name"
+        if [ "$type" = "python" ]; then
+          if (cd "mcp-servers/$name" && python3 -m venv venv && ./venv/bin/pip install -q -r requirements.txt) 2>&1; then
+            info "MCP: $name (Python)"
+          else
+            err "MCP: $name failed to install"
+          fi
         else
-          err "MCP: $name failed to build"
+          if (cd "mcp-servers/$name" && npm install && npm run build) 2>&1; then
+            info "MCP: $name"
+          else
+            err "MCP: $name failed to build"
+          fi
         fi
       done
     fi
