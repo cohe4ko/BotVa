@@ -87,10 +87,11 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'RestoreBackup', icon: 'rotate-ccw', category: 'backup', description: 'Restore from backup', available: true },
     { name: 'DeleteBackup', icon: 'trash-2', category: 'backup', description: 'Delete backup file', available: true },
     // Memory
-    { name: 'SaveFact', icon: 'bookmark', category: 'memory', description: 'Save a structured fact or event to memory', available: true },
-    { name: 'SearchMemory', icon: 'brain', category: 'memory', description: 'Search memory by keywords and topic', available: true },
+    { name: 'SaveFact', icon: 'bookmark', category: 'memory', description: 'Save a structured fact or event to permanent memory', available: true },
+    { name: 'SearchMemory', icon: 'brain', category: 'memory', description: 'Search permanent memory by keywords and topic', available: true },
     { name: 'ListMemoryTopics', icon: 'tags', category: 'memory', description: 'List all memory topics with counts', available: true },
-    { name: 'DeleteMemory', icon: 'eraser', category: 'memory', description: 'Delete a specific memory by ID', available: true },
+    { name: 'UpdateFact', icon: 'edit', category: 'memory', description: 'Update an existing fact', available: true },
+    { name: 'DeleteFact', icon: 'eraser', category: 'memory', description: 'Delete a fact by ID', available: true },
     // Email
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
@@ -501,25 +502,25 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  // --- Memory tools (absolute memory) ---
+  // --- Facts (absolute long-term memory, no decay) ---
 
   const chatIdStr = String(chatId)
 
   if (isOn('SaveFact')) tools.push(
     tool(
       'SaveFact',
-      'Save an important fact or event to your long-term memory. Use this PROACTIVELY whenever the user shares personal information, preferences, important dates, decisions, or anything worth remembering. Write clean, searchable content — not raw conversation. Always assign a topic for organization.',
+      'Save an important fact or event to your permanent long-term memory. Use this PROACTIVELY whenever the user shares personal information, preferences, important dates, decisions, or anything worth remembering. These facts NEVER decay or disappear — they are your absolute memory. Write clean, searchable content. Always assign a topic.',
       {
-        content: z.string().describe('Clean, concise fact or event description. Write it as a standalone statement, not a conversation snippet. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin" or "Decided to switch from React to Vue for the dashboard project"'),
-        topic: z.string().describe('Topic category for organization and filtering. Use lowercase, consistent naming. Examples: health, work, family, preferences, finance, travel, goals, projects, contacts'),
-        sector: z.enum(['semantic', 'episodic']).describe('"semantic" for permanent facts (name, preferences, allergies). "episodic" for events and decisions (meetings, conversations, milestones)'),
+        content: z.string().describe('Clean, concise fact or event. Write as a standalone statement. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin" or "Decided to switch from React to Vue for the dashboard"'),
+        topic: z.string().describe('Topic category (lowercase). Examples: health, work, family, preferences, finance, travel, goals, projects, contacts, food, hobbies'),
+        sector: z.enum(['semantic', 'episodic']).describe('"semantic" for permanent facts (name, preferences, allergies). "episodic" for events and decisions (meetings, milestones, conversations)'),
       },
       async (args) => {
         usedTools.add('SaveFact')
         try {
-          const { insertMemory } = await import('./db.js')
-          insertMemory(chatIdStr, args.content, args.sector, args.topic)
-          return { content: [{ type: 'text' as const, text: `Saved to memory [${args.topic}]: ${args.content}` }] }
+          const { insertFact } = await import('./db.js')
+          const id = insertFact(chatIdStr, args.content, args.topic, args.sector)
+          return { content: [{ type: 'text' as const, text: `Saved fact #${id} [${args.topic}]: ${args.content}` }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'SaveFact tool failed')
@@ -532,40 +533,38 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
   if (isOn('SearchMemory')) tools.push(
     tool(
       'SearchMemory',
-      'Search your memory for facts, events, or past conversations. Use this when the user asks about something discussed before, when you need to recall specific details, or when automatic memory context is not enough. You can search by keywords, filter by topic, or both.',
+      'Search your long-term memory for facts and events. Use when the user asks about something discussed before, or when you need to recall specific details. Search by keywords, filter by topic, or both.',
       {
         query: z.string().optional().describe('Keywords to search for (e.g. "birthday", "project deadline"). Omit to browse by topic only'),
-        topic: z.string().optional().describe('Filter by topic (e.g. "health", "work", "family"). Omit to search all topics'),
-        limit: z.number().optional().describe('Max results to return (default 10)'),
+        topic: z.string().optional().describe('Filter by topic (e.g. "health", "work"). Omit to search all topics'),
+        limit: z.number().optional().describe('Max results (default 10)'),
       },
       async (args) => {
         usedTools.add('SearchMemory')
         try {
-          const { searchMemories, getMemoriesByTopic, touchMemory } = await import('./db.js')
+          const { searchFacts, getFactsByTopic } = await import('./db.js')
           const limit = args.limit ?? 10
           let results
 
           if (args.query) {
-            results = searchMemories(chatIdStr, args.query, limit, args.topic)
+            results = searchFacts(chatIdStr, args.query, limit, args.topic)
           } else if (args.topic) {
-            results = getMemoriesByTopic(chatIdStr, args.topic, limit)
+            results = getFactsByTopic(chatIdStr, args.topic, limit)
           } else {
-            return { content: [{ type: 'text' as const, text: 'Provide query, topic, or both to search memory' }], isError: true }
+            return { content: [{ type: 'text' as const, text: 'Provide query, topic, or both to search' }], isError: true }
           }
 
           if (!results || results.length === 0) {
             const ctx = [args.query && `"${args.query}"`, args.topic && `topic:${args.topic}`].filter(Boolean).join(', ')
-            return { content: [{ type: 'text' as const, text: `No memories found for ${ctx}` }] }
+            return { content: [{ type: 'text' as const, text: `No facts found for ${ctx}` }] }
           }
 
-          for (const m of results) touchMemory(m.id)
-          const lines = results.map(m => {
-            const date = new Date(m.created_at * 1000).toISOString().slice(0, 10)
-            const sector = m.sector === 'semantic' ? 'fact' : 'event'
-            const topic = m.topic_key ? `[${m.topic_key}]` : ''
-            return `#${m.id} ${topic} [${date}] (${sector}) ${m.content}`
+          const lines = results.map(f => {
+            const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
+            const sector = f.sector === 'semantic' ? 'fact' : 'event'
+            return `#${f.id} [${f.topic}] [${date}] (${sector}) ${f.content}`
           })
-          return { content: [{ type: 'text' as const, text: `Found ${results.length} memories:\n\n${lines.join('\n\n')}` }] }
+          return { content: [{ type: 'text' as const, text: `Found ${results.length} facts:\n\n${lines.join('\n\n')}` }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'SearchMemory tool failed')
@@ -578,19 +577,19 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
   if (isOn('ListMemoryTopics')) tools.push(
     tool(
       'ListMemoryTopics',
-      'List all topics in your memory with fact counts. Use this to understand what you remember and where to search.',
+      'List all topics in your long-term memory with fact counts. Use to understand what you know and where to search.',
       {},
       async () => {
         usedTools.add('ListMemoryTopics')
         try {
-          const { getMemoryTopics } = await import('./db.js')
-          const topics = getMemoryTopics(chatIdStr)
+          const { getFactTopics } = await import('./db.js')
+          const topics = getFactTopics(chatIdStr)
           if (topics.length === 0) {
-            return { content: [{ type: 'text' as const, text: 'No topics in memory yet. Use SaveFact to start building your knowledge base.' }] }
+            return { content: [{ type: 'text' as const, text: 'No topics yet. Use SaveFact to start building your knowledge base.' }] }
           }
           const lines = topics.map(t => {
             const date = new Date(t.latest * 1000).toISOString().slice(0, 10)
-            return `${t.topic}: ${t.count} memories (latest: ${date})`
+            return `${t.topic}: ${t.count} facts (latest: ${date})`
           })
           return { content: [{ type: 'text' as const, text: `Memory topics:\n\n${lines.join('\n')}` }] }
         } catch (err) {
@@ -602,25 +601,51 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  if (isOn('DeleteMemory')) tools.push(
+  if (isOn('UpdateFact')) tools.push(
     tool(
-      'DeleteMemory',
-      'Delete a specific memory by its ID. Use this to remove outdated, incorrect, or duplicate memories. Get the ID from SearchMemory results.',
+      'UpdateFact',
+      'Update the content of an existing fact. Use when information has changed (e.g. new phone number, changed job, updated preference). Get the ID from SearchMemory.',
       {
-        id: z.number().describe('Memory ID to delete (shown as #ID in SearchMemory results)'),
+        id: z.number().describe('Fact ID to update (from SearchMemory results)'),
+        content: z.string().describe('New content for the fact'),
       },
       async (args) => {
-        usedTools.add('DeleteMemory')
+        usedTools.add('UpdateFact')
         try {
-          const { deleteMemory } = await import('./db.js')
-          const deleted = deleteMemory(args.id, chatIdStr)
-          if (deleted) {
-            return { content: [{ type: 'text' as const, text: `Memory #${args.id} deleted` }] }
+          const { updateFact } = await import('./db.js')
+          const updated = updateFact(args.id, chatIdStr, args.content)
+          if (updated) {
+            return { content: [{ type: 'text' as const, text: `Fact #${args.id} updated: ${args.content}` }] }
           }
-          return { content: [{ type: 'text' as const, text: `Memory #${args.id} not found` }], isError: true }
+          return { content: [{ type: 'text' as const, text: `Fact #${args.id} not found` }], isError: true }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'DeleteMemory tool failed')
+          logger.error({ err }, 'UpdateFact tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  if (isOn('DeleteFact')) tools.push(
+    tool(
+      'DeleteFact',
+      'Delete a fact from long-term memory by ID. Use to remove outdated, incorrect, or duplicate facts.',
+      {
+        id: z.number().describe('Fact ID to delete (from SearchMemory results)'),
+      },
+      async (args) => {
+        usedTools.add('DeleteFact')
+        try {
+          const { deleteFact } = await import('./db.js')
+          const deleted = deleteFact(args.id, chatIdStr)
+          if (deleted) {
+            return { content: [{ type: 'text' as const, text: `Fact #${args.id} deleted` }] }
+          }
+          return { content: [{ type: 'text' as const, text: `Fact #${args.id} not found` }], isError: true }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'DeleteFact tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }

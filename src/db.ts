@@ -157,6 +157,49 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_imagen_created ON imagen_usage(created_at)
   `)
 
+  // Facts — long-term structured memory (no decay)
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS facts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      content TEXT NOT NULL,
+      sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic')),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_facts_chat_topic ON facts(chat_id, topic)
+  `)
+
+  d.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
+      content,
+      content_rowid='id'
+    )
+  `)
+
+  d.exec(`
+    CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
+      INSERT INTO facts_fts(rowid, content) VALUES (new.id, new.content);
+    END
+  `)
+
+  d.exec(`
+    CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
+      INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', old.id, old.content);
+    END
+  `)
+
+  d.exec(`
+    CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE OF content ON facts BEGIN
+      INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', old.id, old.content);
+      INSERT INTO facts_fts(rowid, content) VALUES (new.id, new.content);
+    END
+  `)
+
   logger.info('Database initialized')
 }
 
@@ -257,25 +300,86 @@ export function clearMemories(chatId: string): void {
   getDb().prepare('DELETE FROM memories WHERE chat_id = ?').run(chatId)
 }
 
-export function getMemoryTopics(chatId: string): { topic: string; count: number; latest: number }[] {
+// --- Facts (long-term structured memory, no decay) ---
+
+export interface Fact {
+  id: number
+  chat_id: string
+  topic: string
+  content: string
+  sector: 'semantic' | 'episodic'
+  created_at: number
+  updated_at: number
+}
+
+export function insertFact(chatId: string, content: string, topic: string, sector: 'semantic' | 'episodic'): number {
+  const now = Math.floor(Date.now() / 1000)
+  const result = getDb().prepare(
+    'INSERT INTO facts (chat_id, topic, content, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(chatId, topic, content, sector, now, now)
+  return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+}
+
+export function updateFact(id: number, chatId: string, content: string): boolean {
+  const now = Math.floor(Date.now() / 1000)
+  const result = getDb().prepare(
+    'UPDATE facts SET content = ?, updated_at = ? WHERE id = ? AND chat_id = ?'
+  ).run(content, now, id, chatId)
+  return (result as unknown as { changes: number }).changes > 0
+}
+
+export function deleteFact(id: number, chatId: string): boolean {
+  const result = getDb().prepare('DELETE FROM facts WHERE id = ? AND chat_id = ?').run(id, chatId)
+  return (result as unknown as { changes: number }).changes > 0
+}
+
+export function searchFacts(chatId: string, query: string, limit = 10, topic?: string): Fact[] {
+  const sanitized = query.replace(/[^\w\s\u0400-\u04FF]/g, '').trim()
+  if (!sanitized) return []
+
+  const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
+  try {
+    if (topic) {
+      return getDb().prepare(`
+        SELECT f.* FROM facts f
+        JOIN facts_fts ff ON ff.rowid = f.id
+        WHERE facts_fts MATCH ? AND f.chat_id = ? AND f.topic = ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(ftsQuery, chatId, topic, limit) as unknown as Fact[]
+    }
+    return getDb().prepare(`
+      SELECT f.* FROM facts f
+      JOIN facts_fts ff ON ff.rowid = f.id
+      WHERE facts_fts MATCH ? AND f.chat_id = ?
+      ORDER BY rank
+      LIMIT ?
+    `).all(ftsQuery, chatId, limit) as unknown as Fact[]
+  } catch {
+    return []
+  }
+}
+
+export function getFactsByTopic(chatId: string, topic: string, limit = 50): Fact[] {
+  return getDb().prepare(
+    'SELECT * FROM facts WHERE chat_id = ? AND topic = ? ORDER BY created_at DESC LIMIT ?'
+  ).all(chatId, topic, limit) as unknown as Fact[]
+}
+
+export function getFactTopics(chatId: string): { topic: string; count: number; latest: number }[] {
   return getDb().prepare(`
-    SELECT topic_key AS topic, COUNT(*) AS count, MAX(created_at) AS latest
-    FROM memories
-    WHERE chat_id = ? AND topic_key IS NOT NULL AND topic_key != ''
-    GROUP BY topic_key
+    SELECT topic, COUNT(*) AS count, MAX(updated_at) AS latest
+    FROM facts
+    WHERE chat_id = ?
+    GROUP BY topic
     ORDER BY latest DESC
   `).all(chatId) as unknown as { topic: string; count: number; latest: number }[]
 }
 
-export function deleteMemory(id: number, chatId: string): boolean {
-  const result = getDb().prepare('DELETE FROM memories WHERE id = ? AND chat_id = ?').run(id, chatId)
-  return (result as unknown as { changes: number }).changes > 0
-}
-
-export function getMemoriesByTopic(chatId: string, topic: string, limit = 20): Memory[] {
+export function getAllFacts(chatId: string, limit = 50): Fact[] {
   return getDb().prepare(
-    'SELECT * FROM memories WHERE chat_id = ? AND topic_key = ? ORDER BY created_at DESC LIMIT ?'
-  ).all(chatId, topic, limit) as unknown as Memory[]
+    'SELECT * FROM facts WHERE chat_id = ? ORDER BY updated_at DESC LIMIT ?'
+  ).all(chatId, limit) as unknown as Fact[]
 }
 
 // --- Scheduler ---
