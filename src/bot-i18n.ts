@@ -10,7 +10,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'auth.noReply': '(no reply)',
 
     // Start / Help
-    'cmd.start': "BotVa online.\n\nYour chat ID: <code>{chatId}</code>\n\n/chatid -- show chat ID\n/newchat -- new session\n/cancel -- cancel current request\n/model -- switch AI model\n/memory -- recent memories\n/voice -- toggle voice replies\n/usage -- usage stats (hour/day/week)\n/stats -- toggle stats footer\n/img -- generate image\nPhoto + /edit -- edit image\n/lang -- switch language\n/admin -- admin panel",
+    'cmd.start': "BotVa online.\n\nYour chat ID: <code>{chatId}</code>\n\n/new -- new session\n/cancel -- cancel current request\n/model -- switch AI model\n/memory -- recent memories\n/usage -- usage stats\n/settings -- voice, language, style & more\n/admin -- admin panel",
     'cmd.chatid': 'Your chat ID: <code>{chatId}</code>',
 
     // Session
@@ -43,14 +43,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.stats.off': 'Stats footer under messages OFF.',
     'cmd.stats.on': 'Stats footer under messages ON.',
 
-    // Schedule
-    'cmd.schedule.help': 'Usage:\n/schedule create "prompt" "cron"\n/schedule list\n/schedule delete <id>\n/schedule pause <id>\n/schedule resume <id>',
-    'cmd.schedule.cli': 'Use CLI: node dist/schedule-cli.js {args}',
-
-    // Image
-    'cmd.img.usage': 'Usage: /img <image description>',
-    'cmd.img.fail': 'Failed to generate image.',
-    'cmd.img.error': 'Generation error: {err}',
+    // Edit (photo caption)
     'cmd.edit.usage': 'Add description of changes: /edit <description>',
     'cmd.edit.fail': 'Failed to edit image.',
     'cmd.edit.error': 'Editing error: {err}',
@@ -173,21 +166,26 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Consolidation
     'consolidate.done': '🧠 Memory consolidation for {date} complete.',
 
+    // Settings
+    'cmd.settings.title': 'Settings',
+    'settings.voice.on': '🗣 Voice: ON',
+    'settings.voice.off': '🗣 Voice: OFF',
+    'settings.stats.on': '📊 Stats: ON',
+    'settings.stats.off': '📊 Stats: OFF',
+    'settings.lang': '🌐 {label}',
+    'settings.style': '🎨 {label}',
+    'settings.delay': '⏱ {label}',
+    'settings.team': '👥 {label}',
+
     // Bot commands menu
     'menu.start': 'Start',
-    'menu.newchat': 'New session (clear context)',
+    'menu.new': 'New session (clear context)',
     'menu.cancel': 'Cancel current request',
-    'menu.voice': 'Toggle voice replies',
-    'menu.usage': 'Usage stats',
-    'menu.stats': 'Toggle stats footer',
+    'menu.model': 'Switch AI model',
     'menu.memory': 'Show recent memories',
-    'menu.img': 'Generate image',
-    'menu.delay': 'Progress cleanup delay',
-    'menu.style': 'Progress style (blonde/brunette)',
-    'menu.chatid': 'Show chat ID',
-    'menu.show_team_work': 'Team work visibility',
+    'menu.usage': 'Usage stats',
+    'menu.settings': 'Settings',
     'menu.admin': 'Start/stop admin panel',
-    'menu.lang': 'Switch language',
   },
 
   uk: {
@@ -196,7 +194,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'auth.noReply': '(без відповіді)',
 
     // Start / Help
-    'cmd.start': "BotVa на зв'язку.\n\nТвій chat ID: <code>{chatId}</code>\n\n/chatid -- показати chat ID\n/newchat -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/memory -- останні спогади\n/voice -- перемкнути голосові відповіді\n/usage -- використання за годину/добу/тиждень\n/stats -- перемкнути статистику під повідомленнями\n/img -- згенерувати зображення\nФото + /edit -- відредагувати зображення\n/lang -- змінити мову\n/admin -- адмін панель",
+    'cmd.start': "BotVa на зв'язку.\n\nТвій chat ID: <code>{chatId}</code>\n\n/new -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/memory -- останні спогади\n/usage -- статистика використання\n/settings -- голос, мова, стиль та інше\n/admin -- адмін панель",
     'cmd.chatid': 'Твій chat ID: <code>{chatId}</code>',
 
     // Session
@@ -229,14 +227,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.stats.off': 'Статистика під повідомленнями ВИМКНЕНА.',
     'cmd.stats.on': 'Статистика під повідомленнями УВІМКНЕНА.',
 
-    // Schedule
-    'cmd.schedule.help': 'Використання:\n/schedule create "промпт" "cron"\n/schedule list\n/schedule delete <id>\n/schedule pause <id>\n/schedule resume <id>',
-    'cmd.schedule.cli': 'Використай CLI: node dist/schedule-cli.js {args}',
-
-    // Image
-    'cmd.img.usage': 'Використання: /img <опис зображення>',
-    'cmd.img.fail': 'Не вдалося згенерувати зображення.',
-    'cmd.img.error': 'Помилка генерації: {err}',
+    // Edit (photo caption)
     'cmd.edit.usage': 'Додай опис що змінити: /edit <опис>',
     'cmd.edit.fail': 'Не вдалося відредагувати зображення.',
     'cmd.edit.error': 'Помилка редагування: {err}',
@@ -359,21 +350,26 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Consolidation
     'consolidate.done': '🧠 Консолідація пам\'яті за {date} завершена.',
 
+    // Settings
+    'cmd.settings.title': 'Налаштування',
+    'settings.voice.on': '🗣 Голос: УВІМК',
+    'settings.voice.off': '🗣 Голос: ВИМК',
+    'settings.stats.on': '📊 Статистика: УВІМК',
+    'settings.stats.off': '📊 Статистика: ВИМК',
+    'settings.lang': '🌐 {label}',
+    'settings.style': '🎨 {label}',
+    'settings.delay': '⏱ {label}',
+    'settings.team': '👥 {label}',
+
     // Bot commands menu
     'menu.start': 'Почати роботу',
-    'menu.newchat': 'Нова сесія (очистити контекст)',
+    'menu.new': 'Нова сесія (очистити контекст)',
     'menu.cancel': 'Скасувати поточний запит',
-    'menu.voice': 'Увімк/вимк голосові відповіді',
-    'menu.usage': 'Статистика використання',
-    'menu.stats': 'Увімк/вимк статистику під повідомленнями',
+    'menu.model': 'Змінити модель AI',
     'menu.memory': 'Показати останні спогади',
-    'menu.img': 'Згенерувати зображення',
-    'menu.delay': 'Затримка видалення прогресу',
-    'menu.style': 'Стиль прогресу (блондинка/брюнетка)',
-    'menu.chatid': 'Показати chat ID',
-    'menu.show_team_work': 'Видимість командної роботи',
+    'menu.usage': 'Статистика використання',
+    'menu.settings': 'Налаштування',
     'menu.admin': 'Запустити/зупинити адмін панель',
-    'menu.lang': 'Змінити мову',
   },
 }
 

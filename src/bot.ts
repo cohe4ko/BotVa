@@ -18,7 +18,7 @@ import { ProgressReporter } from './progress-reporter.js'
 import { isStaleMessage } from './stale-filter.js'
 import { isDuplicate, markProcessed } from './deduplication.js'
 import { shouldUseTelegraph, createTelegraphPage } from './telegraph.js'
-import { generateImage, editImage } from './imagen.js'
+import { editImage } from './imagen.js'
 import { getModel, setModel, MODELS, getModelLabel } from './model.js'
 import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
@@ -449,6 +449,50 @@ export function createBot(): Bot {
 
   const bot = new Bot(TELEGRAM_BOT_TOKEN)
 
+  // --- Settings options (shared between command & callback handlers) ---
+  const STYLE_OPTIONS = [
+    { id: 'brunette', labelKey: 'style.brunette.label' },
+    { id: 'blonde', labelKey: 'style.blonde.label' },
+  ]
+  const DELAY_OPTIONS = [
+    { id: '0', label: '0с' },
+    { id: '15', label: '15с' },
+    { id: '30', label: '30с' },
+    { id: '60', label: '60с' },
+    { id: 'inf', label: '∞' },
+  ]
+  const TEAM_OPTIONS = [
+    { id: 'all', labelKey: 'teamwork.all.label' },
+    { id: 'result', labelKey: 'teamwork.result.label' },
+    { id: 'none', labelKey: 'teamwork.none.label' },
+  ]
+
+  function buildSettingsMessage(chatId: string) {
+    const t = chatT(chatId)
+    const voiceOn = getChatSetting(chatId, 'voice') === '1'
+    const statsOn = getChatSetting(chatId, 'stats') === '1'
+    const lang = getChatLang(chatId)
+    const style = getChatSetting(chatId, 'progress_style') ?? 'brunette'
+    const delay = getChatSetting(chatId, 'progress_delay') ?? '0'
+    const team = getChatSetting(chatId, 'show_team_work') ?? 'none'
+
+    const styleLabel = t(STYLE_OPTIONS.find(o => o.id === style)?.labelKey ?? 'style.brunette.label')
+    const delayLabel = DELAY_OPTIONS.find(o => o.id === delay)?.label ?? DELAY_OPTIONS[0].label
+    const teamLabel = t(TEAM_OPTIONS.find(o => o.id === team)?.labelKey ?? 'teamwork.none.label')
+    const langLabel = t(`lang.${lang}`)
+
+    const keyboard = [
+      [{ text: t(voiceOn ? 'settings.voice.on' : 'settings.voice.off'), callback_data: 'settings:voice' }],
+      [{ text: t(statsOn ? 'settings.stats.on' : 'settings.stats.off'), callback_data: 'settings:stats' }],
+      [{ text: t('settings.lang', { label: langLabel }), callback_data: 'settings:lang' }],
+      [{ text: t('settings.style', { label: styleLabel }), callback_data: 'settings:style' }],
+      [{ text: t('settings.delay', { label: delayLabel }), callback_data: 'settings:delay' }],
+      [{ text: t('settings.team', { label: teamLabel }), callback_data: 'settings:team' }],
+    ]
+
+    return { text: `⚙️ <b>${t('cmd.settings.title')}</b>`, reply_markup: { inline_keyboard: keyboard } }
+  }
+
   // Pre-middleware: handle stop/cancel immediately, bypass grammy's sequential processing
   bot.use(async (ctx, next) => {
     // AskUserQuestion answer callback
@@ -500,107 +544,54 @@ export function createBot(): Bot {
       }
       return // don't pass to next middleware
     }
-    // Delay selection callback
-    if (ctx.callbackQuery?.data?.startsWith('delay:')) {
+    // Settings callback (unified handler for all settings toggles/cycles)
+    if (ctx.callbackQuery?.data?.startsWith('settings:')) {
       const chatIdStr = String(ctx.chat?.id)
       if (!isAuthorised(ctx.chat!.id)) return
-      const val = ctx.callbackQuery.data.replace('delay:', '')
-      const _t = chatT(chatIdStr)
-      const DELAY_OPTIONS = [
-        { id: '0', label: '0с', descKey: 'delay.0' },
-        { id: '15', label: '15с', descKey: 'delay.15' },
-        { id: '30', label: '30с', descKey: 'delay.30' },
-        { id: '60', label: '60с', descKey: 'delay.60' },
-        { id: 'inf', label: '∞', descKey: 'delay.inf' },
-      ]
-      if (val === '0') {
-        deleteChatSetting(chatIdStr, 'progress_delay')
-        setChatSetting(chatIdStr, 'progress_delay', '0')
-      } else if (val === 'inf') {
-        setChatSetting(chatIdStr, 'progress_delay', 'inf')
-      } else {
-        setChatSetting(chatIdStr, 'progress_delay', val)
-      }
-      const currentLabel = _t(DELAY_OPTIONS.find(o => o.id === val)?.descKey ?? 'delay.0')
-      await ctx.answerCallbackQuery({ text: _t('delay.feedback', { label: currentLabel }) })
+      const key = ctx.callbackQuery.data.replace('settings:', '')
 
-      const keyboard = DELAY_OPTIONS.map(o => {
-        const btnLabel = o.id === val ? `✓ ${o.label}` : o.label
-        return [{ text: btnLabel, callback_data: `delay:${o.id}` }]
-      })
-      const lines = DELAY_OPTIONS.map(o => {
-        const marker = o.id === val ? '→' : '  '
-        return `${marker} <b>${o.label}</b> — ${_t(o.descKey)}`
-      })
-      await ctx.editMessageText(
-        `${_t('delay.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-      )
-      return
-    }
-    // Show team work callback
-    if (ctx.callbackQuery?.data?.startsWith('show_team_work:')) {
-      const chatIdStr = String(ctx.chat?.id)
-      if (!isAuthorised(ctx.chat!.id)) return
-      const val = ctx.callbackQuery.data.replace('show_team_work:', '')
-      const _t = chatT(chatIdStr)
-      const SHOW_OPTIONS = [
-        { id: 'all', labelKey: 'teamwork.all.label', descKey: 'teamwork.all' },
-        { id: 'result', labelKey: 'teamwork.result.label', descKey: 'teamwork.result' },
-        { id: 'none', labelKey: 'teamwork.none.label', descKey: 'teamwork.none' },
-      ]
-      if (val === 'none') {
-        deleteChatSetting(chatIdStr, 'show_team_work')
-      } else {
-        setChatSetting(chatIdStr, 'show_team_work', val)
+      switch (key) {
+        case 'voice':
+          if (getChatSetting(chatIdStr, 'voice') === '1') deleteChatSetting(chatIdStr, 'voice')
+          else setChatSetting(chatIdStr, 'voice', '1')
+          break
+        case 'stats':
+          if (getChatSetting(chatIdStr, 'stats') === '1') deleteChatSetting(chatIdStr, 'stats')
+          else setChatSetting(chatIdStr, 'stats', '1')
+          break
+        case 'lang': {
+          const cur = getChatLang(chatIdStr)
+          setChatLang(chatIdStr, cur === 'uk' ? 'en' : 'uk')
+          break
+        }
+        case 'style': {
+          const cur = getChatSetting(chatIdStr, 'progress_style') ?? 'brunette'
+          const ids = STYLE_OPTIONS.map(o => o.id)
+          const next = ids[(ids.indexOf(cur) + 1) % ids.length]
+          if (next === 'brunette') deleteChatSetting(chatIdStr, 'progress_style')
+          else setChatSetting(chatIdStr, 'progress_style', next)
+          break
+        }
+        case 'delay': {
+          const cur = getChatSetting(chatIdStr, 'progress_delay') ?? '0'
+          const ids = DELAY_OPTIONS.map(o => o.id)
+          const next = ids[(ids.indexOf(cur) + 1) % ids.length]
+          setChatSetting(chatIdStr, 'progress_delay', next)
+          break
+        }
+        case 'team': {
+          const cur = getChatSetting(chatIdStr, 'show_team_work') ?? 'none'
+          const ids = TEAM_OPTIONS.map(o => o.id)
+          const next = ids[(ids.indexOf(cur) + 1) % ids.length]
+          if (next === 'none') deleteChatSetting(chatIdStr, 'show_team_work')
+          else setChatSetting(chatIdStr, 'show_team_work', next)
+          break
+        }
       }
-      const currentLabel = _t(SHOW_OPTIONS.find(o => o.id === val)?.descKey ?? 'teamwork.none')
-      await ctx.answerCallbackQuery({ text: _t('teamwork.feedback', { label: currentLabel }) })
 
-      const keyboard = SHOW_OPTIONS.map(o => {
-        const btnLabel = o.id === val ? `✓ ${_t(o.labelKey)}` : _t(o.labelKey)
-        return [{ text: btnLabel, callback_data: `show_team_work:${o.id}` }]
-      })
-      const lines = SHOW_OPTIONS.map(o => {
-        const marker = o.id === val ? '→' : '  '
-        return `${marker} ${_t(o.labelKey)} — ${_t(o.descKey)}`
-      })
-      await ctx.editMessageText(
-        `${_t('teamwork.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-      )
-      return
-    }
-    // Style selection callback
-    if (ctx.callbackQuery?.data?.startsWith('style:')) {
-      const chatIdStr = String(ctx.chat?.id)
-      if (!isAuthorised(ctx.chat!.id)) return
-      const val = ctx.callbackQuery.data.replace('style:', '')
-      const _t = chatT(chatIdStr)
-      const STYLE_OPTIONS = [
-        { id: 'brunette', labelKey: 'style.brunette.label', descKey: 'style.brunette' },
-        { id: 'blonde', labelKey: 'style.blonde.label', descKey: 'style.blonde' },
-      ]
-      if (val === 'brunette') {
-        deleteChatSetting(chatIdStr, 'progress_style')
-      } else {
-        setChatSetting(chatIdStr, 'progress_style', val)
-      }
-      const currentLabel = _t(STYLE_OPTIONS.find(o => o.id === val)?.descKey ?? 'style.brunette')
-      await ctx.answerCallbackQuery({ text: _t('style.feedback', { label: currentLabel }) })
-
-      const keyboard = STYLE_OPTIONS.map(o => {
-        const btnLabel = o.id === val ? `✓ ${_t(o.labelKey)}` : _t(o.labelKey)
-        return [{ text: btnLabel, callback_data: `style:${o.id}` }]
-      })
-      const lines = STYLE_OPTIONS.map(o => {
-        const marker = o.id === val ? '→' : '  '
-        return `${marker} ${_t(o.labelKey)} — ${_t(o.descKey)}`
-      })
-      await ctx.editMessageText(
-        `${_t('style.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-      )
+      const { text, reply_markup } = buildSettingsMessage(chatIdStr)
+      await ctx.answerCallbackQuery()
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
       return
     }
     // Model selection callback
@@ -629,34 +620,6 @@ export function createBot(): Bot {
       })
       await ctx.editMessageText(
         `${_t('cmd.model.title', { label })}\n\n${lines.join('\n')}`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-      )
-      return
-    }
-    // Language selection callback
-    if (ctx.callbackQuery?.data?.startsWith('lang:')) {
-      const chatIdStr = String(ctx.chat?.id)
-      if (!isAuthorised(ctx.chat!.id)) return
-      const langId = ctx.callbackQuery.data.replace('lang:', '') as BotLang
-      if (langId !== 'en' && langId !== 'uk') return
-      setChatLang(chatIdStr, langId)
-      const _t = chatT(chatIdStr)
-      await ctx.answerCallbackQuery({ text: _t('cmd.lang.set') })
-
-      const LANG_OPTIONS: { id: BotLang; labelKey: string }[] = [
-        { id: 'en', labelKey: 'lang.en' },
-        { id: 'uk', labelKey: 'lang.uk' },
-      ]
-      const lines = LANG_OPTIONS.map(o => {
-        const marker = o.id === langId ? '→' : '  '
-        return `${marker} <b>${_t(o.labelKey)}</b>`
-      })
-      const keyboard = LANG_OPTIONS.map(o => {
-        const label = o.id === langId ? `✓ ${_t(o.labelKey)}` : _t(o.labelKey)
-        return [{ text: label, callback_data: `lang:${o.id}` }]
-      })
-      await ctx.editMessageText(
-        `${_t('cmd.lang.title', { label: _t(`lang.${langId}`) })}\n\n${lines.join('\n')}`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
       )
       return
@@ -713,19 +676,16 @@ export function createBot(): Bot {
 
   // /cancel handled in pre-middleware above
 
-  bot.command('newchat', async (ctx) => {
-    const chatIdStr = String(ctx.chat.id)
+  // --- /new (session clear) + aliases ---
+  const clearSessionHandler = async (ctx: Context) => {
+    const chatIdStr = String(ctx.chat!.id)
     clearSession(chatIdStr)
     logAudit(chatIdStr, 'session_clear')
     await ctx.reply(chatT(chatIdStr)('cmd.newchat'))
-  })
-
-  bot.command('forget', async (ctx) => {
-    const chatIdStr = String(ctx.chat.id)
-    clearSession(chatIdStr)
-    logAudit(chatIdStr, 'session_clear')
-    await ctx.reply(chatT(chatIdStr)('cmd.newchat'))
-  })
+  }
+  bot.command('new', clearSessionHandler)
+  bot.command('newchat', clearSessionHandler)
+  bot.command('forget', clearSessionHandler)
 
   bot.command('memory', async (ctx) => {
     const chatId = String(ctx.chat.id)
@@ -740,23 +700,6 @@ export function createBot(): Bot {
       (m, i) => `${i + 1}. [${m.sector}] ${m.content.slice(0, 100)}${m.content.length > 100 ? '...' : ''} (salience: ${m.salience.toFixed(2)})`
     )
     await ctx.reply(`${t('cmd.memory.title')}\n\n${lines.join('\n')}`)
-  })
-
-  bot.command('voice', async (ctx) => {
-    const chatId = String(ctx.chat.id)
-    const t = chatT(chatId)
-    const caps = voiceCapabilities()
-    if (!caps.tts) {
-      await ctx.reply(t('cmd.voice.noTts'))
-      return
-    }
-    if (getChatSetting(chatId, 'voice') === '1') {
-      deleteChatSetting(chatId, 'voice')
-      await ctx.reply(t('cmd.voice.off'))
-    } else {
-      setChatSetting(chatId, 'voice', '1')
-      await ctx.reply(t('cmd.voice.on'))
-    }
   })
 
   bot.command('usage', async (ctx) => {
@@ -786,63 +729,6 @@ export function createBot(): Bot {
       `  cache read: ${k(week.cacheReadTokens)} | cache new: ${k(week.cacheCreationTokens)}`,
     ]
     await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
-  })
-
-  bot.command('stats', async (ctx) => {
-    const chatId = String(ctx.chat.id)
-    const t = chatT(chatId)
-    if (getChatSetting(chatId, 'stats') === '1') {
-      deleteChatSetting(chatId, 'stats')
-      await ctx.reply(t('cmd.stats.off'))
-    } else {
-      setChatSetting(chatId, 'stats', '1')
-      await ctx.reply(t('cmd.stats.on'))
-    }
-  })
-
-  bot.command('schedule', async (ctx) => {
-    const chatId = String(ctx.chat.id)
-    if (!isAuthorised(ctx.chat.id)) return
-    const text = ctx.message?.text ?? ''
-    const args = text.replace(/^\/schedule\s*/, '').trim()
-
-    const t = chatT(chatId)
-    if (!args) {
-      await ctx.reply(t('cmd.schedule.help'))
-      return
-    }
-
-    // Forward to schedule-cli logic inline
-    await ctx.reply(t('cmd.schedule.cli', { args }))
-  })
-
-  // Image generation
-  bot.command('img', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
-    const text = ctx.message?.text ?? ''
-    const prompt = text.replace(/^\/img\s*/, '').trim()
-
-    const t = chatT(String(ctx.chat.id))
-    if (!prompt) {
-      await ctx.reply(t('cmd.img.usage'))
-      return
-    }
-
-    await ctx.api.sendChatAction(ctx.chat.id, 'upload_photo').catch(() => {})
-
-    try {
-      const result = await generateImage(prompt)
-      if (result.imagePath) {
-        await ctx.replyWithPhoto(new InputFile(result.imagePath), {
-          caption: result.text?.slice(0, 1024) ?? undefined,
-        })
-      } else {
-        await ctx.reply(result.text ?? t('cmd.img.fail'))
-      }
-    } catch (err) {
-      logger.error({ err }, 'Image generation failed')
-      await ctx.reply(t('cmd.img.error', { err: err instanceof Error ? err.message : String(err) }))
-    }
   })
 
   bot.command('model', async (ctx) => {
@@ -883,93 +769,20 @@ export function createBot(): Bot {
     )
   })
 
-  bot.command('style', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
-    const chatIdStr = String(ctx.chat.id)
-    const t = chatT(chatIdStr)
-    const current = getChatSetting(chatIdStr, 'progress_style') ?? 'brunette'
-
-    const STYLE_OPTIONS = [
-      { id: 'brunette', labelKey: 'style.brunette.label', descKey: 'style.brunette' },
-      { id: 'blonde', labelKey: 'style.blonde.label', descKey: 'style.blonde' },
-    ]
-
-    const keyboard = STYLE_OPTIONS.map(o => {
-      const label = o.id === current ? `✓ ${t(o.labelKey)}` : t(o.labelKey)
-      return [{ text: label, callback_data: `style:${o.id}` }]
-    })
-
-    const currentLabel = t(STYLE_OPTIONS.find(o => o.id === current)?.descKey ?? 'style.brunette')
-    const lines = STYLE_OPTIONS.map(o => {
-      const marker = o.id === current ? '→' : '  '
-      return `${marker} ${t(o.labelKey)} — ${t(o.descKey)}`
-    })
-
-    await ctx.reply(
-      `${t('style.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-    )
-  })
-
-  bot.command('show_team_work', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
-    const chatIdStr = String(ctx.chat.id)
-    const t = chatT(chatIdStr)
-    const current = getChatSetting(chatIdStr, 'show_team_work') ?? 'none'
-
-    const SHOW_OPTIONS = [
-      { id: 'all', labelKey: 'teamwork.all.label', descKey: 'teamwork.all' },
-      { id: 'result', labelKey: 'teamwork.result.label', descKey: 'teamwork.result' },
-      { id: 'none', labelKey: 'teamwork.none.label', descKey: 'teamwork.none' },
-    ]
-
-    const keyboard = SHOW_OPTIONS.map(o => {
-      const label = o.id === current ? `✓ ${t(o.labelKey)}` : t(o.labelKey)
-      return [{ text: label, callback_data: `show_team_work:${o.id}` }]
-    })
-
-    const currentLabel = t(SHOW_OPTIONS.find(o => o.id === current)?.descKey ?? 'teamwork.none')
-    const lines = SHOW_OPTIONS.map(o => {
-      const marker = o.id === current ? '→' : '  '
-      return `${marker} ${t(o.labelKey)} — ${t(o.descKey)}`
-    })
-
-    await ctx.reply(
-      `${t('teamwork.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-    )
-  })
-
-  bot.command('delay', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
-    const chatIdStr = String(ctx.chat.id)
-    const t = chatT(chatIdStr)
-    const current = getChatSetting(chatIdStr, 'progress_delay')
-
-    const DELAY_OPTIONS = [
-      { id: '0', label: '0с', descKey: 'delay.0' },
-      { id: '15', label: '15с', descKey: 'delay.15' },
-      { id: '30', label: '30с', descKey: 'delay.30' },
-      { id: '60', label: '60с', descKey: 'delay.60' },
-      { id: 'inf', label: '∞', descKey: 'delay.inf' },
-    ]
-
-    const keyboard = DELAY_OPTIONS.map(o => {
-      const label = current && o.id === current ? `✓ ${o.label}` : o.label
-      return [{ text: label, callback_data: `delay:${o.id}` }]
-    })
-
-    const currentLabel = current ? t(DELAY_OPTIONS.find(o => o.id === current)?.descKey ?? 'delay.0') : t('delay.default')
-    const lines = DELAY_OPTIONS.map(o => {
-      const marker = current && o.id === current ? '→' : '  '
-      return `${marker} <b>${o.label}</b> — ${t(o.descKey)}`
-    })
-
-    await ctx.reply(
-      `${t('delay.title', { label: currentLabel })}\n\n${lines.join('\n')}`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-    )
-  })
+  // --- /settings (unified settings menu) ---
+  const openSettingsHandler = async (ctx: Context) => {
+    if (!isAuthorised(ctx.chat!.id)) return
+    const { text, reply_markup } = buildSettingsMessage(String(ctx.chat!.id))
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup })
+  }
+  bot.command('settings', openSettingsHandler)
+  // Hidden aliases — old individual settings commands open /settings
+  bot.command('voice', openSettingsHandler)
+  bot.command('stats', openSettingsHandler)
+  bot.command('lang', openSettingsHandler)
+  bot.command('style', openSettingsHandler)
+  bot.command('delay', openSettingsHandler)
+  bot.command('show_team_work', openSettingsHandler)
 
   bot.command('admin', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
@@ -1008,39 +821,11 @@ export function createBot(): Bot {
     )
   })
 
-  // Language switch
-  bot.command('lang', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
-    const chatIdStr = String(ctx.chat.id)
-    const t = chatT(chatIdStr)
-    const currentLang = getChatLang(chatIdStr)
-
-    const LANG_OPTIONS: { id: BotLang; labelKey: string }[] = [
-      { id: 'en', labelKey: 'lang.en' },
-      { id: 'uk', labelKey: 'lang.uk' },
-    ]
-
-    const keyboard = LANG_OPTIONS.map(o => {
-      const label = o.id === currentLang ? `✓ ${t(o.labelKey)}` : t(o.labelKey)
-      return [{ text: label, callback_data: `lang:${o.id}` }]
-    })
-
-    const lines = LANG_OPTIONS.map(o => {
-      const marker = o.id === currentLang ? '→' : '  '
-      return `${marker} <b>${t(o.labelKey)}</b>`
-    })
-
-    await ctx.reply(
-      `${t('cmd.lang.title', { label: t(`lang.${currentLang}`) })}\n\n${lines.join('\n')}`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
-    )
-  })
-
   // Text messages
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
     // skip known bot commands (they have their own handlers above)
-    if (/^\/(start|chatid|newchat|forget|memory|voice|usage|stats|schedule|img|model|cancel|delay|style|show_team_work|admin|lang)\b/.test(text)) return
+    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings)\b/.test(text)) return
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
     if (text.startsWith('/')) {
@@ -1160,18 +945,12 @@ export function createBot(): Bot {
   const tEn = createBotT('en')
   const cmds = (t: BotT) => [
     { command: 'start', description: t('menu.start') },
-    { command: 'newchat', description: t('menu.newchat') },
+    { command: 'new', description: t('menu.new') },
     { command: 'cancel', description: t('menu.cancel') },
-    { command: 'voice', description: t('menu.voice') },
-    { command: 'usage', description: t('menu.usage') },
-    { command: 'stats', description: t('menu.stats') },
+    { command: 'model', description: t('menu.model') },
     { command: 'memory', description: t('menu.memory') },
-    { command: 'img', description: t('menu.img') },
-    { command: 'delay', description: t('menu.delay') },
-    { command: 'style', description: t('menu.style') },
-    { command: 'chatid', description: t('menu.chatid') },
-    { command: 'show_team_work', description: t('menu.show_team_work') },
-    { command: 'lang', description: t('menu.lang') },
+    { command: 'usage', description: t('menu.usage') },
+    { command: 'settings', description: t('menu.settings') },
     { command: 'admin', description: t('menu.admin') },
   ]
   // Default commands in Ukrainian
