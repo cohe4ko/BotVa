@@ -1,0 +1,412 @@
+import { DatabaseSync } from 'node:sqlite'
+import { mkdirSync } from 'fs'
+import { STORE_DIR, MEMORY_SALIENCE_DECAY, MEMORY_SALIENCE_MIN, MEMORY_SALIENCE_MAX, MEMORY_SALIENCE_BOOST } from './config.js'
+import { logger } from './logger.js'
+
+let db: DatabaseSync
+
+export function getDb(): DatabaseSync {
+  if (!db) {
+    mkdirSync(STORE_DIR, { recursive: true })
+    db = new DatabaseSync(`${STORE_DIR}/botva.db`)
+    db.exec('PRAGMA journal_mode = WAL')
+    db.exec('PRAGMA trusted_schema = ON')
+  }
+  return db
+}
+
+export function initDatabase(): void {
+  const d = getDb()
+
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      chat_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+
+  // Full memory system
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS memories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      topic_key TEXT,
+      content TEXT NOT NULL,
+      sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic')),
+      salience REAL NOT NULL DEFAULT 1.0,
+      created_at INTEGER NOT NULL,
+      accessed_at INTEGER NOT NULL
+    )
+  `)
+
+  d.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+      content,
+      content_rowid='id'
+    )
+  `)
+
+  // FTS sync triggers
+  d.exec(`
+    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+      INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+    END
+  `)
+
+  d.exec(`
+    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+      INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
+    END
+  `)
+
+  d.exec(`
+    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF content ON memories BEGIN
+      INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
+      INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+    END
+  `)
+
+  // Scheduler
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      next_run INTEGER NOT NULL,
+      last_run INTEGER,
+      last_result TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused')),
+      created_at INTEGER NOT NULL
+    )
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tasks_status_next ON scheduled_tasks(status, next_run)
+  `)
+
+  // Usage tracking
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS usage_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      cache_read_tokens INTEGER NOT NULL,
+      cache_creation_tokens INTEGER NOT NULL,
+      cost_usd REAL NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_log(created_at)
+  `)
+
+  // Add response_time_ms column (safe for existing DBs)
+  try {
+    d.exec('ALTER TABLE usage_log ADD COLUMN response_time_ms INTEGER')
+  } catch { /* column already exists */ }
+
+  // Chat settings (persistent toggles like /stats)
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS chat_settings (
+      chat_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (chat_id, key)
+    )
+  `)
+
+  // Audit log
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT,
+      event_type TEXT NOT NULL,
+      detail TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at)
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(event_type)
+  `)
+
+  // Imagen (image generation) usage tracking
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS imagen_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL CHECK(type IN ('generate','edit')),
+      prompt TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      image_bytes INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_imagen_created ON imagen_usage(created_at)
+  `)
+
+  logger.info('Database initialized')
+}
+
+// --- Sessions ---
+
+export function getSession(chatId: string): string | undefined {
+  const stmt = getDb().prepare('SELECT session_id FROM sessions WHERE chat_id = ?')
+  const row = stmt.get(chatId) as unknown as { session_id: string } | undefined
+  return row?.session_id
+}
+
+export function setSession(chatId: string, sessionId: string): void {
+  getDb().prepare(
+    'INSERT INTO sessions (chat_id, session_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at'
+  ).run(chatId, sessionId, Math.floor(Date.now() / 1000))
+}
+
+export function clearSession(chatId: string): void {
+  getDb().prepare('DELETE FROM sessions WHERE chat_id = ?').run(chatId)
+}
+
+// --- Memories ---
+
+export interface Memory {
+  id: number
+  chat_id: string
+  topic_key: string | null
+  content: string
+  sector: 'semantic' | 'episodic'
+  salience: number
+  created_at: number
+  accessed_at: number
+}
+
+export function insertMemory(chatId: string, content: string, sector: 'semantic' | 'episodic', topicKey?: string): void {
+  const now = Math.floor(Date.now() / 1000)
+  getDb().prepare(
+    'INSERT INTO memories (chat_id, topic_key, content, sector, salience, created_at, accessed_at) VALUES (?, ?, ?, ?, 1.0, ?, ?)'
+  ).run(chatId, topicKey ?? null, content, sector, now, now)
+}
+
+export function searchMemories(chatId: string, query: string, limit = 3): Memory[] {
+  const sanitized = query.replace(/[^\w\s]/g, '').trim()
+  if (!sanitized) return []
+
+  const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
+  try {
+    const stmt = getDb().prepare(`
+      SELECT m.* FROM memories m
+      JOIN memories_fts f ON f.rowid = m.id
+      WHERE memories_fts MATCH ? AND m.chat_id = ?
+      ORDER BY rank
+      LIMIT ?
+    `)
+    return stmt.all(ftsQuery, chatId, limit) as unknown as Memory[]
+  } catch {
+    return []
+  }
+}
+
+export function getRecentMemories(chatId: string, limit = 5): Memory[] {
+  return getDb().prepare(
+    'SELECT * FROM memories WHERE chat_id = ? ORDER BY accessed_at DESC LIMIT ?'
+  ).all(chatId, limit) as unknown as Memory[]
+}
+
+export function touchMemory(id: number): void {
+  const now = Math.floor(Date.now() / 1000)
+  getDb().prepare(
+    `UPDATE memories SET accessed_at = ?, salience = MIN(salience + ${MEMORY_SALIENCE_BOOST}, ${MEMORY_SALIENCE_MAX}) WHERE id = ?`
+  ).run(now, id)
+}
+
+export function decayAndPruneMemories(): void {
+  const oneDayAgo = Math.floor(Date.now() / 1000) - 86400
+  const d = getDb()
+  d.prepare(`UPDATE memories SET salience = salience * ${MEMORY_SALIENCE_DECAY} WHERE created_at < ?`).run(oneDayAgo)
+  d.prepare(`DELETE FROM memories WHERE salience < ${MEMORY_SALIENCE_MIN}`).run()
+}
+
+export function getAllMemories(chatId: string, limit = 20): Memory[] {
+  return getDb().prepare(
+    'SELECT * FROM memories WHERE chat_id = ? ORDER BY accessed_at DESC LIMIT ?'
+  ).all(chatId, limit) as unknown as Memory[]
+}
+
+export function clearMemories(chatId: string): void {
+  getDb().prepare('DELETE FROM memories WHERE chat_id = ?').run(chatId)
+}
+
+// --- Scheduler ---
+
+export interface ScheduledTask {
+  id: string
+  chat_id: string
+  prompt: string
+  schedule: string
+  next_run: number
+  last_run: number | null
+  last_result: string | null
+  status: 'active' | 'paused'
+  created_at: number
+}
+
+export function createTask(id: string, chatId: string, prompt: string, schedule: string, nextRun: number): void {
+  const now = Math.floor(Date.now() / 1000)
+  getDb().prepare(
+    'INSERT INTO scheduled_tasks (id, chat_id, prompt, schedule, next_run, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, chatId, prompt, schedule, nextRun, 'active', now)
+}
+
+export function getDueTasks(): ScheduledTask[] {
+  const now = Math.floor(Date.now() / 1000)
+  return getDb().prepare(
+    "SELECT * FROM scheduled_tasks WHERE status = 'active' AND next_run <= ?"
+  ).all(now) as unknown as ScheduledTask[]
+}
+
+export function updateTaskAfterRun(id: string, lastResult: string, nextRun: number): void {
+  const now = Math.floor(Date.now() / 1000)
+  getDb().prepare(
+    'UPDATE scheduled_tasks SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?'
+  ).run(now, lastResult, nextRun, id)
+}
+
+export function listTasks(): ScheduledTask[] {
+  return getDb().prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC').all() as unknown as ScheduledTask[]
+}
+
+export function deleteTask(id: string): boolean {
+  const result = getDb().prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id)
+  return result.changes > 0
+}
+
+export function pauseTask(id: string): boolean {
+  const result = getDb().prepare("UPDATE scheduled_tasks SET status = 'paused' WHERE id = ?").run(id)
+  return result.changes > 0
+}
+
+export function resumeTask(id: string): boolean {
+  const result = getDb().prepare("UPDATE scheduled_tasks SET status = 'active' WHERE id = ?").run(id)
+  return result.changes > 0
+}
+
+export function getTask(id: string): ScheduledTask | undefined {
+  return getDb().prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as unknown as ScheduledTask | undefined
+}
+
+// --- Chat settings ---
+
+export function getChatSetting(chatId: string, key: string): string | undefined {
+  const row = getDb().prepare('SELECT value FROM chat_settings WHERE chat_id = ? AND key = ?').get(chatId, key) as unknown as { value: string } | undefined
+  return row?.value
+}
+
+export function setChatSetting(chatId: string, key: string, value: string): void {
+  getDb().prepare(
+    'INSERT INTO chat_settings (chat_id, key, value) VALUES (?, ?, ?) ON CONFLICT(chat_id, key) DO UPDATE SET value = excluded.value'
+  ).run(chatId, key, value)
+}
+
+export function deleteChatSetting(chatId: string, key: string): void {
+  getDb().prepare('DELETE FROM chat_settings WHERE chat_id = ? AND key = ?').run(chatId, key)
+}
+
+// --- Imagen usage tracking ---
+
+export function logImagenUsage(
+  type: 'generate' | 'edit',
+  prompt: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  imageBytes: number
+): void {
+  const now = Math.floor(Date.now() / 1000)
+  getDb().prepare(
+    'INSERT INTO imagen_usage (type, prompt, model, input_tokens, output_tokens, image_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(type, prompt, model, inputTokens, outputTokens, imageBytes, now)
+}
+
+export interface ImagenUsageSummary {
+  total: number
+  generates: number
+  edits: number
+  inputTokens: number
+  outputTokens: number
+  totalImageBytes: number
+  estimatedCostUSD: number
+}
+
+export function getImagenUsageSince(sinceTs: number): ImagenUsageSummary {
+  const row = getDb().prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN type = 'generate' THEN 1 ELSE 0 END) as generates,
+      SUM(CASE WHEN type = 'edit' THEN 1 ELSE 0 END) as edits,
+      COALESCE(SUM(input_tokens), 0) as inputTokens,
+      COALESCE(SUM(output_tokens), 0) as outputTokens,
+      COALESCE(SUM(image_bytes), 0) as totalImageBytes
+    FROM imagen_usage WHERE created_at >= ?
+  `).get(sinceTs) as unknown as Omit<ImagenUsageSummary, 'estimatedCostUSD'>
+
+  // ~$0.039 per image (1290 output tokens at standard pricing)
+  const estimatedCostUSD = Number(((row.total ?? 0) * 0.039).toFixed(3))
+  return { ...row, estimatedCostUSD }
+}
+
+// --- Usage tracking ---
+
+export function logUsage(
+  chatId: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens: number,
+  cacheCreationTokens: number,
+  costUSD: number,
+  responseTimeMs?: number
+): void {
+  const now = Math.floor(Date.now() / 1000)
+  getDb().prepare(
+    'INSERT INTO usage_log (chat_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, created_at, response_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(chatId, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUSD, now, responseTimeMs ?? null)
+}
+
+// --- Audit log ---
+
+export type AuditEventType = 'command' | 'tool_call' | 'error' | 'session_start' | 'session_clear'
+
+export function logAudit(chatId: string | null, eventType: AuditEventType, detail?: string): void {
+  const now = Math.floor(Date.now() / 1000)
+  getDb().prepare(
+    'INSERT INTO audit_log (chat_id, event_type, detail, created_at) VALUES (?, ?, ?, ?)'
+  ).run(chatId, eventType, detail ?? null, now)
+}
+
+export interface UsageSummary {
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  costUSD: number
+}
+
+export function getUsageSince(sinceTs: number, chatId?: string): UsageSummary {
+  const sql = chatId
+    ? 'SELECT COUNT(*) as requests, COALESCE(SUM(input_tokens),0) as inputTokens, COALESCE(SUM(output_tokens),0) as outputTokens, COALESCE(SUM(cache_read_tokens),0) as cacheReadTokens, COALESCE(SUM(cache_creation_tokens),0) as cacheCreationTokens, COALESCE(SUM(cost_usd),0) as costUSD FROM usage_log WHERE created_at >= ? AND chat_id = ?'
+    : 'SELECT COUNT(*) as requests, COALESCE(SUM(input_tokens),0) as inputTokens, COALESCE(SUM(output_tokens),0) as outputTokens, COALESCE(SUM(cache_read_tokens),0) as cacheReadTokens, COALESCE(SUM(cache_creation_tokens),0) as cacheCreationTokens, COALESCE(SUM(cost_usd),0) as costUSD FROM usage_log WHERE created_at >= ?'
+
+  const args = chatId ? [sinceTs, chatId] : [sinceTs]
+  const row = getDb().prepare(sql).get(...args) as unknown as UsageSummary
+  return row
+}

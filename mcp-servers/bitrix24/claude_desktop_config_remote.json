@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "bitrix24-remote": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-fetch",
+        "https://bitrix24-mcp-server.azurewebsites.net/mcp"
+      ],
+      "env": {}
+    }
+  }
+}

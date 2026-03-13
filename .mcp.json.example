@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "bitrix24": {
+      "command": "node",
+      "args": ["./mcp-servers/bitrix24-mcp-server/build/index.js"],
+      "env": {
+        "BITRIX24_WEBHOOK_URL": ""
+      }
+    },
+    "meta-ads": {
+      "command": "./mcp-servers/meta-ads-mcp/start.sh",
+      "args": []
+    }
+  }
+}

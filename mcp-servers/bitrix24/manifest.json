@@ -1,0 +1,200 @@
+{
+  "dxt_version": "0.1",
+  "name": "bitrix24-mcp-server",
+  "display_name": "Bitrix24 CRM Integration",
+  "version": "1.0.0",
+  "description": "Comprehensive Bitrix24 CRM integration for AI agents with full contact, deal, lead, and company management capabilities",
+  "long_description": "A powerful Model Context Protocol (MCP) server that enables AI agents to seamlessly interact with Bitrix24 CRM. Features include complete CRUD operations for contacts, deals, leads, and companies, advanced search capabilities, deal pipeline management, budget filtering, and comprehensive CRM diagnostics. Perfect for automating sales processes, managing customer relationships, and integrating AI workflows with your Bitrix24 instance.",
+  "author": {
+    "name": "Bitrix24 MCP Community",
+    "email": "support@example.com",
+    "url": "https://github.com/gunnit/bitrix24-mcp-server"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gunnit/bitrix24-mcp-server.git"
+  },
+  "homepage": "https://github.com/gunnit/bitrix24-mcp-server",
+  "documentation": "https://github.com/gunnit/bitrix24-mcp-server#readme",
+  "support": "https://github.com/gunnit/bitrix24-mcp-server/issues",
+  "server": {
+    "type": "node",
+    "entry_point": "build/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/build/index.js"
+      ],
+      "env": {
+        "BITRIX24_WEBHOOK_URL": "${user_config.webhook_url}",
+        "NODE_ENV": "production",
+        "LOG_LEVEL": "info"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "bitrix24_create_contact",
+      "description": "Create a new contact in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_get_contact",
+      "description": "Retrieve contact information by ID"
+    },
+    {
+      "name": "bitrix24_list_contacts",
+      "description": "List contacts with optional filtering"
+    },
+    {
+      "name": "bitrix24_get_latest_contacts",
+      "description": "Get the most recent contacts ordered by creation date"
+    },
+    {
+      "name": "bitrix24_update_contact",
+      "description": "Update an existing contact in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_create_deal",
+      "description": "Create a new deal in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_get_deal",
+      "description": "Retrieve deal information by ID"
+    },
+    {
+      "name": "bitrix24_list_deals",
+      "description": "List deals with optional filtering and ordering"
+    },
+    {
+      "name": "bitrix24_get_latest_deals",
+      "description": "Get the most recent deals ordered by creation date"
+    },
+    {
+      "name": "bitrix24_get_deals_from_date_range",
+      "description": "Get deals created within a specific date range"
+    },
+    {
+      "name": "bitrix24_update_deal",
+      "description": "Update an existing deal in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_create_lead",
+      "description": "Create a new lead in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_get_lead",
+      "description": "Retrieve lead information by ID"
+    },
+    {
+      "name": "bitrix24_list_leads",
+      "description": "List leads with optional filtering and ordering"
+    },
+    {
+      "name": "bitrix24_get_latest_leads",
+      "description": "Get the most recent leads ordered by creation date"
+    },
+    {
+      "name": "bitrix24_get_leads_from_date_range",
+      "description": "Get leads created within a specific date range"
+    },
+    {
+      "name": "bitrix24_update_lead",
+      "description": "Update an existing lead in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_create_company",
+      "description": "Create a new company in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_get_company",
+      "description": "Retrieve company information by ID"
+    },
+    {
+      "name": "bitrix24_list_companies",
+      "description": "List companies with optional filtering and ordering"
+    },
+    {
+      "name": "bitrix24_update_company",
+      "description": "Update an existing company in Bitrix24 CRM"
+    },
+    {
+      "name": "bitrix24_get_latest_companies",
+      "description": "Get the most recent companies ordered by creation date"
+    },
+    {
+      "name": "bitrix24_get_companies_from_date_range",
+      "description": "Get companies created within a specific date range"
+    },
+    {
+      "name": "bitrix24_search_crm",
+      "description": "Search across CRM entities (contacts, companies, deals, leads)"
+    },
+    {
+      "name": "bitrix24_validate_webhook",
+      "description": "Validate the Bitrix24 webhook connection"
+    },
+    {
+      "name": "bitrix24_diagnose_permissions",
+      "description": "Diagnose webhook permissions and access to different CRM entities"
+    },
+    {
+      "name": "bitrix24_check_crm_settings",
+      "description": "Check CRM settings including lead fields, statuses, and mode"
+    },
+    {
+      "name": "bitrix24_test_leads_api",
+      "description": "Test various leads API endpoints to identify specific issues"
+    },
+    {
+      "name": "bitrix24_get_deal_pipelines",
+      "description": "Get all available deal pipelines/categories with their IDs and names"
+    },
+    {
+      "name": "bitrix24_get_deal_stages",
+      "description": "Get all deal stages for a specific pipeline or all pipelines"
+    },
+    {
+      "name": "bitrix24_filter_deals_by_pipeline",
+      "description": "Filter deals by specific pipeline/category ID"
+    },
+    {
+      "name": "bitrix24_filter_deals_by_budget",
+      "description": "Filter deals by budget/opportunity amount range"
+    },
+    {
+      "name": "bitrix24_filter_deals_by_status",
+      "description": "Filter deals by stage/status IDs"
+    }
+  ],
+  "tools_generated": true,
+  "keywords": [
+    "bitrix24",
+    "crm",
+    "sales",
+    "automation",
+    "contacts",
+    "deals",
+    "leads",
+    "companies",
+    "mcp",
+    "ai-integration"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "webhook_url": {
+      "type": "string",
+      "title": "Bitrix24 Webhook URL",
+      "description": "Your Bitrix24 webhook URL (format: https://your-domain.bitrix24.com/rest/USER_ID/WEBHOOK_CODE/)",
+      "sensitive": true,
+      "required": true,
+      "placeholder": "https://your-domain.bitrix24.com/rest/USER_ID/WEBHOOK_CODE/"
+    }
+  }
+}

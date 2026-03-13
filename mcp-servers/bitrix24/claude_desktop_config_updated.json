@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bitrix24-remote": {
+      "command": "node",
+      "args": ["-e", "const http = require('https'); const readline = require('readline'); const rl = readline.createInterface({input: process.stdin, output: process.stdout}); rl.on('line', (line) => { const req = http.request('https://bitrix24-mcp-server.azurewebsites.net/mcp', {method: 'POST', headers: {'Content-Type': 'application/json'}}, (res) => { let data = ''; res.on('data', (chunk) => data += chunk); res.on('end', () => console.log(data)); }); req.write(line); req.end(); });"],
+      "env": {}
+    }
+  }
+}

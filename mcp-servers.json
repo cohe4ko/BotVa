@@ -1,0 +1,70 @@
+{
+  "stagehand": {
+    "command": "/bin/sh",
+    "args": [
+      "-c",
+      "STAGEHAND_ENV=LOCAL npx stagehand-mcp-local --modelName google/gemini-2.5-flash"
+    ],
+    "envVars": [
+      "GOOGLE_API_KEY"
+    ],
+    "envPassthrough": [
+      "GOOGLE_API_KEY"
+    ],
+    "enabled": true
+  },
+  "bitrix24": {
+    "command": "node",
+    "args": [
+      "./mcp-servers/bitrix24/build/index.js"
+    ],
+    "envVars": [
+      "BITRIX24_WEBHOOK_URL"
+    ],
+    "envPassthrough": [
+      "BITRIX24_WEBHOOK_URL"
+    ],
+    "enabled": true
+  },
+  "google-workspace": {
+    "command": "uvx",
+    "args": [
+      "workspace-mcp",
+      "--single-user",
+      "--tool-tier",
+      "core"
+    ],
+    "envVars": [
+      "GOOGLE_OAUTH_CLIENT_ID",
+      "GOOGLE_OAUTH_CLIENT_SECRET"
+    ],
+    "envPassthrough": [
+      "GOOGLE_OAUTH_CLIENT_ID",
+      "GOOGLE_OAUTH_CLIENT_SECRET",
+      "USER_GOOGLE_EMAIL",
+      "OAUTHLIB_INSECURE_TRANSPORT"
+    ],
+    "enabled": true
+  },
+  "meta-ads": {
+    "command": "node",
+    "args": [
+      "./mcp-servers/meta-ads-mcp/build/index.js"
+    ],
+    "envVars": [
+      "META_ACCESS_TOKEN"
+    ],
+    "envPassthrough": [
+      "META_ACCESS_TOKEN",
+      "META_APP_SECRET"
+    ],
+    "enabled": true
+  },
+  "pubmed": {
+    "command": "/home/vika/BotVa/mcp-servers/pubmed/venv/bin/python",
+    "args": [
+      "/home/vika/BotVa/mcp-servers/pubmed/pubmed_server.py"
+    ],
+    "enabled": true
+  }
+}
