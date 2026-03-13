@@ -57,6 +57,12 @@ app.get('/bot/:name/config', validateBot, (c) => {
         <label>Temperature: <output id="temp-val">${agentSettings.temperature}</output>
           <input type="range" name="temperature" min="0" max="1" step="0.1" value="${agentSettings.temperature}"
             oninput="document.getElementById('temp-val').textContent=this.value">
+          <small style="display:block;color:var(--pico-muted-color);margin-top:4px">
+            0 — strict, deterministic (code, math, data extraction)<br>
+            0.3–0.5 — balanced (analysis, summaries, structured answers)<br>
+            0.7–0.8 — creative writing, brainstorming<br>
+            1.0 — maximum creativity and variety
+          </small>
         </label>
       </div>
       <button type="submit">Save Agent Settings</button>
