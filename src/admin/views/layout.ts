@@ -10,7 +10,19 @@ export function icon(name: string, size = 15): HtmlContent {
   return html`<i data-lucide="${name}" style="width:${size}px;height:${size}px;display:inline-block;vertical-align:middle"></i>` as HtmlEscapedString
 }
 
-export function layout(title: string, content: HtmlContent, activePath = '/', t?: TFunc, lang?: Lang): HtmlContent {
+/** Map top-level paths to background watermark icons */
+const PAGE_ICONS: Record<string, string> = {
+  '/': 'layout-dashboard',
+  '/team': 'users',
+  '/gallery': 'image',
+  '/storage': 'hard-drive',
+  '/backup': 'archive',
+  '/system': 'server',
+  '/diagnostics': 'stethoscope',
+  '/create-bot': 'plus-circle',
+}
+
+export function layout(title: string, content: HtmlContent, activePath = '/', t?: TFunc, lang?: Lang, pageIcon?: string): HtmlContent {
   const bots = getBotNames()
   const _t = t ?? ((k: string) => k)
   const _lang = lang ?? 'uk'
@@ -70,6 +82,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:14px;height:14px"></i> ${_t('nav.gallery')}</a>
       <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:14px;height:14px"></i> ${_t('nav.storage')}</a>
       <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:14px;height:14px"></i> ${_t('nav.backup')}</a>
+      <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:14px;height:14px"></i> ${_t('nav.diagnostics')}</a>
       <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:14px;height:14px"></i> ${_t('nav.system')}</a>
       <a href="/create-bot" class="${activePath === '/create-bot' ? 'active' : ''}"><i data-lucide="plus" style="width:14px;height:14px"></i> ${_t('nav.new')}</a>
     </div>
@@ -83,6 +96,18 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
     </div>
   </nav>
   <main class="mc-main">
+    ${(() => {
+      if (pageIcon) return html`<div class="page-bg-icon"><i data-lucide="${pageIcon}"></i></div>`
+      // Bot pages: extract section from path like /bot/name/section
+      const botMatch = activePath.match(/^\/bot\/[^/]+\/(\w+)/)
+      if (botMatch) {
+        const sectionIcon = NAV_SECTIONS.find(s => s.id === botMatch[1])?.icon
+        if (sectionIcon) return html`<div class="page-bg-icon"><i data-lucide="${sectionIcon}"></i></div>`
+      }
+      // Top-level pages
+      const topIcon = PAGE_ICONS[activePath]
+      return topIcon ? html`<div class="page-bg-icon"><i data-lucide="${topIcon}"></i></div>` : ''
+    })()}
     ${content}
   </main>
   <footer class="mc-footer">${_t('nav.footer')}</footer>
@@ -122,10 +147,7 @@ const NAV_SECTIONS = [
 
 export function botNav(botName: string, currentSection: string, t?: TFunc): HtmlContent {
   const _t = t ?? ((k: string) => k)
-  const currentNav = NAV_SECTIONS.find(s => s.id === currentSection)
-  const bgIcon = currentNav?.icon ?? 'bot'
   return html`
-    <div class="page-bg-icon"><i data-lucide="${bgIcon}"></i></div>
     <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
       <span class="badge badge-${botName}" style="font-size:0.85rem;padding:0.3rem 0.7rem">${botName}</span>
     </div>

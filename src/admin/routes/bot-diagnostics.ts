@@ -3,10 +3,10 @@ import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
 import { getBotDir, getProjectRoot } from '../db-multi.js'
 import { readEnv } from '../env-parser.js'
-import { buildMcpServers } from '../../mcp-config.js'
-import { isManager } from '../../team.js'
 import { getBuiltinToolDefs } from '../../builtin-tools.js'
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import { spawn } from 'child_process'
+import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const app = new Hono<I18nEnv>()
@@ -185,47 +185,56 @@ async function collectQueryResult(conversation: AsyncIterable<SDKMessage>): Prom
   return { text: result, usage }
 }
 
-async function runDiagnostics(botName: string, lang: Lang): Promise<DiagnosticResult> {
-  const projectRoot = getProjectRoot()
-  const botDir = getBotDir(botName)
-  const botEnv = readEnv(botName)
+/** Run diagnostic.ts as a subprocess with the bot's real environment */
+function runBotDiagnostic(botName: string): Promise<{ echoText: string; usage?: UsageInfo; error?: string }> {
+  return new Promise((resolve_) => {
+    const projectRoot = getProjectRoot()
+    const botEnv = readEnv(botName)
 
-  const mcpServers: Record<string, any> = buildMcpServers(botEnv)
-
-  if (isManager(projectRoot, botName)) {
-    mcpServers['colleague'] = {
-      command: 'node',
-      args: [`${projectRoot}/mcp-servers/colleague/build/index.js`],
-      env: { ...botEnv, PROJECT_ROOT: projectRoot },
-    }
-  } else {
-    mcpServers['manager'] = {
-      command: 'node',
-      args: [`${projectRoot}/mcp-servers/manager/build/index.js`],
-      env: { ...botEnv, PROJECT_ROOT: projectRoot, BOT_NAME: botName },
-    }
-  }
-
-  // Call 1: Echo
-  let echoText: string
-  let echoUsage: UsageInfo | undefined
-  try {
-    const echoConversation = query({
-      prompt: ECHO_PROMPT,
-      options: {
-        cwd: botDir,
-        permissionMode: 'bypassPermissions',
-        mcpServers,
-        canUseTool: async () => ({ behavior: 'deny' as const, message: 'Diagnostic mode — tool use disabled' }),
-        model: 'sonnet',
+    const child = spawn('npx', ['tsx', resolve(projectRoot, 'src', 'diagnostic.ts')], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        ...botEnv,
+        BOT_NAME: botName,
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
       },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
     })
-    const echoResult = await collectQueryResult(echoConversation)
-    echoText = echoResult.text
-    echoUsage = echoResult.usage
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { echoText: '', analysis: null, analysisRaw: '', error: `Echo failed: ${msg}` }
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+
+    child.on('close', (code) => {
+      // Parse last line of stdout as JSON
+      const lines = stdout.trim().split('\n')
+      const lastLine = lines[lines.length - 1] || ''
+      try {
+        const result = JSON.parse(lastLine)
+        resolve_({ echoText: result.echoText ?? '', usage: result.usage, error: result.error })
+      } catch {
+        resolve_({ echoText: '', error: `Process exited with code ${code}. stderr: ${stderr.slice(-500)}` })
+      }
+    })
+
+    child.on('error', (err) => {
+      resolve_({ echoText: '', error: `Failed to start: ${err.message}` })
+    })
+  })
+}
+
+async function runDiagnostics(botName: string, lang: Lang): Promise<DiagnosticResult> {
+  // Call 1: Echo — run the real bot process in diagnostic mode
+  const echoResult = await runBotDiagnostic(botName)
+  const echoText = echoResult.echoText
+  const echoUsage = echoResult.usage
+
+  if (echoResult.error && !echoText) {
+    return { echoText: '', analysis: null, analysisRaw: '', error: `Echo failed: ${echoResult.error}` }
   }
 
   if (!echoText) {
@@ -431,18 +440,14 @@ app.get('/bot/:name/diagnostics', (c) => {
     </div>
 
     ${enabledBuiltin.length > 0 ? html`
-      <details class="inline" style="margin-bottom:1rem">
-        <summary>
-          ${icon('box', 13)} ${t('diag.builtinNote')} (${enabledBuiltin.length})
-        </summary>
-        <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-top:0.5rem">
-          ${enabledBuiltin.map(tool => html`
-            <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.2rem 0.5rem;background:var(--mc-green-light);color:var(--mc-green);border-radius:4px;font-size:0.72rem;font-weight:500">
-              ${icon(tool.icon, 10)} ${tool.name}
-            </span>
-          `)}
-        </div>
-      </details>
+      <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:1rem">
+        <span style="font-size:0.78rem;color:var(--mc-text-dim);margin-right:0.25rem;align-self:center">${icon('box', 13)} ${lang === 'uk' ? 'Вбудовані' : 'Builtin'} (${enabledBuiltin.length}):</span>
+        ${enabledBuiltin.map(tool => html`
+          <span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.15rem 0.45rem;background:var(--mc-green-light);color:var(--mc-green);border-radius:4px;font-size:0.68rem;font-weight:500">
+            ${icon(tool.icon, 10)} ${tool.name}
+          </span>
+        `)}
+      </div>
     ` : ''}
 
     <div id="diagnostics-results"></div>

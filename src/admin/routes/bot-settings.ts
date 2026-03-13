@@ -56,7 +56,7 @@ app.get('/bot/:name/settings', validateBot, (c) => {
       `
     }
   `
-  return c.html(layout(`${name} ${t('botnav.settings')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('botnav.settings')}`, content, `/bot/${name}/settings`, t, lang))
 })
 
 app.post('/bot/:name/settings', validateBot, async (c) => {

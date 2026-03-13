@@ -75,7 +75,7 @@ app.get('/bot/:name/memories', validateBot, (c) => {
       `
     }
   `
-  return c.html(layout(`${name} ${t('mem.title')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('mem.title')}`, content, `/bot/${name}/memories`, t, lang))
 })
 
 app.put('/bot/:name/memories/:id', validateBot, async (c) => {

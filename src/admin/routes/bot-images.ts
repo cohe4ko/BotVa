@@ -89,7 +89,7 @@ app.get('/bot/:name/images', validateBot, (c) => {
       })
     </script>
   `
-  return c.html(layout(`${name} ${t('botnav.images')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('botnav.images')}`, content, `/bot/${name}/images`, t, lang))
 })
 
 app.get('/bot/:name/images/data', validateBot, (c) => {

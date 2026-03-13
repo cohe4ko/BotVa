@@ -94,7 +94,7 @@ app.get('/bot/:name/audit', validateBot, (c) => {
     }
   `
 
-  return c.html(layout(`${name} ${t('botnav.audit')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('botnav.audit')}`, content, `/bot/${name}/audit`, t, lang))
 })
 
 export default app

@@ -43,7 +43,7 @@ app.get('/bot/:name/sessions', validateBot, (c) => {
       `
     }
   `
-  return c.html(layout(`${name} ${t('sess.title')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('sess.title')}`, content, `/bot/${name}/sessions`, t, lang))
 })
 
 app.delete('/bot/:name/sessions/:chatId', validateBot, (c) => {

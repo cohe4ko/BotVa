@@ -85,7 +85,7 @@ app.get('/bot/:name/knowledge', validateBot, (c) => {
         </table>
       </div>
     `
-    return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}`, t, lang))
+    return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}/knowledge`, t, lang))
   }
 
   // Sub-level: resolve and list
@@ -128,7 +128,7 @@ app.get('/bot/:name/knowledge', validateBot, (c) => {
       `
     }
   `
-  return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('know.title')}`, content, `/bot/${name}/knowledge`, t, lang))
 })
 
 app.get('/bot/:name/knowledge/file', validateBot, (c) => {
@@ -164,7 +164,7 @@ app.get('/bot/:name/knowledge/file', validateBot, (c) => {
       </div>
     </form>
   `
-  return c.html(layout(`${name} ${t('know.title')} — ${filePath}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('know.title')} — ${filePath}`, content, `/bot/${name}/knowledge`, t, lang))
 })
 
 app.post('/bot/:name/knowledge/file', validateBot, async (c) => {

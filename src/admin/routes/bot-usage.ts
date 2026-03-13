@@ -75,7 +75,7 @@ app.get('/bot/:name/usage', validateBot, (c) => {
       })
     </script>
   `
-  return c.html(layout(`${name} ${t('botnav.usage')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('botnav.usage')}`, content, `/bot/${name}/usage`, t, lang))
 })
 
 app.get('/bot/:name/usage/data', validateBot, (c) => {

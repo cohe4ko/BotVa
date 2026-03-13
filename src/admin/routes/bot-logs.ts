@@ -55,7 +55,7 @@ app.get('/bot/:name/logs', validateBot, (c) => {
       <pre class="log-viewer">${logContent}</pre>
     </div>
   `
-  return c.html(layout(`${name} ${t('logs.title')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('logs.title')}`, content, `/bot/${name}/logs`, t, lang))
 })
 
 app.get('/bot/:name/logs/tail', validateBot, (c) => {

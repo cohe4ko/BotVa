@@ -61,7 +61,7 @@ app.get('/bot/:name/tasks', validateBot, (c) => {
       `
     }
   `
-  return c.html(layout(`${name} ${t('botnav.tasks')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('botnav.tasks')}`, content, `/bot/${name}/tasks`, t, lang))
 })
 
 app.post('/bot/:name/tasks', validateBot, async (c) => {

@@ -112,7 +112,7 @@ app.get('/bot/:name/config', validateBot, (c) => {
     </div>
   `
 
-  return c.html(layout(`${name} ${t('botnav.config')}`, content, `/bot/${name}`, t, lang))
+  return c.html(layout(`${name} ${t('botnav.config')}`, content, `/bot/${name}/config`, t, lang))
 })
 
 app.post('/bot/:name/config/agent', validateBot, async (c) => {

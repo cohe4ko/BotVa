@@ -192,27 +192,24 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
   margin: 0 auto;
   flex: 1;
   padding: 1.5rem;
-  position: relative;
-  overflow: hidden;
 }
 
 /* === Page background icon (watermark) === */
 .page-bg-icon {
-  position: absolute;
-  top: -30px;
-  right: -40px;
+  position: fixed;
+  bottom: -80px;
+  left: -80px;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.035;
+  opacity: 0.04;
   color: var(--mc-text);
 }
 .page-bg-icon > i,
 .page-bg-icon > svg {
-  width: 340px !important;
-  height: 340px !important;
-  stroke-width: 0.8 !important;
+  width: 520px !important;
+  height: 520px !important;
+  stroke-width: 0.5 !important;
 }
-.mc-main > *:not(.page-bg-icon) { position: relative; z-index: 1; }
 
 /* === Cards === */
 .card {
@@ -1038,6 +1035,6 @@ details.inline > :last-child { padding-bottom: 0; }
   .mc-main { padding: 1rem; }
   .bot-grid { grid-template-columns: 1fr; }
   .filter-bar { flex-direction: column; align-items: stretch; }
-  .page-bg-icon { top: -20px; right: -60px; }
-  .page-bg-icon > i, .page-bg-icon > svg { width: 200px !important; height: 200px !important; }
+  .page-bg-icon { bottom: -50px; left: -50px; }
+  .page-bg-icon > i, .page-bg-icon > svg { width: 280px !important; height: 280px !important; }
 }
