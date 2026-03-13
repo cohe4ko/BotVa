@@ -120,23 +120,25 @@ function scanLargeFiles(minSizeKb: number = 1024): FileStat[] {
 app.get('/storage', (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
-  const stats = getStorageStats()
 
   const content = html`
     <h2>${icon('hard-drive')} ${t('stor.title')}</h2>
 
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">${icon('hard-drive', 12)} ${t('stor.totalProject')}</div>
-        <div class="stat-number">${duSize(getProjectRoot())}</div>
+    <div id="storage-stats"
+      hx-get="/storage/stats"
+      hx-trigger="load"
+      hx-swap="innerHTML">
+      <div class="stats-grid">
+        ${Array.from({ length: 4 }).map(() => html`
+          <div class="stat-card">
+            <div class="stat-label" style="background:var(--mc-surface2);height:0.7rem;width:60%;border-radius:3px;margin-bottom:0.35rem"></div>
+            <div style="background:var(--mc-surface2);height:1.3rem;width:40%;border-radius:4px"></div>
+          </div>
+        `)}
       </div>
-      ${stats.slice(0, 11).map(d => html`
-        <div class="stat-card">
-          <div class="stat-label">${icon(d.icon, 12)} ${d.name}</div>
-          <div class="stat-number">${d.size}</div>
-          <div style="font-size:0.7rem;color:var(--mc-text-dim)">${d.files.toLocaleString()} ${t('stor.files')}</div>
-        </div>
-      `)}
+      <p style="text-align:center;color:var(--mc-text-dim);font-size:0.82rem;margin-top:0.75rem">
+        ${icon('loader', 13)} ${t('stor.calculating')}
+      </p>
     </div>
 
     <h3>${icon('search')} ${t('stor.largeFiles')}</h3>
@@ -156,6 +158,28 @@ app.get('/storage', (c) => {
   `
 
   return c.html(layout(t('stor.title'), content, '/storage', t, lang))
+})
+
+// HTMX: load storage stats asynchronously
+app.get('/storage/stats', (c) => {
+  const t: TFunc = c.get('t')
+  const stats = getStorageStats()
+
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${icon('hard-drive', 12)} ${t('stor.totalProject')}</div>
+        <div class="stat-number">${duSize(getProjectRoot())}</div>
+      </div>
+      ${stats.slice(0, 11).map(d => html`
+        <div class="stat-card">
+          <div class="stat-label">${icon(d.icon, 12)} ${d.name}</div>
+          <div class="stat-number">${d.size}</div>
+          <div style="font-size:0.7rem;color:var(--mc-text-dim)">${d.files.toLocaleString()} ${t('stor.files')}</div>
+        </div>
+      `)}
+    </div>
+  `)
 })
 
 // HTMX: scan for large files

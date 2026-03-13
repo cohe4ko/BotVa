@@ -407,6 +407,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'stor.deleteConfirm': 'Are you sure you want to delete the selected files? This cannot be undone!',
     'stor.deleted': 'Deleted',
     'stor.selected': 'selected',
+    'stor.calculating': 'Calculating storage...',
 
     // Backup
     'nav.backup': 'Backup',
@@ -879,6 +880,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'stor.deleteConfirm': 'Ви впевнені, що хочете видалити обрані файли? Це не можна скасувати!',
     'stor.deleted': 'Видалено',
     'stor.selected': 'обрано',
+    'stor.calculating': 'Обчислення обсягів...',
 
     // Backup
     'nav.backup': 'Бекап',
