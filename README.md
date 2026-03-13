@@ -30,32 +30,16 @@ cd BotVa
 # 2. Run setup (installs dependencies, builds TypeScript and MCP servers)
 ./scripts/deploy.sh setup
 
-# 3. Create your first bot
-mkdir -p bots/my-bot
-cp .env.example bots/my-bot/.env
-```
-
-Edit `bots/my-bot/.env` — fill in at minimum:
-
-```env
-TELEGRAM_BOT_TOKEN=<token from @BotFather>
-ALLOWED_CHAT_ID=<your Telegram chat ID>
-```
-
-Optionally add a personality file:
-
-```bash
-mkdir -p bots/my-bot/core
-# Write personality.md with the bot's character and rules
-```
-
-## Running
-
-```bash
-# Start all configured bots
+# 3. Start — if no bots configured, admin panel launches automatically
 ./scripts/deploy.sh start
+```
 
-# Other commands
+The admin panel opens in your browser where you can create and configure bots — set Telegram token, chat ID, role, personality, and knowledge base.
+
+## Management
+
+```bash
+./scripts/deploy.sh start      # Start all bots (or admin panel if none configured)
 ./scripts/deploy.sh stop       # Stop all bots
 ./scripts/deploy.sh restart    # Restart all bots
 ./scripts/deploy.sh status     # Show running bots
