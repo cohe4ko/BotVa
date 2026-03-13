@@ -86,10 +86,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'RestoreBackup', icon: 'rotate-ccw', category: 'backup', description: 'Restore from backup', available: true },
     { name: 'DeleteBackup', icon: 'trash-2', category: 'backup', description: 'Delete backup file', available: true },
     // Telegram media
-    { name: 'SendPhoto', icon: 'image', category: 'telegram', description: 'Send photo to chat', available: true },
-    { name: 'SendDocument', icon: 'file', category: 'telegram', description: 'Send document to chat', available: true },
-    { name: 'SendVoice', icon: 'mic', category: 'telegram', description: 'Send voice file to chat', available: true },
-    { name: 'SendVideo', icon: 'video', category: 'telegram', description: 'Send video to chat', available: true },
+    { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video to chat', available: true },
   ]
 
   return defs.map(d => ({ ...d, enabled: config[d.name] !== false }))
@@ -498,95 +495,42 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
 
   // --- Telegram media sending (always available) ---
 
-  if (isOn('SendPhoto')) tools.push(
+  if (isOn('SendMedia')) tools.push(
     tool(
-      'SendPhoto',
-      'Send a photo from a local file to the chat.',
-      {
-        filePath: z.string().describe('Absolute path to the image file'),
-        caption: z.string().optional().describe('Optional caption for the photo'),
-      },
-      async (args) => {
-        usedTools.add('SendPhoto')
-        try {
-          await ctx.replyWithChatAction('upload_photo')
-          await ctx.replyWithPhoto(new InputFile(args.filePath), {
-            caption: args.caption?.slice(0, 1024),
-          })
-          return { content: [{ type: 'text' as const, text: 'Photo sent' }] }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'SendPhoto tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
-
-  if (isOn('SendDocument')) tools.push(
-    tool(
-      'SendDocument',
-      'Send a document/file to the chat.',
+      'SendMedia',
+      'Send a file to the chat as photo, document, voice, or video. Choose the appropriate type based on the file content.',
       {
         filePath: z.string().describe('Absolute path to the file to send'),
-        caption: z.string().optional().describe('Optional caption for the document'),
+        type: z.enum(['photo', 'document', 'voice', 'video']).describe('Media type: photo, document, voice, or video'),
+        caption: z.string().optional().describe('Optional caption (not supported for voice)'),
       },
       async (args) => {
-        usedTools.add('SendDocument')
+        usedTools.add('SendMedia')
         try {
-          await ctx.replyWithChatAction('upload_document')
-          await ctx.replyWithDocument(new InputFile(args.filePath), {
-            caption: args.caption?.slice(0, 1024),
-          })
-          return { content: [{ type: 'text' as const, text: 'Document sent' }] }
+          const file = new InputFile(args.filePath)
+          const caption = args.caption?.slice(0, 1024)
+          switch (args.type) {
+            case 'photo':
+              await ctx.replyWithChatAction('upload_photo')
+              await ctx.replyWithPhoto(file, { caption })
+              break
+            case 'document':
+              await ctx.replyWithChatAction('upload_document')
+              await ctx.replyWithDocument(file, { caption })
+              break
+            case 'voice':
+              await ctx.replyWithChatAction('upload_voice')
+              await ctx.replyWithVoice(file)
+              break
+            case 'video':
+              await ctx.replyWithChatAction('upload_video')
+              await ctx.replyWithVideo(file, { caption })
+              break
+          }
+          return { content: [{ type: 'text' as const, text: `${args.type} sent` }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'SendDocument tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
-
-  if (isOn('SendVoice')) tools.push(
-    tool(
-      'SendVoice',
-      'Send a voice message from an audio file to the chat.',
-      { filePath: z.string().describe('Absolute path to the audio file') },
-      async (args) => {
-        usedTools.add('SendVoice')
-        try {
-          await ctx.replyWithChatAction('upload_voice')
-          await ctx.replyWithVoice(new InputFile(args.filePath))
-          return { content: [{ type: 'text' as const, text: 'Voice sent' }] }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'SendVoice tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
-
-  if (isOn('SendVideo')) tools.push(
-    tool(
-      'SendVideo',
-      'Send a video to the chat.',
-      {
-        filePath: z.string().describe('Absolute path to the video file'),
-        caption: z.string().optional().describe('Optional caption for the video'),
-      },
-      async (args) => {
-        usedTools.add('SendVideo')
-        try {
-          await ctx.replyWithChatAction('upload_video')
-          await ctx.replyWithVideo(new InputFile(args.filePath), {
-            caption: args.caption?.slice(0, 1024),
-          })
-          return { content: [{ type: 'text' as const, text: 'Video sent' }] }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'SendVideo tool failed')
+          logger.error({ err }, 'SendMedia tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
