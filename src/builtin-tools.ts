@@ -164,6 +164,144 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   }
 
+  // --- Backup tools (always available) ---
+
+  tools.push(
+    tool(
+      'CreateBackup',
+      'Create a backup of a specific bot or the entire system. Returns backup filename and size. Use "bot" type with botName for a single bot, or "system" for full system backup including all bots, configs, and workspace.',
+      {
+        type: z.enum(['bot', 'system']).describe('Backup type: "bot" for single bot, "system" for everything'),
+        botName: z.string().optional().describe('Bot name (required when type is "bot")'),
+      },
+      async (args) => {
+        usedTools.add('CreateBackup')
+        try {
+          const { createBackup, formatSize } = await import('./backup/index.js')
+          const info = createBackup({ type: args.type, botName: args.botName })
+          return { content: [{ type: 'text' as const, text: `Backup created: ${info.filename} (${formatSize(info.sizeBytes)}), bots: ${info.manifest.bots.join(', ')}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'CreateBackup tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  tools.push(
+    tool(
+      'ListBackups',
+      'List all available backups with their details (filename, type, bots, size, date).',
+      {},
+      async () => {
+        usedTools.add('ListBackups')
+        try {
+          const { listBackups, formatSize } = await import('./backup/index.js')
+          const backups = listBackups()
+          if (backups.length === 0) {
+            return { content: [{ type: 'text' as const, text: 'No backups found' }] }
+          }
+          const lines = backups.map(b =>
+            `${b.filename} | ${b.manifest.type} | bots: ${b.manifest.bots.join(', ')} | ${formatSize(b.sizeBytes)} | ${b.createdAt.toISOString()}`
+          )
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'ListBackups tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  tools.push(
+    tool(
+      'VerifyBackup',
+      'Verify the integrity of a backup file. Checks archive structure and manifest validity.',
+      { filename: z.string().describe('Backup filename (e.g. botva-system-2025-01-01T00-00-00.tar.gz)') },
+      async (args) => {
+        usedTools.add('VerifyBackup')
+        try {
+          const { verifyBackup, listBackups } = await import('./backup/index.js')
+          const backups = listBackups()
+          const backup = backups.find(b => b.filename === args.filename)
+          if (!backup) {
+            return { content: [{ type: 'text' as const, text: `Backup not found: ${args.filename}` }], isError: true }
+          }
+          const result = verifyBackup(backup.path)
+          if (result.valid) {
+            return { content: [{ type: 'text' as const, text: `Backup "${args.filename}" is valid` }] }
+          }
+          return { content: [{ type: 'text' as const, text: `Backup "${args.filename}" has errors: ${result.errors.join('; ')}` }], isError: true }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'VerifyBackup tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  tools.push(
+    tool(
+      'RestoreBackup',
+      'Restore a bot or system from a backup file. WARNING: this overwrites existing data. For bot backups you can optionally restore to a different bot name.',
+      {
+        filename: z.string().describe('Backup filename to restore from'),
+        targetBotName: z.string().optional().describe('Override target bot name (for bot backups only)'),
+      },
+      async (args) => {
+        usedTools.add('RestoreBackup')
+        try {
+          const { restoreBackup, listBackups } = await import('./backup/index.js')
+          const backups = listBackups()
+          const backup = backups.find(b => b.filename === args.filename)
+          if (!backup) {
+            return { content: [{ type: 'text' as const, text: `Backup not found: ${args.filename}` }], isError: true }
+          }
+          const result = await restoreBackup({
+            archivePath: backup.path,
+            targetBotName: args.targetBotName,
+            overwrite: true,
+          })
+          const parts: string[] = [`Restored: ${result.restored.join(', ')}`]
+          if (result.warnings.length > 0) {
+            parts.push(`Warnings: ${result.warnings.join('; ')}`)
+          }
+          return { content: [{ type: 'text' as const, text: parts.join('\n') }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'RestoreBackup tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  tools.push(
+    tool(
+      'DeleteBackup',
+      'Delete a backup file. Only deletes files that match the backup naming convention.',
+      { filename: z.string().describe('Backup filename to delete') },
+      async (args) => {
+        usedTools.add('DeleteBackup')
+        try {
+          const { deleteBackup } = await import('./backup/index.js')
+          const deleted = deleteBackup(args.filename)
+          if (deleted) {
+            return { content: [{ type: 'text' as const, text: `Backup "${args.filename}" deleted` }] }
+          }
+          return { content: [{ type: 'text' as const, text: `Could not delete "${args.filename}" — not found or invalid filename` }], isError: true }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'DeleteBackup tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
   // --- Telegram media sending (always available) ---
 
   tools.push(
