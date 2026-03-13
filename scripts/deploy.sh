@@ -104,9 +104,38 @@ is_alive() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+do_admin() {
+  local port="${ADMIN_PORT:-3000}"
+  local token
+  token=$(head -c 16 /dev/urandom | xxd -p)
+
+  ADMIN_TOKEN="$token" ADMIN_PORT="$port" node dist/admin/server.js > /tmp/botva-admin.log 2>&1 &
+  local admin_pid=$!
+  sleep 1
+
+  if kill -0 "$admin_pid" 2>/dev/null; then
+    info "Admin panel started (PID $admin_pid)"
+    echo ""
+    echo -e "  ${BOLD}Open in browser:${NC}"
+    echo -e "  ${GREEN}http://localhost:${port}/?token=${token}${NC}"
+    echo ""
+    echo "  Log: /tmp/botva-admin.log"
+    echo "  Stop: kill $admin_pid"
+  else
+    err "Admin panel failed to start — check /tmp/botva-admin.log"
+  fi
+}
+
 do_start() {
-  echo -e "${BOLD}Starting BotVa bots...${NC}"
+  echo -e "${BOLD}Starting BotVa...${NC}"
   npm run build 2>/dev/null || true
+
+  # No bots yet — launch admin panel for initial setup
+  if [ ${#BOTS[@]} -eq 0 ]; then
+    warn "No bots found in bots/. Starting admin panel for setup..."
+    do_admin
+    return
+  fi
 
   for bot in "${BOTS[@]}"; do
     pid=$(get_pid "$bot")
@@ -252,16 +281,18 @@ case "${1:-}" in
   stop)    do_stop ;;
   restart) do_restart ;;
   status)  do_status ;;
+  admin)   do_admin ;;
   launchd) do_launchd ;;
   *)
-    echo "Usage: $0 {setup|build|start|stop|restart|status|launchd}"
+    echo "Usage: $0 {setup|build|start|stop|restart|status|admin|launchd}"
     echo ""
     echo "  setup    — first-time install (deps, build, check config)"
     echo "  build    — rebuild TypeScript"
-    echo "  start    — start all bots"
+    echo "  start    — start all bots (or admin panel if no bots)"
     echo "  stop     — stop all bots"
     echo "  restart  — stop + start all bots"
     echo "  status   — show running bots"
+    echo "  admin    — start admin panel with one-time token"
     echo "  launchd  — install macOS auto-start services"
     ;;
 esac

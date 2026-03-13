@@ -61,14 +61,27 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
 
   // 3. Static token cookie (standalone mode / backward compat)
   const token = getCookie(c, 'admin_token')
-  if (token === TOKEN) return next()
+  if (TOKEN && token === TOKEN) return next()
 
-  // 4. On-demand mode — no login form, use Telegram link
+  // 4. Standalone mode — accept ?token= in URL and set cookie
+  if (TOKEN) {
+    const urlToken = c.req.query('token')
+    if (urlToken === TOKEN) {
+      setCookie(c, 'admin_token', TOKEN, {
+        path: '/',
+        httpOnly: true,
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+      })
+      return c.redirect('/')
+    }
+  }
+
+  // 5. On-demand mode — no login form, use Telegram link
   if (sessionToken) {
     return c.text('Unauthorized. Use the link from Telegram.', 401)
   }
 
-  // 5. Standalone mode — login form (requires ADMIN_TOKEN)
+  // 6. Standalone mode — login form (requires ADMIN_TOKEN)
   if (!TOKEN) {
     return c.text('ADMIN_TOKEN not configured. Set it in .env', 500)
   }
