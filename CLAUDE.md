@@ -12,7 +12,7 @@
 - `.claude/skills/` -- скіли Claude Code
 - `package.json`, `tsconfig.json`, `.gitignore`, `.env.example`
 - `CLAUDE.md`, `DEPLOY.md`
-- `mcp-servers.json`, `.mcp.json.example`
+- `mcp-servers.json.example`, `.mcp.json.example`
 
 **НЕ комітити (дані та секрети):**
 - `bots/` -- конфіги, knowledge, context, .env конкретних ботів
@@ -44,3 +44,17 @@
 - Webhook URLs
 - Імен, прізвищ, медичних даних
 - Шляхів з іменами користувачів (`/Users/ivan/`, `/home/vika/`)
+
+## Архітектура даних
+
+**КОД (git tracked):**
+- `src/`, `scripts/`, `workspace/roles/` — код, скрипти, шаблони ролей
+- `mcp-servers/` — MCP сервери (без `build/`, `venv/`, `node_modules/`)
+- `.claude/skills/` — скіли Claude Code
+- `*.example` файли — шаблони без credentials
+
+**ДАНІ (gitignored):**
+- `bots/`, `knowledge/`, `store/` — персональні дані, БД
+- `.env`, `.mcp.json`, `mcp-servers.json` — токени, ключі, шляхи
+- `workspace/` (крім `workspace/roles/`) — runtime дані ботів
+- `agents/` — agent configs з персональними даними

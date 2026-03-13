@@ -17,3 +17,6 @@ mcp-servers/*/build/
 mcp-servers/*/node_modules/
 mcp-servers/*/venv/
 __pycache__/
+mcp-servers.json
+*.db
+*.sqlite

@@ -1,5 +1,5 @@
 import { execSync, spawnSync } from 'child_process'
-import { existsSync, writeFileSync, readFileSync, mkdirSync } from 'fs'
+import { existsSync, writeFileSync, readFileSync, mkdirSync, symlinkSync, unlinkSync } from 'fs'
 import { resolve, dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { createInterface } from 'readline'
@@ -94,6 +94,30 @@ async function main(): Promise<void> {
     .join('\n') + '\nALLOWED_CHAT_ID=\nLOG_LEVEL=info\n'
   writeFileSync(join(PROJECT_ROOT, '.env'), envContent)
   check('.env created', true)
+
+  // Create mcp-servers.json from template
+  const mcpTarget = join(PROJECT_ROOT, 'mcp-servers.json')
+  const mcpTemplate = join(PROJECT_ROOT, 'mcp-servers.json.example')
+  if (!existsSync(mcpTarget) && existsSync(mcpTemplate)) {
+    const template = readFileSync(mcpTemplate, 'utf-8')
+    writeFileSync(mcpTarget, template.replaceAll('__PROJECT_ROOT__', PROJECT_ROOT))
+    check('mcp-servers.json created from template', true)
+  } else if (existsSync(mcpTarget)) {
+    check('mcp-servers.json already exists', true)
+  }
+
+  // Install pre-commit hook
+  const hookTarget = join(PROJECT_ROOT, '.git', 'hooks', 'pre-commit')
+  const hookScript = join(PROJECT_ROOT, 'scripts', 'pre-commit-check.sh')
+  if (existsSync(join(PROJECT_ROOT, '.git')) && existsSync(hookScript)) {
+    try {
+      if (existsSync(hookTarget)) unlinkSync(hookTarget)
+      symlinkSync(hookScript, hookTarget)
+      check('pre-commit hook installed', true)
+    } catch {
+      check('pre-commit hook install failed (set manually)', false)
+    }
+  }
 
   // Create directories
   mkdirSync(join(PROJECT_ROOT, 'store'), { recursive: true })
