@@ -87,7 +87,7 @@ do_setup() {
     echo ""
     for i in "${!AVAILABLE_MCP[@]}"; do
       desc=$(mcp_desc "${AVAILABLE_MCP[$i]}")
-      echo "  $((i+1)). ${AVAILABLE_MCP[$i]}  ${YELLOW}— ${desc}${NC}"
+      printf "  %d. %s  — %s\n" "$((i+1))" "${AVAILABLE_MCP[$i]}" "$desc"
     done
     echo ""
     echo "  a. All"
