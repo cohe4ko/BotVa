@@ -11,6 +11,7 @@ import { createBot, sendMessage } from './bot.js'
 import { run, sequentialize } from '@grammyjs/runner'
 import { initScheduler, stopScheduler } from './scheduler.js'
 import { logger } from './logger.js'
+import { getConsolidationHour } from './system-settings.js'
 import { preventSleep, allowSleep } from './caffeinate.js'
 import { stopDeduplication } from './deduplication.js'
 import { initTelegraph } from './telegraph.js'
@@ -165,11 +166,12 @@ async function main(): Promise<void> {
   runDecaySweep()
   const decayInterval = setInterval(runDecaySweep, 24 * 60 * 60 * 1000)
 
-  // Schedule daily consolidation at 04:00
+  // Schedule daily consolidation
   const scheduleConsolidation = () => {
+    const hour = getConsolidationHour()
     const now = new Date()
     const next = new Date(now)
-    next.setHours(4, 0, 0, 0)
+    next.setHours(hour, 0, 0, 0)
     if (next.getTime() <= now.getTime()) {
       next.setDate(next.getDate() + 1)
     }

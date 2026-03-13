@@ -10,6 +10,7 @@ import { existsSync, readdirSync, renameSync, readFileSync } from 'fs'
 import { resolve, join } from 'path'
 import { execSync } from 'child_process'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
+import { getConsolidationHour, setSystemSetting } from '../../system-settings.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -230,6 +231,20 @@ app.get('/system', (c) => {
       </table>
     </div>
 
+    <h3>${icon('settings')} ${t('sys.settings')}</h3>
+    <div class="form-section" id="sys-settings">
+      <form hx-post="/system/settings" hx-target="#sys-settings-alert" hx-swap="innerHTML" style="max-width:400px">
+        <div id="sys-settings-alert"></div>
+        <label>${t('sys.consolidationHour')}
+          <select name="consolidationHour">
+            ${[0, 2, 4].map(h => html`<option value="${h}" ${h === getConsolidationHour(root) ? 'selected' : ''}>${String(h).padStart(2, '0')}:00</option>`)}
+          </select>
+          <small>${t('sys.consolidationHourHint')}</small>
+        </label>
+        <button type="submit" style="margin-top:0.5rem">${icon('save', 13)} ${t('sys.save')}</button>
+      </form>
+    </div>
+
     <h3>${icon('layers')} ${t('sys.architecture')}</h3>
     <div class="table-wrap">
       <table>
@@ -428,6 +443,17 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc) {
     </div>
   `
 }
+
+// Save system settings
+app.post('/system/settings', async (c) => {
+  const t: TFunc = c.get('t')
+  const body = await c.req.parseBody()
+  const hour = parseInt(String(body['consolidationHour'] ?? '4'), 10)
+  if ([0, 2, 4].includes(hour)) {
+    setSystemSetting('consolidationHour', hour)
+  }
+  return c.html(html`<div class="alert alert-success">${t('sys.settingsSaved')}</div>`)
+})
 
 // Toggle builtin tool on/off
 app.post('/system/tool-toggle/:name', (c) => {

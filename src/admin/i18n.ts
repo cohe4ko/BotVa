@@ -16,8 +16,22 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.gallery': 'Gallery',
     'nav.storage': 'Storage',
     'nav.system': 'System',
+    'nav.diagnostics': 'Diagnostics',
     'nav.new': 'New',
+    'nav.docs': 'Docs',
     'nav.footer': 'BotVa Admin',
+
+    // System Diagnostics
+    'sdiag.title': 'System Diagnostics',
+    'sdiag.desc': 'Collects system snapshot (env, logs, MCP, bots, disk) and analyzes the entire installation for issues, misconfigurations, and optimization opportunities.',
+    'sdiag.run': 'Run Diagnostics',
+    'sdiag.running': 'Analyzing system (30-60s)...',
+    'sdiag.health': 'System Health',
+    'sdiag.issues': 'Issues',
+    'sdiag.bots': 'Bot Reports',
+    'sdiag.mcp': 'MCP Servers',
+    'sdiag.recommendations': 'Recommendations',
+    'sdiag.security': 'Security',
 
     // Auth
     'auth.title': 'BotVa Admin',
@@ -366,7 +380,12 @@ const translations: Record<Lang, Record<string, string>> = {
     'sys.memory': 'Memory',
     'sys.memoryDesc': 'SQLite FTS5 + daily markdown diaries',
     'sys.consolidation': 'Consolidation',
-    'sys.consolidationDesc': 'Daily 04:00 (compress diary + KEY_EVENTS.md)',
+    'sys.consolidationDesc': 'Daily (compress diary + KEY_EVENTS.md)',
+    'sys.settings': 'Settings',
+    'sys.consolidationHour': 'Memory consolidation time',
+    'sys.consolidationHourHint': 'Daily diary compression and KEY_EVENTS.md update. Takes effect after bot restart.',
+    'sys.save': 'Save',
+    'sys.settingsSaved': 'Settings saved. Restart bots for changes to take effect.',
     'sys.scheduler': 'Scheduler',
     'sys.schedulerDesc': '60s poll, cron expressions',
     'sys.watchdog': 'Watchdog',
@@ -475,6 +494,17 @@ const translations: Record<Lang, Record<string, string>> = {
     'diag.canDisable': 'Can be disabled',
     'diag.skills': 'Skills',
 
+    // Docs
+    'docs.title': 'Documentation',
+    'docs.overview': 'Overview',
+    'docs.overviewDesc': 'Project README and deployment guide',
+    'docs.mcpServers': 'MCP Servers',
+    'docs.mcpDesc': 'Documentation for integrated MCP servers (Bitrix24, Meta Ads, PubMed)',
+    'docs.roles': 'Role Templates',
+    'docs.rolesDesc': 'Bot personality templates — choose one when creating a new bot',
+    'docs.skills': 'Skills',
+    'docs.skillsDesc': 'Claude Code skills available for bots',
+
     // Common
     'common.save': 'Save',
     'common.back': 'Back',
@@ -489,8 +519,22 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.gallery': 'Галерея',
     'nav.storage': 'Сховище',
     'nav.system': 'Система',
+    'nav.diagnostics': 'Діагностика',
     'nav.new': 'Новий',
+    'nav.docs': 'Документація',
     'nav.footer': 'BotVa Адмін',
+
+    // System Diagnostics
+    'sdiag.title': 'Діагностика системи',
+    'sdiag.desc': 'Збирає snapshot системи (env, логи, MCP, боти, диск) і аналізує всю інсталяцію на проблеми, помилки конфігурації та можливості оптимізації.',
+    'sdiag.run': 'Запустити діагностику',
+    'sdiag.running': 'Аналізую систему (30-60с)...',
+    'sdiag.health': 'Здоров\'я системи',
+    'sdiag.issues': 'Проблеми',
+    'sdiag.bots': 'Звіти ботів',
+    'sdiag.mcp': 'MCP сервери',
+    'sdiag.recommendations': 'Рекомендації',
+    'sdiag.security': 'Безпека',
 
     // Auth
     'auth.title': 'BotVa Адмін',
@@ -839,7 +883,12 @@ const translations: Record<Lang, Record<string, string>> = {
     'sys.memory': 'Пам\'ять',
     'sys.memoryDesc': 'SQLite FTS5 + щоденні markdown щоденники',
     'sys.consolidation': 'Консолідація',
-    'sys.consolidationDesc': 'Щоденно 04:00 (стиснення щоденника + KEY_EVENTS.md)',
+    'sys.consolidationDesc': 'Щоденно (стиснення щоденника + KEY_EVENTS.md)',
+    'sys.settings': 'Налаштування',
+    'sys.consolidationHour': 'Час консолідації пам\'яті',
+    'sys.consolidationHourHint': 'Щоденне стиснення щоденника та оновлення KEY_EVENTS.md. Набуде чинності після перезапуску бота.',
+    'sys.save': 'Зберегти',
+    'sys.settingsSaved': 'Налаштування збережено. Перезапустіть ботів для застосування змін.',
     'sys.scheduler': 'Планувальник',
     'sys.schedulerDesc': 'Опитування кожні 60с, cron вирази',
     'sys.watchdog': 'Watchdog',
@@ -947,6 +996,17 @@ const translations: Record<Lang, Record<string, string>> = {
     'diag.recommendations': 'Рекомендації',
     'diag.canDisable': 'Можна вимкнути',
     'diag.skills': 'Скіли',
+
+    // Docs
+    'docs.title': 'Документація',
+    'docs.overview': 'Огляд',
+    'docs.overviewDesc': 'README проекту та інструкція з розгортання',
+    'docs.mcpServers': 'MCP Сервери',
+    'docs.mcpDesc': 'Документація інтегрованих MCP серверів (Bitrix24, Meta Ads, PubMed)',
+    'docs.roles': 'Шаблони ролей',
+    'docs.rolesDesc': 'Шаблони особистості бота — обирайте при створенні нового бота',
+    'docs.skills': 'Скіли',
+    'docs.skillsDesc': 'Скіли Claude Code, доступні ботам',
 
     // Common
     'common.save': 'Зберегти',
