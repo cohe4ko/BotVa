@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 const app = new Hono()
 
 function getRolesDir(): string {
-  return resolve(getProjectRoot(), 'workspace/roles')
+  return resolve(getProjectRoot(), 'roles')
 }
 
 function getAvailableRoles(): { slug: string; description: string }[] {

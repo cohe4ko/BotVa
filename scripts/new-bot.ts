@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { globSync } from 'fs'
 
 const ROOT = resolve(import.meta.dirname, '..')
-const ROLES_DIR = resolve(ROOT, 'workspace/roles')
+const ROLES_DIR = resolve(ROOT, 'roles')
 const BOTS_DIR = resolve(ROOT, 'bots')
 const TEAM_JSON = resolve(ROOT, 'workspace/team.json')
 const ENV_EXAMPLE = resolve(ROOT, '.env.example')

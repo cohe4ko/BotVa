@@ -7,7 +7,7 @@
 ### Що комітити
 
 **Комітити (код платформи):**
-- `src/`, `scripts/`, `workspace/roles/` -- код, скрипти, шаблони ролей
+- `src/`, `scripts/`, `roles/` -- код, скрипти, шаблони ролей
 - `mcp-servers/` -- MCP сервери (тільки вихідний код, без `build/`, `venv/`, `node_modules/`)
 - `.claude/skills/` -- скіли Claude Code
 - `package.json`, `tsconfig.json`, `.gitignore`, `.env.example`
@@ -19,7 +19,7 @@
 - `knowledge/` -- персональні дані користувача
 - `store/` -- SQLite бази
 - `.env`, `.mcp.json` -- токени, ключі, webhook URLs
-- `workspace/` (крім `workspace/roles/`) -- runtime дані ботів
+- `workspace/` -- runtime дані ботів
 - `agents/` -- agent configs з персональними даними
 - Будь-які API ключі, bot tokens, паролі, email адреси, chat ID
 
@@ -48,7 +48,7 @@
 ## Архітектура даних
 
 **КОД (git tracked):**
-- `src/`, `scripts/`, `workspace/roles/` — код, скрипти, шаблони ролей
+- `src/`, `scripts/`, `roles/` — код, скрипти, шаблони ролей
 - `mcp-servers/` — MCP сервери (без `build/`, `venv/`, `node_modules/`)
 - `.claude/skills/` — скіли Claude Code
 - `*.example` файли — шаблони без credentials
@@ -56,5 +56,5 @@
 **ДАНІ (gitignored):**
 - `bots/`, `knowledge/`, `store/` — персональні дані, БД
 - `.env`, `.mcp.json`, `mcp-servers.json` — токени, ключі, шляхи
-- `workspace/` (крім `workspace/roles/`) — runtime дані ботів
+- `workspace/` — runtime дані ботів
 - `agents/` — agent configs з персональними даними
