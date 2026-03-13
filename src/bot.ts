@@ -283,6 +283,8 @@ async function handleMessage(
 
   const chatIdStr = String(chatId)
 
+  logger.info({ chatId: chatIdStr, len: rawText.length }, 'Message received')
+
   // Queue the request
   await queueRequest(chatIdStr, async () => {
     let currentMessage = rawText
@@ -399,6 +401,7 @@ async function handleMessage(
       const responseTimeMs = Date.now() - startTime
       if (usage) {
         logUsage(chatIdStr, usage.inputTokens, usage.outputTokens, usage.cacheReadTokens, usage.cacheCreationTokens, usage.costUSD, responseTimeMs)
+        logger.info({ chatId: chatIdStr, ms: responseTimeMs, cost: `$${usage.costUSD.toFixed(4)}`, in: usage.inputTokens, out: usage.outputTokens }, 'Response sent')
       }
 
       // Send text — skip auto-telegraph if agent already used PublishTelegraph
