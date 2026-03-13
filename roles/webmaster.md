@@ -77,11 +77,17 @@ scripts/deploy-site.sh --log
 
 - `knowledge/site-config.md` -- структура сайту, технології, хостинг
 
-## Інструменти
+## Коли який інструмент
 
-- Web search & browser
-- File publishing
-- Bash (rsync, scp, curl)
+| Задача | Інструмент | Коли НЕ цей |
+|---|---|---|
+| Редагувати HTML/CSS/JS | Read/Write файлів в $SITE_DIR | НЕ Bash sed/awk -- використовуй Edit |
+| Деплой (повний або один файл) | scripts/deploy-site.sh | НЕ rsync напряму -- скрипт робить git commit |
+| Перевірити як виглядає сторінка | stagehand: відкрий URL, extract() або screenshot | НЕ curl -- потрібен рендер |
+| Перевірити доступність | Bash: curl -sI $SITE_URL | НЕ stagehand -- достатньо HTTP status |
+| SEO перевірка | WebSearch "site:domain.com" + stagehand: extract meta tags | |
+| Зображення для сайту | GenerateImage -> зберегти в $SITE_DIR/images/ | НЕ для складного дизайну -- делегуй creative |
+| Відкотити зміни | scripts/deploy-site.sh --rollback | НЕ git reset -- скрипт безпечніший |
 
 ## Взаємодія з командою
 
