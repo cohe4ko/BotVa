@@ -5,6 +5,7 @@ import { formatCost } from '../views/components.js'
 import { getBotNames, getUsageSummary, getBotDir, getProjectRoot } from '../db-multi.js'
 import { readEnv } from '../env-parser.js'
 import { getMcpServersConfig, isServerDisabled, setServerEnabled, addMcpServer, removeMcpServer, getMcpServer, updateMcpServer, type McpServerEntry } from '../../mcp-config.js'
+import { getBuiltinToolDefs, setToolEnabled, type BuiltinToolDef } from '../../builtin-tools.js'
 import { existsSync, readdirSync, renameSync, readFileSync } from 'fs'
 import { resolve, join } from 'path'
 import { execSync } from 'child_process'
@@ -203,26 +204,7 @@ app.get('/system', (c) => {
     ${renderMcpTable(mcpServers, getEnvBotMap(), t)}
 
     <h3>${icon('wrench')} ${t('sys.agentTools')}</h3>
-    <div class="stats-grid">
-      ${[
-        { ic: 'terminal', name: t('sys.bash'), desc: t('sys.bashDesc') },
-        { ic: 'folder', name: t('sys.fileSystem'), desc: t('sys.fileSystemDesc') },
-        { ic: 'search', name: t('sys.webSearch'), desc: t('sys.webSearchDesc') },
-        { ic: 'globe', name: t('sys.webFetch'), desc: t('sys.webFetchDesc') },
-        { ic: 'image', name: t('sys.imageGen'), desc: t('sys.imageGenDesc') },
-        { ic: 'pen-tool', name: t('sys.imageEdit'), desc: t('sys.imageEditDesc') },
-        { ic: 'mic', name: t('sys.voiceStt'), desc: t('sys.voiceSttDesc') },
-        { ic: 'volume-2', name: t('sys.voiceTts'), desc: t('sys.voiceTtsDesc') },
-        { ic: 'newspaper', name: t('sys.telegraph'), desc: t('sys.telegraphDesc') },
-        { ic: 'upload', name: t('sys.fileShare'), desc: t('sys.fileShareDesc') },
-      ].map(tool => html`
-        <div class="stat-card" style="padding:0.7rem">
-          <div style="margin-bottom:0.2rem;color:var(--mc-text-dim)">${icon(tool.ic, 16)}</div>
-          <div style="font-weight:600;font-size:0.82rem">${tool.name}</div>
-          <div style="font-size:0.72rem;color:var(--mc-text-dim)">${tool.desc}</div>
-        </div>
-      `)}
-    </div>
+    ${renderBuiltinToolsTable(getBuiltinToolDefs(), t)}
 
     <h3>${icon('puzzle')} ${t('sys.skills')}</h3>
     ${renderSkillsTable(projectSkills, t)}
@@ -381,6 +363,81 @@ function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, str
     </div>
   `
 }
+
+// --- Builtin tools table ---
+
+const CATEGORY_LABELS: Record<string, { en: string; uk: string }> = {
+  image: { en: 'Image', uk: 'Зображення' },
+  voice: { en: 'Voice', uk: 'Голос' },
+  publish: { en: 'Publishing', uk: 'Публікація' },
+  gallery: { en: 'Gallery', uk: 'Галерея' },
+  backup: { en: 'Backup', uk: 'Бекап' },
+  telegram: { en: 'Telegram', uk: 'Telegram' },
+}
+
+function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc) {
+  // Group by category
+  const categories = [...new Set(tools.map(t => t.category))]
+
+  return html`
+    <div class="table-wrap" id="builtin-tools-table">
+      <table>
+        <thead><tr>
+          <th style="width:40px"></th>
+          <th>${t('sys.tool')}</th>
+          <th>${t('sys.toolDesc')}</th>
+          <th style="width:120px">${t('sys.toolCondition')}</th>
+          <th style="width:80px">${t('sys.skillStatus')}</th>
+        </tr></thead>
+        <tbody>
+          ${categories.map(cat => {
+            const catTools = tools.filter(t => t.category === cat)
+            const lang = t('sys.tool') === 'Tool' ? 'en' : 'uk'
+            const catLabel = CATEGORY_LABELS[cat]?.[lang] ?? cat
+            return html`
+              <tr><td colspan="5" style="background:var(--mc-bg-alt);font-weight:600;font-size:0.78rem;padding:0.4rem 0.75rem;color:var(--mc-text-secondary)">${catLabel}</td></tr>
+              ${catTools.map(tool => html`
+                <tr${!tool.available ? ' style="opacity:0.45"' : ''}>
+                  <td style="text-align:center;color:var(--mc-text-dim)">${icon(tool.icon, 15)}</td>
+                  <td><code style="font-size:0.78rem">${tool.name}</code></td>
+                  <td style="font-size:0.78rem;color:var(--mc-text-secondary)">${tool.description}</td>
+                  <td style="font-size:0.72rem">${tool.condition
+                    ? (tool.available
+                      ? html`<span class="badge badge-set" style="font-size:0.65rem">${icon('check', 9)} ${tool.condition}</span>`
+                      : html`<span class="badge badge-missing" style="font-size:0.65rem">${icon('x', 9)} ${tool.condition}</span>`)
+                    : html`<span style="color:var(--mc-text-dim);font-size:0.7rem">—</span>`
+                  }</td>
+                  <td>
+                    <button
+                      hx-post="/system/tool-toggle/${tool.name}"
+                      hx-target="#builtin-tools-table"
+                      hx-swap="outerHTML"
+                      class="btn-sm ${tool.enabled && tool.available ? '' : 'secondary outline'}"
+                      style="min-width:60px;${tool.enabled && tool.available ? 'background:var(--mc-green);color:#fff;border-color:var(--mc-green)' : ''}"
+                      ${!tool.available ? 'disabled' : ''}
+                    >${tool.enabled ? html`${icon('check', 11)} ${t('sys.skillOn')}` : html`${icon('x', 11)} ${t('sys.skillOff')}`}</button>
+                  </td>
+                </tr>
+              `)}
+            `
+          })}
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
+// Toggle builtin tool on/off
+app.post('/system/tool-toggle/:name', (c) => {
+  const t: TFunc = c.get('t')
+  const name = c.req.param('name')
+  const tools = getBuiltinToolDefs()
+  const current = tools.find(t => t.name === name)
+  if (current) {
+    setToolEnabled(name, !current.enabled)
+  }
+  return c.html(renderBuiltinToolsTable(getBuiltinToolDefs(), t))
+})
 
 // Toggle MCP server on/off
 app.post('/system/mcp-toggle/:name', (c) => {

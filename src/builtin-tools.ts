@@ -4,7 +4,86 @@ import type { Context } from 'grammy'
 import { InputFile } from 'grammy'
 import { readEnvFile } from './env.js'
 import { logger } from './logger.js'
-import { TELEGRAPH_ENABLED } from './config.js'
+import { TELEGRAPH_ENABLED, PROJECT_ROOT } from './config.js'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { resolve } from 'path'
+
+// --- Builtin tools config (enabled/disabled state) ---
+
+const CONFIG_PATH = resolve(PROJECT_ROOT, 'workspace', 'builtin-tools.json')
+
+export interface BuiltinToolDef {
+  name: string
+  icon: string
+  category: string
+  description: string
+  condition?: string  // env var or feature required (for display)
+  available: boolean  // whether requirements are met
+  enabled: boolean    // user toggle
+}
+
+function readConfig(): Record<string, boolean> {
+  try {
+    if (existsSync(CONFIG_PATH)) return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'))
+  } catch { /* ignore */ }
+  return {}
+}
+
+function writeConfig(config: Record<string, boolean>): void {
+  mkdirSync(resolve(PROJECT_ROOT, 'workspace'), { recursive: true })
+  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n')
+}
+
+export function isToolEnabled(name: string): boolean {
+  const config = readConfig()
+  return config[name] !== false  // enabled by default
+}
+
+export function setToolEnabled(name: string, enabled: boolean): void {
+  const config = readConfig()
+  if (enabled) {
+    delete config[name]  // default is enabled, so remove entry
+  } else {
+    config[name] = false
+  }
+  writeConfig(config)
+}
+
+/** Returns metadata for all builtin tools (for admin UI) */
+export function getBuiltinToolDefs(): BuiltinToolDef[] {
+  const env = readEnvFile()
+  const hasGoogleApi = !!env['GOOGLE_API_KEY']
+  const hasPublishSsh = !!env['PUBLISH_SSH_HOST']
+  const config = readConfig()
+
+  const defs: Omit<BuiltinToolDef, 'enabled'>[] = [
+    // Image
+    { name: 'GenerateImage', icon: 'image', category: 'image', description: 'Generate image from prompt', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
+    { name: 'EditImage', icon: 'pen-tool', category: 'image', description: 'Edit image with instruction', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
+    // Voice
+    { name: 'TextToSpeech', icon: 'volume-2', category: 'voice', description: 'Text to voice message (Edge-TTS)', available: true },
+    // Publishing
+    { name: 'PublishTelegraph', icon: 'newspaper', category: 'publish', description: 'Publish long text to Telegraph', condition: 'TELEGRAPH_ENABLED', available: TELEGRAPH_ENABLED },
+    { name: 'ShareFile', icon: 'upload', category: 'publish', description: 'Upload file to public server', condition: 'PUBLISH_SSH_HOST', available: hasPublishSsh },
+    // Gallery
+    { name: 'ListGalleryImages', icon: 'grid', category: 'gallery', description: 'List gallery images with metadata', available: true },
+    { name: 'SendGalleryImage', icon: 'send', category: 'gallery', description: 'Send gallery image to chat', available: true },
+    { name: 'DeleteGalleryImage', icon: 'trash-2', category: 'gallery', description: 'Delete image from gallery', available: true },
+    // Backup
+    { name: 'CreateBackup', icon: 'save', category: 'backup', description: 'Create bot or system backup', available: true },
+    { name: 'ListBackups', icon: 'list', category: 'backup', description: 'List available backups', available: true },
+    { name: 'VerifyBackup', icon: 'check-circle', category: 'backup', description: 'Verify backup integrity', available: true },
+    { name: 'RestoreBackup', icon: 'rotate-ccw', category: 'backup', description: 'Restore from backup', available: true },
+    { name: 'DeleteBackup', icon: 'trash-2', category: 'backup', description: 'Delete backup file', available: true },
+    // Telegram media
+    { name: 'SendPhoto', icon: 'image', category: 'telegram', description: 'Send photo to chat', available: true },
+    { name: 'SendDocument', icon: 'file', category: 'telegram', description: 'Send document to chat', available: true },
+    { name: 'SendVoice', icon: 'mic', category: 'telegram', description: 'Send voice file to chat', available: true },
+    { name: 'SendVideo', icon: 'video', category: 'telegram', description: 'Send video to chat', available: true },
+  ]
+
+  return defs.map(d => ({ ...d, enabled: config[d.name] !== false }))
+}
 
 export interface BuiltinToolsResult {
   server: McpSdkServerConfigWithInstance
@@ -15,14 +94,18 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
   const env = readEnvFile()
   const usedTools = new Set<string>()
   const tools: SdkMcpToolDefinition<any>[] = []
+  const config = readConfig()
 
   const hasGoogleApi = !!env['GOOGLE_API_KEY']
   const hasPublishSsh = !!env['PUBLISH_SSH_HOST']
 
+  // Helper: only register tool if enabled in config
+  const isOn = (name: string) => config[name] !== false
+
   // --- Image generation tools (require GOOGLE_API_KEY) ---
 
   if (hasGoogleApi) {
-    tools.push(
+    if (isOn('GenerateImage')) tools.push(
       tool(
         'GenerateImage',
         'Generate an image from a text prompt and send it to the chat. Use this when the user asks to create, draw, or generate an image.',
@@ -49,7 +132,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
       )
     )
 
-    tools.push(
+    if (isOn('EditImage')) tools.push(
       tool(
         'EditImage',
         'Edit an existing image based on a text instruction and send the result to the chat. Use this when the user wants to modify, change, or edit an existing image.',
@@ -82,7 +165,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
 
   // --- Voice (always available — edge-tts is free) ---
 
-  tools.push(
+  if (isOn('TextToSpeech')) tools.push(
     tool(
       'TextToSpeech',
       'Convert text to speech and send as a voice message in the chat. Use this when the user asks to read text aloud or send a voice message.',
@@ -106,7 +189,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
 
   // --- Telegraph (when enabled) ---
 
-  if (TELEGRAPH_ENABLED) {
+  if (TELEGRAPH_ENABLED && isOn('PublishTelegraph')) {
     tools.push(
       tool(
         'PublishTelegraph',
@@ -136,7 +219,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
 
   // --- ShareFile (when SSH publishing is configured) ---
 
-  if (hasPublishSsh) {
+  if (hasPublishSsh && isOn('ShareFile')) {
     tools.push(
       tool(
         'ShareFile',
@@ -166,7 +249,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
 
   // --- Gallery tools (always available) ---
 
-  tools.push(
+  if (isOn('ListGalleryImages')) tools.push(
     tool(
       'ListGalleryImages',
       'List images in the gallery with metadata (id, bot, type, prompt, size, date). Supports pagination and optional bot name filter.',
@@ -202,7 +285,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('SendGalleryImage')) tools.push(
     tool(
       'SendGalleryImage',
       'Send a gallery image to the chat by its ID. Sends the full-resolution image with prompt as caption.',
@@ -232,7 +315,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('DeleteGalleryImage')) tools.push(
     tool(
       'DeleteGalleryImage',
       'Delete an image from the gallery by its ID. Removes the database entry and both the full image and thumbnail files.',
@@ -267,7 +350,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
 
   // --- Backup tools (always available) ---
 
-  tools.push(
+  if (isOn('CreateBackup')) tools.push(
     tool(
       'CreateBackup',
       'Create a backup of a specific bot or the entire system. Returns backup filename and size. Use "bot" type with botName for a single bot, or "system" for full system backup including all bots, configs, and workspace.',
@@ -290,7 +373,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('ListBackups')) tools.push(
     tool(
       'ListBackups',
       'List all available backups with their details (filename, type, bots, size, date).',
@@ -316,7 +399,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('VerifyBackup')) tools.push(
     tool(
       'VerifyBackup',
       'Verify the integrity of a backup file. Checks archive structure and manifest validity.',
@@ -344,7 +427,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('RestoreBackup')) tools.push(
     tool(
       'RestoreBackup',
       'Restore a bot or system from a backup file. WARNING: this overwrites existing data. For bot backups you can optionally restore to a different bot name.',
@@ -380,7 +463,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('DeleteBackup')) tools.push(
     tool(
       'DeleteBackup',
       'Delete a backup file. Only deletes files that match the backup naming convention.',
@@ -405,7 +488,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
 
   // --- Telegram media sending (always available) ---
 
-  tools.push(
+  if (isOn('SendPhoto')) tools.push(
     tool(
       'SendPhoto',
       'Send a photo from a local file to the chat.',
@@ -430,7 +513,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('SendDocument')) tools.push(
     tool(
       'SendDocument',
       'Send a document/file to the chat.',
@@ -455,7 +538,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('SendVoice')) tools.push(
     tool(
       'SendVoice',
       'Send a voice message from an audio file to the chat.',
@@ -475,7 +558,7 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
     )
   )
 
-  tools.push(
+  if (isOn('SendVideo')) tools.push(
     tool(
       'SendVideo',
       'Send a video to the chat.',
