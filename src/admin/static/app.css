@@ -46,6 +46,9 @@ body {
   line-height: 1.55;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 a { color: var(--mc-accent); text-decoration: none; }
@@ -185,7 +188,9 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
 /* === Main content === */
 .mc-main {
   max-width: 1100px;
+  width: 100%;
   margin: 0 auto;
+  flex: 1;
   padding: 1.5rem;
 }
 
@@ -592,7 +597,7 @@ nav ul li a[aria-current="page"] { background: var(--mc-accent); color: #fff; bo
   padding: 1.5rem;
   color: var(--mc-text-dim);
   font-size: 0.72rem;
-  margin-top: 2rem;
+  margin-top: auto;
 }
 
 /* === htmx === */

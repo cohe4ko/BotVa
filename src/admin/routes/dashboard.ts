@@ -48,11 +48,13 @@ app.get('/', (c) => {
       </div>
     </div>
 
+    ${bots.length > 0 ? html`
     <div class="btn-group" style="margin-bottom:1rem" id="bulk-controls">
       <button hx-post="/bots/restart-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="Restart all bots?" class="btn-sm contrast outline">${icon('refresh-cw', 12)} Restart All</button>
       <button hx-post="/bots/stop-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="Stop all bots?" class="btn-sm secondary outline">${icon('square', 12)} Stop All</button>
       <button hx-post="/bots/start-all" hx-target="#bulk-controls" hx-swap="innerHTML" class="btn-sm outline">${icon('play', 12)} Start All</button>
     </div>
+    ` : ''}
 
     <div class="bot-grid">
       ${bots.map(b => html`

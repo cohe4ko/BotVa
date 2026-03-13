@@ -50,14 +50,14 @@ do_setup() {
   fi
 
   # Install deps
-  echo -e "\n${BOLD}Installing dependencies...${NC}"
-  npm install
-  info "npm install done"
+  echo -n "  Installing npm dependencies... "
+  npm install --silent 2>&1
+  info "done"
 
   # Build
-  echo -e "\n${BOLD}Building TypeScript...${NC}"
-  npm run build
-  info "Build done"
+  echo -n "  Building TypeScript... "
+  npm run --silent build 2>&1
+  info "done"
 
   # Build MCP servers
   echo -e "\n${BOLD}MCP Servers (optional integrations):${NC}"
@@ -99,9 +99,10 @@ do_setup() {
     echo "  a. All"
     echo "  s. Skip"
     echo ""
-    read -rp "Which MCP servers to install? [numbers separated by space / a / s]: " mcp_choice
+    read -rp "Which MCP servers to install? [numbers / a=all / s=skip, default: a]: " mcp_choice
+    mcp_choice="${mcp_choice:-a}"
 
-    if [ "$mcp_choice" = "s" ] || [ -z "$mcp_choice" ]; then
+    if [ "$mcp_choice" = "s" ]; then
       warn "Skipping MCP servers"
     else
       if [ "$mcp_choice" = "a" ]; then
@@ -123,18 +124,18 @@ do_setup() {
       for i in "${!SELECTED_MCP[@]}"; do
         name="${SELECTED_MCP[$i]}"
         type="${SELECTED_TYPES[$i]}"
-        echo "  Building $name..."
+        echo -n "  Installing $name... "
         if [ "$type" = "python" ]; then
-          if (cd "mcp-servers/$name" && python3 -m venv venv && ./venv/bin/pip install -q -r requirements.txt) 2>&1; then
-            info "MCP: $name (Python)"
+          if (cd "mcp-servers/$name" && python3 -m venv venv 2>&1 && ./venv/bin/pip install -q -r requirements.txt 2>&1); then
+            info "done"
           else
-            err "MCP: $name failed to install"
+            err "failed (check mcp-servers/$name/)"
           fi
         else
-          if (cd "mcp-servers/$name" && npm install && npm run build) 2>&1; then
-            info "MCP: $name"
+          if (cd "mcp-servers/$name" && npm install --silent 2>&1 && npm run --silent build 2>&1); then
+            info "done"
           else
-            err "MCP: $name failed to build"
+            err "failed (check mcp-servers/$name/)"
           fi
         fi
       done
@@ -187,6 +188,16 @@ is_alive() {
 
 do_admin() {
   local port="${ADMIN_PORT:-3000}"
+
+  # Kill everything on this port
+  local pids
+  pids=$(lsof -ti :"$port" 2>/dev/null)
+  if [ -n "$pids" ]; then
+    warn "Stopping processes on port $port"
+    echo "$pids" | xargs kill -9 2>/dev/null
+    sleep 2
+  fi
+
   local token
   token=$(head -c 16 /dev/urandom | xxd -p)
 
@@ -195,13 +206,21 @@ do_admin() {
   sleep 1
 
   if kill -0 "$admin_pid" 2>/dev/null; then
+    local url="http://localhost:${port}/?token=${token}"
     info "Admin panel started (PID $admin_pid)"
     echo ""
     echo -e "  ${BOLD}Open in browser:${NC}"
-    echo -e "  ${GREEN}http://localhost:${port}/?token=${token}${NC}"
+    echo -e "  ${GREEN}${url}${NC}"
     echo ""
     echo "  Log: /tmp/botva-admin.log"
     echo "  Stop: kill $admin_pid"
+
+    # Auto-open in browser
+    if command -v open &>/dev/null; then
+      open "$url"
+    elif command -v xdg-open &>/dev/null; then
+      xdg-open "$url"
+    fi
   else
     err "Admin panel failed to start — check /tmp/botva-admin.log"
   fi

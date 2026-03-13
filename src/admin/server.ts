@@ -65,6 +65,26 @@ const isDirectRun = process.argv[1]?.includes('server')
 if (isDirectRun) {
   const app = createAdminApp()
   const port = parseInt(process.env.ADMIN_PORT || '3000', 10)
-  console.log(`\n  BotVa Admin Panel\n  http://localhost:${port}\n`)
-  serve({ fetch: app.fetch, port, hostname: '0.0.0.0' })
+  const IDLE_TIMEOUT_MS = 20 * 60 * 1000
+
+  let idleTimer: ReturnType<typeof setTimeout> | null = null
+  function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      console.log('\n  Admin panel: 20 min inactivity, shutting down...')
+      process.exit(0)
+    }, IDLE_TIMEOUT_MS)
+  }
+
+  // Wrap fetch to reset timer on authenticated requests (skip static)
+  const originalFetch = app.fetch.bind(app)
+  const wrappedFetch = (req: Request, ...args: any[]) => {
+    const url = new URL(req.url)
+    if (!url.pathname.startsWith('/static/')) resetIdleTimer()
+    return originalFetch(req, ...args)
+  }
+
+  resetIdleTimer()
+  console.log(`\n  BotVa Admin Panel\n  http://localhost:${port}\n  Auto-shutdown after 20 min inactivity\n`)
+  serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
 }

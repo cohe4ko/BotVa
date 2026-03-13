@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { existsSync, readdirSync, statSync } from 'fs'
+import { existsSync, readdirSync, statSync, mkdirSync } from 'fs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..', '..')
@@ -420,7 +420,9 @@ let galleryDb: DatabaseSync | null = null
 
 function getGalleryDb(): DatabaseSync {
   if (galleryDb) return galleryDb
-  const dbPath = resolve(PROJECT_ROOT, 'workspace', 'gallery.db')
+  const wsDir = resolve(PROJECT_ROOT, 'workspace')
+  if (!existsSync(wsDir)) mkdirSync(wsDir, { recursive: true })
+  const dbPath = resolve(wsDir, 'gallery.db')
   galleryDb = new DatabaseSync(dbPath)
   galleryDb.exec('PRAGMA journal_mode = WAL')
   galleryDb.exec(`
