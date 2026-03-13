@@ -111,6 +111,13 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
   gap: 0;
   height: 100%;
   align-items: stretch;
+  flex: 1;
+}
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
 }
 .top-nav .nav-links a {
   display: flex;
@@ -173,7 +180,8 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
 .nav-dropdown-menu a {
   display: flex;
   align-items: center;
-  padding: 0.4rem 0.65rem;
+  gap: 0.35rem;
+  padding: 0.5rem 0.65rem;
   color: var(--mc-text-secondary);
   font-size: 0.82rem;
   font-weight: 500;
@@ -181,6 +189,11 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
   border-bottom: none;
   text-decoration: none;
   transition: all 0.12s;
+}
+.nav-dropdown-divider {
+  height: 1px;
+  background: var(--mc-border);
+  margin: 0.25rem 0.3rem;
 }
 .nav-dropdown-menu a:hover { background: var(--mc-surface2); color: var(--mc-text); }
 .nav-dropdown-menu a.active { color: var(--mc-accent); background: var(--mc-accent-light); }
@@ -751,7 +764,6 @@ article > p { padding: 0.85rem; margin: 0; }
   color: var(--mc-text-dim);
   display: flex;
   align-items: center;
-  margin-left: auto;
 }
 .theme-toggle:hover { color: var(--mc-text); background: none; border: none; }
 
@@ -1030,7 +1042,7 @@ details.inline > :last-child { padding-bottom: 0; }
     border-radius: 0;
   }
 
-  .theme-toggle { order: 2; margin-left: 0; }
+  .nav-actions { margin-left: 0; padding: 0.4rem 1rem; }
 
   .mc-main { padding: 1rem; }
   .bot-grid { grid-template-columns: 1fr; }

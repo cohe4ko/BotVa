@@ -70,12 +70,14 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
     </button>
     <div class="nav-links">
       <a href="/" class="${activePath === '/' ? 'active' : ''}"><i data-lucide="layout-dashboard" style="width:14px;height:14px"></i> ${_t('nav.dashboard')}</a>
-      <div class="nav-dropdown${bots.some(b => activePath.startsWith(`/bot/${b}`)) ? ' active' : ''}">
+      <div class="nav-dropdown${bots.some(b => activePath.startsWith(`/bot/${b}`)) || activePath === '/create-bot' ? ' active' : ''}">
         <button class="nav-dropdown-toggle"><i data-lucide="bot" style="width:14px;height:14px"></i> ${_t('nav.bots')} <i data-lucide="chevron-down" style="width:12px;height:12px"></i></button>
         <div class="nav-dropdown-menu">
           ${bots.map(b => html`
             <a href="/bot/${b}/config" class="${activePath.startsWith(`/bot/${b}`) ? 'active' : ''}">${b}</a>
           `)}
+          <div class="nav-dropdown-divider"></div>
+          <a href="/create-bot" class="${activePath === '/create-bot' ? 'active' : ''}"><i data-lucide="plus" style="width:13px;height:13px"></i> ${_t('nav.new')}</a>
         </div>
       </div>
       <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:14px;height:14px"></i> ${_t('nav.team')}</a>
@@ -84,15 +86,14 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:14px;height:14px"></i> ${_t('nav.backup')}</a>
       <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:14px;height:14px"></i> ${_t('nav.diagnostics')}</a>
       <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:14px;height:14px"></i> ${_t('nav.system')}</a>
-      <a href="/create-bot" class="${activePath === '/create-bot' ? 'active' : ''}"><i data-lucide="plus" style="width:14px;height:14px"></i> ${_t('nav.new')}</a>
-    </div>
-    <div style="display:flex;align-items:center;gap:0.25rem">
-      <button class="theme-toggle" onclick="switchLang()" title="Switch language" style="font-size:0.75rem;font-weight:600;min-width:28px">
-        ${langLabel}
-      </button>
-      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-        <i data-lucide="sun" style="width:16px;height:16px"></i>
-      </button>
+      <div class="nav-actions">
+        <button class="theme-toggle" onclick="switchLang()" title="Switch language" style="font-size:0.75rem;font-weight:600;min-width:28px">
+          ${langLabel}
+        </button>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+          <i data-lucide="sun" style="width:16px;height:16px"></i>
+        </button>
+      </div>
     </div>
   </nav>
   <main class="mc-main">
