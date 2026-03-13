@@ -6,6 +6,7 @@ import type { TFunc } from './i18n.js'
 import { createT, getLang } from './i18n.js'
 
 const TOKEN = process.env.ADMIN_TOKEN ?? ''
+if (!TOKEN) console.warn('[admin] WARNING: ADMIN_TOKEN is not set — admin panel has no auth protection')
 
 // Dynamic session token for on-demand mode
 let sessionToken: string | null = null
@@ -56,6 +57,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
       setCookie(c, 'admin_session', sessionToken, {
         path: '/',
         httpOnly: true,
+        sameSite: 'Lax',
         maxAge: 60 * 60 * 24, // 24h
       })
       return c.redirect('/')
@@ -73,6 +75,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
       setCookie(c, 'admin_token', TOKEN, {
         path: '/',
         httpOnly: true,
+        sameSite: 'Lax',
         maxAge: 60 * 60 * 24 * 30, // 30 days
       })
       return c.redirect('/')
@@ -98,6 +101,7 @@ export function setAuthCookie(c: Context, token: string): boolean {
   setCookie(c, 'admin_token', token, {
     path: '/',
     httpOnly: true,
+    sameSite: 'Lax',
     maxAge: 60 * 60 * 24 * 30, // 30 days
   })
   return true

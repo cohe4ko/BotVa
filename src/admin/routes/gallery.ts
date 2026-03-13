@@ -72,11 +72,19 @@ app.get('/gallery', (c) => {
       function openLightbox(el) {
         var fullSrc = el.getAttribute('data-full');
         var prompt = el.querySelector('.gallery-full-prompt').textContent;
-        var meta = el.querySelector('.gallery-meta').innerHTML;
+        var metaEl = el.querySelector('.gallery-meta');
+        var info = document.getElementById('lightbox-info');
+        info.textContent = '';
+        var metaDiv = document.createElement('div');
+        metaDiv.style.marginBottom = '0.3rem';
+        metaDiv.appendChild(metaEl.cloneNode(true));
+        var promptDiv = document.createElement('div');
+        promptDiv.style.fontSize = '0.82rem';
+        promptDiv.style.color = 'var(--mc-text-secondary)';
+        promptDiv.textContent = prompt;
+        info.appendChild(metaDiv);
+        info.appendChild(promptDiv);
         document.getElementById('lightbox-img').src = fullSrc;
-        document.getElementById('lightbox-info').innerHTML =
-          '<div style="margin-bottom:0.3rem">' + meta + '</div>' +
-          '<div style="font-size:0.82rem;color:var(--mc-text-secondary)">' + prompt + '</div>';
         document.getElementById('lightbox').classList.add('active');
         document.body.style.overflow = 'hidden';
       }

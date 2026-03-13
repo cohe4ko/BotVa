@@ -36,7 +36,7 @@ app.get('/bot/:name/logs', validateBot, (c) => {
   const lang: Lang = c.get('lang')
   const name = botName(c)
   const logFile = findLogFile(getBotDir(name), name)
-  const lines = parseInt(c.req.query('lines') || '100', 10)
+  const lines = Math.min(Math.max(parseInt(c.req.query('lines') || '100', 10), 1), 1000)
   const logContent = logFile ? tailFile(logFile, lines) : t('logs.noFile')
 
   const content = html`
@@ -62,7 +62,7 @@ app.get('/bot/:name/logs/tail', validateBot, (c) => {
   const t: TFunc = c.get('t')
   const name = botName(c)
   const logFile = findLogFile(getBotDir(name), name)
-  const lines = parseInt(c.req.query('lines') || '100', 10)
+  const lines = Math.min(Math.max(parseInt(c.req.query('lines') || '100', 10), 1), 1000)
   return c.html(html`<pre class="log-viewer">${logFile ? tailFile(logFile, lines) : t('logs.noFile')}</pre>`)
 })
 

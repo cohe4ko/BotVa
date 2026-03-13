@@ -21,3 +21,8 @@ __pycache__/
 mcp-servers.json
 *.db
 *.sqlite
+*.pem
+*.key
+*.p12
+credentials.json
+token.json
