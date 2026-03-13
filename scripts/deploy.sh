@@ -10,6 +10,9 @@ set -euo pipefail
 #   ./scripts/deploy.sh status   — show bot status
 #   ./scripts/deploy.sh build    — rebuild TypeScript + MCP servers
 #   ./scripts/deploy.sh launchd  — install macOS launchd services
+#   ./scripts/deploy.sh backup   — create backup (bot or full system)
+#   ./scripts/deploy.sh restore  — restore from backup
+#   ./scripts/deploy.sh backups  — list available backups
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
@@ -191,7 +194,7 @@ do_admin() {
 
   # Kill everything on this port
   local pids
-  pids=$(lsof -ti :"$port" 2>/dev/null)
+  pids=$(lsof -ti :"$port" 2>/dev/null || true)
   if [ -n "$pids" ]; then
     warn "Stopping processes on port $port"
     echo "$pids" | xargs kill -9 2>/dev/null
@@ -374,17 +377,45 @@ PLIST
 
 # ---- Main ----
 
+do_backup() {
+  local bot_name="${1:-}"
+  if [ -n "$bot_name" ]; then
+    echo "Creating backup for bot: $bot_name..."
+    node dist/backup/cli.js backup --bot "$bot_name"
+  else
+    echo "Creating full system backup..."
+    node dist/backup/cli.js backup --system
+  fi
+}
+
+do_restore() {
+  local file="${1:-}"
+  if [ -z "$file" ]; then
+    err "Usage: $0 restore <backup-file> [--overwrite]"
+    exit 1
+  fi
+  shift
+  node dist/backup/cli.js restore "$file" "$@"
+}
+
+do_list_backups() {
+  node dist/backup/cli.js list
+}
+
 case "${1:-}" in
-  setup)   do_setup ;;
-  build)   do_build ;;
-  start)   do_start ;;
-  stop)    do_stop ;;
-  restart) do_restart ;;
-  status)  do_status ;;
-  admin)   do_admin ;;
-  launchd) do_launchd ;;
+  setup)    do_setup ;;
+  build)    do_build ;;
+  start)    do_start ;;
+  stop)     do_stop ;;
+  restart)  do_restart ;;
+  status)   do_status ;;
+  admin)    do_admin ;;
+  launchd)  do_launchd ;;
+  backup)   do_backup "${2:-}" ;;
+  restore)  shift; do_restore "$@" ;;
+  backups)  do_list_backups ;;
   *)
-    echo "Usage: $0 {setup|build|start|stop|restart|status|admin|launchd}"
+    echo "Usage: $0 {setup|build|start|stop|restart|status|admin|launchd|backup|restore|backups}"
     echo ""
     echo "  setup    — first-time install (deps, build, check config)"
     echo "  build    — rebuild TypeScript"
@@ -394,5 +425,8 @@ case "${1:-}" in
     echo "  status   — show running bots"
     echo "  admin    — start admin panel with one-time token"
     echo "  launchd  — install macOS auto-start services"
+    echo "  backup   — create backup [bot-name] (or full system)"
+    echo "  restore  — restore from backup file"
+    echo "  backups  — list available backups"
     ;;
 esac
