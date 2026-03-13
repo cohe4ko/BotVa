@@ -89,8 +89,6 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Memory
     { name: 'SaveFact', icon: 'bookmark', category: 'memory', description: 'Save a structured fact or event to permanent memory', available: true },
     { name: 'SearchMemory', icon: 'brain', category: 'memory', description: 'Search permanent memory by keywords and topic', available: true },
-    { name: 'ListMemoryTopics', icon: 'tags', category: 'memory', description: 'List all memory topics with counts', available: true },
-    { name: 'UpdateFact', icon: 'edit', category: 'memory', description: 'Update an existing fact', available: true },
     { name: 'DeleteFact', icon: 'eraser', category: 'memory', description: 'Delete a fact by ID', available: true },
     // Email
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
@@ -509,18 +507,22 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
   if (isOn('SaveFact')) tools.push(
     tool(
       'SaveFact',
-      'Save an important fact or event to your permanent long-term memory. Use this PROACTIVELY whenever the user shares personal information, preferences, important dates, decisions, or anything worth remembering. These facts NEVER decay or disappear — they are your absolute memory. Write clean, searchable content. Always assign a topic.',
+      'Save facts to your permanent long-term memory. Use PROACTIVELY whenever the user shares personal information, preferences, dates, decisions, or anything worth remembering. These facts NEVER decay. Supports batch — save multiple facts in one call. Each fact needs tags for search (synonyms, translations, related terms).',
       {
-        content: z.string().describe('Clean, concise fact or event. Write as a standalone statement. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin" or "Decided to switch from React to Vue for the dashboard"'),
-        topic: z.string().describe('Topic category (lowercase). Examples: health, work, family, preferences, finance, travel, goals, projects, contacts, food, hobbies'),
-        sector: z.enum(['semantic', 'episodic']).describe('"semantic" for permanent facts (name, preferences, allergies). "episodic" for events and decisions (meetings, milestones, conversations)'),
+        facts: z.array(z.object({
+          content: z.string().describe('Clean, concise statement. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin"'),
+          topic: z.string().describe('Topic (lowercase): health, work, family, preferences, finance, travel, goals, projects, contacts, food, hobbies'),
+          tags: z.string().describe('Comma-separated search tags: synonyms, translations, related terms. MORE is better. E.g. for allergy fact: "алергія, алергічний, allergy, penicillin, пеніцилін, антибіотик, ліки"'),
+          sector: z.enum(['semantic', 'episodic']).describe('"semantic" = permanent fact. "episodic" = event/decision'),
+        })).describe('Array of facts to save (batch)'),
       },
       async (args) => {
         usedTools.add('SaveFact')
         try {
-          const { insertFact } = await import('./db.js')
-          const id = insertFact(chatIdStr, args.content, args.topic, args.sector)
-          return { content: [{ type: 'text' as const, text: `Saved fact #${id} [${args.topic}]: ${args.content}` }] }
+          const { insertFactsBatch } = await import('./db.js')
+          const ids = insertFactsBatch(chatIdStr, args.facts)
+          const summary = args.facts.map((f, i) => `#${ids[i]} [${f.topic}]: ${f.content}`).join('\n')
+          return { content: [{ type: 'text' as const, text: `Saved ${ids.length} facts:\n${summary}` }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'SaveFact tool failed')
@@ -568,59 +570,6 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'SearchMemory tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
-
-  if (isOn('ListMemoryTopics')) tools.push(
-    tool(
-      'ListMemoryTopics',
-      'List all topics in your long-term memory with fact counts. Use to understand what you know and where to search.',
-      {},
-      async () => {
-        usedTools.add('ListMemoryTopics')
-        try {
-          const { getFactTopics } = await import('./db.js')
-          const topics = getFactTopics(chatIdStr)
-          if (topics.length === 0) {
-            return { content: [{ type: 'text' as const, text: 'No topics yet. Use SaveFact to start building your knowledge base.' }] }
-          }
-          const lines = topics.map(t => {
-            const date = new Date(t.latest * 1000).toISOString().slice(0, 10)
-            return `${t.topic}: ${t.count} facts (latest: ${date})`
-          })
-          return { content: [{ type: 'text' as const, text: `Memory topics:\n\n${lines.join('\n')}` }] }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'ListMemoryTopics tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
-
-  if (isOn('UpdateFact')) tools.push(
-    tool(
-      'UpdateFact',
-      'Update the content of an existing fact. Use when information has changed (e.g. new phone number, changed job, updated preference). Get the ID from SearchMemory.',
-      {
-        id: z.number().describe('Fact ID to update (from SearchMemory results)'),
-        content: z.string().describe('New content for the fact'),
-      },
-      async (args) => {
-        usedTools.add('UpdateFact')
-        try {
-          const { updateFact } = await import('./db.js')
-          const updated = updateFact(args.id, chatIdStr, args.content)
-          if (updated) {
-            return { content: [{ type: 'text' as const, text: `Fact #${args.id} updated: ${args.content}` }] }
-          }
-          return { content: [{ type: 'text' as const, text: `Fact #${args.id} not found` }], isError: true }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'UpdateFact tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }

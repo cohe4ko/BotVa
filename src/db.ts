@@ -164,11 +164,15 @@ export function initDatabase(): void {
       chat_id TEXT NOT NULL,
       topic TEXT NOT NULL,
       content TEXT NOT NULL,
+      tags TEXT NOT NULL DEFAULT '',
       sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic')),
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
   `)
+
+  // Migration: add tags column to existing facts tables
+  try { d.exec('ALTER TABLE facts ADD COLUMN tags TEXT NOT NULL DEFAULT ""') } catch { /* already exists */ }
 
   d.exec(`
     CREATE INDEX IF NOT EXISTS idx_facts_chat_topic ON facts(chat_id, topic)
@@ -177,26 +181,27 @@ export function initDatabase(): void {
   d.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
       content,
+      tags,
       content_rowid='id'
     )
   `)
 
   d.exec(`
     CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
-      INSERT INTO facts_fts(rowid, content) VALUES (new.id, new.content);
+      INSERT INTO facts_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
     END
   `)
 
   d.exec(`
     CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-      INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', old.id, old.content);
+      INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
     END
   `)
 
   d.exec(`
-    CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE OF content ON facts BEGIN
-      INSERT INTO facts_fts(facts_fts, rowid, content) VALUES('delete', old.id, old.content);
-      INSERT INTO facts_fts(rowid, content) VALUES (new.id, new.content);
+    CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE OF content, tags ON facts BEGIN
+      INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
+      INSERT INTO facts_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
     END
   `)
 
@@ -242,7 +247,7 @@ export function insertMemory(chatId: string, content: string, sector: 'semantic'
 }
 
 export function searchMemories(chatId: string, query: string, limit = 3, topic?: string): Memory[] {
-  const sanitized = query.replace(/[^\w\s]/g, '').trim()
+  const sanitized = query.replace(/[^\w\s\u0400-\u04FF]/g, '').trim()
   if (!sanitized) return []
 
   const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
@@ -307,17 +312,46 @@ export interface Fact {
   chat_id: string
   topic: string
   content: string
+  tags: string
   sector: 'semantic' | 'episodic'
   created_at: number
   updated_at: number
 }
 
-export function insertFact(chatId: string, content: string, topic: string, sector: 'semantic' | 'episodic'): number {
+export interface FactInput {
+  content: string
+  topic: string
+  tags: string
+  sector: 'semantic' | 'episodic'
+}
+
+export function insertFact(chatId: string, content: string, topic: string, sector: 'semantic' | 'episodic', tags = ''): number {
   const now = Math.floor(Date.now() / 1000)
   const result = getDb().prepare(
-    'INSERT INTO facts (chat_id, topic, content, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(chatId, topic, content, sector, now, now)
+    'INSERT INTO facts (chat_id, topic, content, tags, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(chatId, topic, content, tags, sector, now, now)
   return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+}
+
+export function insertFactsBatch(chatId: string, facts: FactInput[]): number[] {
+  const now = Math.floor(Date.now() / 1000)
+  const d = getDb()
+  const stmt = d.prepare(
+    'INSERT INTO facts (chat_id, topic, content, tags, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  )
+  const ids: number[] = []
+  d.exec('BEGIN')
+  try {
+    for (const f of facts) {
+      const result = stmt.run(chatId, f.topic, f.content, f.tags, f.sector, now, now)
+      ids.push(Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid))
+    }
+    d.exec('COMMIT')
+  } catch (err) {
+    d.exec('ROLLBACK')
+    throw err
+  }
+  return ids
 }
 
 export function updateFact(id: number, chatId: string, content: string): boolean {
@@ -337,7 +371,7 @@ export function searchFacts(chatId: string, query: string, limit = 10, topic?: s
   const sanitized = query.replace(/[^\w\s\u0400-\u04FF]/g, '').trim()
   if (!sanitized) return []
 
-  const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
+  const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' OR ')
   try {
     if (topic) {
       return getDb().prepare(`

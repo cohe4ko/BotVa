@@ -6,7 +6,6 @@ import {
   touchMemory,
   insertMemory,
   decayAndPruneMemories,
-  searchFacts,
   type Memory,
 } from './db.js'
 import { BOT_DIR, BOT_NAME, NIGHT_OWL_HOUR, USER_PREVIEW_LEN, ASSISTANT_PREVIEW_LEN, MIN_MSG_LEN_TO_SAVE, MIN_ASSISTANT_LEN_TO_SAVE, MAX_ASSISTANT_MEMORY_LEN } from './config.js'
@@ -109,14 +108,8 @@ export async function buildMemoryContext(chatId: string, userMessage: string): P
     parts.push(`[Щоденник вчора (${yesterday})]\n${yesterdayContent}`)
   }
 
-  // Long-term facts (from facts table, no decay)
-  const factResults = searchFacts(chatId, userMessage, 5)
-  if (factResults.length > 0) {
-    const lines = factResults.map(f => `- [${f.topic}] ${f.content}`)
-    parts.push(`[Known facts]\n${lines.join('\n')}`)
-  }
-
   // Short-term memories (from memories table, with decay)
+  // Long-term facts are accessed via SearchMemory tool only
   const ftsResults = searchMemories(chatId, userMessage, 3)
   const recentResults = getRecentMemories(chatId, 5)
 
@@ -135,7 +128,7 @@ export async function buildMemoryContext(chatId: string, userMessage: string): P
       touchMemory(m.id)
     }
     const lines = combined.map(m => `- ${m.content} (${m.sector})`)
-    parts.push(`[Recent context]\n${lines.join('\n')}`)
+    parts.push(`[Memory context]\n${lines.join('\n')}`)
   }
 
   return parts.join('\n\n')
