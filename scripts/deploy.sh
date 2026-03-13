@@ -42,6 +42,12 @@ do_setup() {
     exit 1
   fi
   info "Node.js $NODE_VER"
+  if [ "$NODE_MAJOR" -ge 25 ] 2>/dev/null; then
+    echo -e "\n  ${RED}${BOLD}⚠ WARNING: Node.js $NODE_VER has known memory issues with TypeScript.${NC}"
+    echo -e "  ${RED}MCP server builds may be extremely slow or crash with OOM.${NC}"
+    echo -e "  ${RED}Recommended: switch to Node.js 22 LTS:${NC}"
+    echo -e "  ${RED}  brew install node@22 && brew link --overwrite node@22${NC}\n"
+  fi
 
   # Install deps
   echo -e "\n${BOLD}Installing dependencies...${NC}"
