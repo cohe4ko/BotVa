@@ -204,7 +204,7 @@ app.get('/system', (c) => {
     ${renderMcpTable(mcpServers, getEnvBotMap(), t)}
 
     <h3>${icon('wrench')} ${t('sys.agentTools')}</h3>
-    ${renderBuiltinToolsTable(getBuiltinToolDefs(), t)}
+    ${renderBuiltinToolsTable(getBuiltinToolDefs(mergedEnv), t)}
 
     <h3>${icon('puzzle')} ${t('sys.skills')}</h3>
     ${renderSkillsTable(projectSkills, t)}
@@ -433,12 +433,13 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc) {
 app.post('/system/tool-toggle/:name', (c) => {
   const t: TFunc = c.get('t')
   const name = c.req.param('name')
-  const tools = getBuiltinToolDefs()
+  const env = getMergedEnv()
+  const tools = getBuiltinToolDefs(env)
   const current = tools.find(t => t.name === name)
   if (current && !current.system) {
     setToolEnabled(name, !current.enabled)
   }
-  return c.html(renderBuiltinToolsTable(getBuiltinToolDefs(), t))
+  return c.html(renderBuiltinToolsTable(getBuiltinToolDefs(env), t))
 })
 
 // Toggle MCP server on/off

@@ -50,9 +50,10 @@ export function setToolEnabled(name: string, enabled: boolean): void {
   writeConfig(config)
 }
 
-/** Returns metadata for all builtin tools (for admin UI) */
-export function getBuiltinToolDefs(): BuiltinToolDef[] {
-  const env = readEnvFile()
+/** Returns metadata for all builtin tools (for admin UI).
+ *  Pass mergedEnv from all bots when calling from admin panel. */
+export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinToolDef[] {
+  const env = mergedEnv ?? readEnvFile()
   const hasGoogleApi = !!env['GOOGLE_API_KEY']
   const hasPublishSsh = !!env['PUBLISH_SSH_HOST']
   const config = readConfig()
