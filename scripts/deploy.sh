@@ -54,15 +54,51 @@ do_setup() {
   info "Build done"
 
   # Build MCP servers
-  echo -e "\n${BOLD}Building MCP servers...${NC}"
+  echo -e "\n${BOLD}MCP Servers (optional integrations):${NC}"
+
+  AVAILABLE_MCP=()
   for mcp in mcp-servers/*/; do
-    if [ -f "$mcp/package.json" ]; then
-      name=$(basename "$mcp")
-      echo "  Building $name..."
-      (cd "$mcp" && npm install && npm run build) 2>&1
-      info "MCP: $name"
-    fi
+    [ -f "$mcp/package.json" ] && AVAILABLE_MCP+=("$(basename "$mcp")")
   done
+
+  if [ ${#AVAILABLE_MCP[@]} -eq 0 ]; then
+    warn "No MCP servers found"
+  else
+    echo ""
+    for i in "${!AVAILABLE_MCP[@]}"; do
+      echo "  $((i+1)). ${AVAILABLE_MCP[$i]}"
+    done
+    echo "  a. All"
+    echo "  s. Skip"
+    echo ""
+    read -rp "Which MCP servers to install? [numbers separated by space / a / s]: " mcp_choice
+
+    if [ "$mcp_choice" = "s" ] || [ -z "$mcp_choice" ]; then
+      warn "Skipping MCP servers"
+    else
+      if [ "$mcp_choice" = "a" ]; then
+        SELECTED_MCP=("${AVAILABLE_MCP[@]}")
+      else
+        SELECTED_MCP=()
+        for num in $mcp_choice; do
+          idx=$((num - 1))
+          if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#AVAILABLE_MCP[@]}" ]; then
+            SELECTED_MCP+=("${AVAILABLE_MCP[$idx]}")
+          fi
+        done
+      fi
+
+      echo ""
+      for name in "${SELECTED_MCP[@]}"; do
+        echo "  Building $name..."
+        if (cd "mcp-servers/$name" && npm install && npm run build) 2>&1; then
+          info "MCP: $name"
+        else
+          err "MCP: $name failed to build"
+        fi
+      done
+    fi
+  fi
 
   # Check bots directory
   if [ ${#BOTS[@]} -eq 0 ]; then
