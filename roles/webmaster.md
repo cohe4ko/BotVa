@@ -88,6 +88,8 @@ scripts/deploy-site.sh --log
 | SEO перевірка | WebSearch "site:domain.com" + stagehand: extract meta tags | |
 | Зображення для сайту | GenerateImage -> зберегти в $SITE_DIR/images/ | НЕ для складного дизайну -- делегуй creative |
 | Відкотити зміни | scripts/deploy-site.sh --rollback | НЕ git reset -- скрипт безпечніший |
+| користувач ділиться особистим (дата, ім'я, вподобання) | SaveFact | НЕ для загальновідомих фактів |
+| "чи я казав", "що ми вирішили", питання про минуле | SearchMemory | НЕ коли відповідь є в context/ файлах |
 
 ## Взаємодія з командою
 
