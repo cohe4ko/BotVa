@@ -100,6 +100,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'ListBots', icon: 'users', category: 'management', description: 'List all bots and their status', available: true },
     // Currency
     { name: 'CurrencyRates', icon: 'banknote', category: 'finance', description: 'Cash exchange rates from Ukrainian exchangers', available: true },
+    // Time
+    { name: 'GetCurrentTime', icon: 'clock', category: 'utility', description: 'Current time in any timezone', available: true },
     // Reminders
     { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a one-shot reminder', available: true },
     { name: 'ListReminders', icon: 'bell-ring', category: 'reminders', description: 'List pending reminders', available: true },
@@ -759,6 +761,39 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'CurrencyRates tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Current time ---
+
+  if (isOn('GetCurrentTime')) tools.push(
+    tool(
+      'GetCurrentTime',
+      'Get current date and time in any timezone. Use when the user asks "what time is it", "котра година", "який зараз час", or needs current time for scheduling.',
+      {
+        timezone: z.string().optional().describe('IANA timezone (default: "Europe/Kyiv"). Examples: "America/New_York", "Asia/Tokyo", "UTC"'),
+      },
+      async (args) => {
+        usedTools.add('GetCurrentTime')
+        const tz = args.timezone ?? 'Europe/Kyiv'
+        try {
+          const now = new Date()
+          const formatted = now.toLocaleString('uk-UA', {
+            timeZone: tz,
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+          const iso = now.toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T')
+          return { content: [{ type: 'text' as const, text: `${formatted} (${tz})\nISO: ${iso}` }] }
+        } catch {
+          return { content: [{ type: 'text' as const, text: `Invalid timezone: "${tz}"` }], isError: true }
         }
       }
     )
