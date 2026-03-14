@@ -165,6 +165,7 @@ export function initDatabase(): void {
       topic TEXT NOT NULL,
       content TEXT NOT NULL,
       tags TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'conversation',
       sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic')),
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -173,6 +174,7 @@ export function initDatabase(): void {
 
   // Migration: add tags column to existing facts tables
   try { d.exec('ALTER TABLE facts ADD COLUMN tags TEXT NOT NULL DEFAULT ""') } catch { /* already exists */ }
+  try { d.exec('ALTER TABLE facts ADD COLUMN source TEXT NOT NULL DEFAULT "conversation"') } catch { /* already exists */ }
 
   d.exec(`
     CREATE INDEX IF NOT EXISTS idx_facts_chat_topic ON facts(chat_id, topic)
@@ -186,23 +188,31 @@ export function initDatabase(): void {
     )
   `)
 
+  // FTS insert trigger works fine; delete/update triggers crash in Node.js SQLite
+  // so we handle FTS sync manually in deleteFact/updateFact functions
   d.exec(`
     CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
       INSERT INTO facts_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
     END
   `)
+  // Remove broken triggers if they exist from previous versions
+  d.exec('DROP TRIGGER IF EXISTS facts_ad')
+  d.exec('DROP TRIGGER IF EXISTS facts_au')
 
+  // Saved sessions — multiple sessions per chat for switching
   d.exec(`
-    CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-      INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
-    END
+    CREATE TABLE IF NOT EXISTS saved_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
   `)
 
   d.exec(`
-    CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE OF content, tags ON facts BEGIN
-      INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
-      INSERT INTO facts_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
-    END
+    CREATE INDEX IF NOT EXISTS idx_saved_sessions_chat ON saved_sessions(chat_id, updated_at DESC)
   `)
 
   logger.info('Database initialized')
@@ -224,6 +234,51 @@ export function setSession(chatId: string, sessionId: string): void {
 
 export function clearSession(chatId: string): void {
   getDb().prepare('DELETE FROM sessions WHERE chat_id = ?').run(chatId)
+}
+
+// --- Saved Sessions (multi-session support) ---
+
+export interface SavedSession {
+  id: number
+  chat_id: string
+  session_id: string
+  name: string
+  created_at: number
+  updated_at: number
+}
+
+const MAX_SAVED_SESSIONS = 20
+
+export function saveSession(chatId: string, sessionId: string, name: string): void {
+  const now = Math.floor(Date.now() / 1000)
+  const d = getDb()
+  // Upsert by chat_id + name (overwrite if same name exists)
+  d.prepare(
+    'DELETE FROM saved_sessions WHERE chat_id = ? AND name = ?'
+  ).run(chatId, name)
+  d.prepare(
+    'INSERT INTO saved_sessions (chat_id, session_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(chatId, sessionId, name, now, now)
+  // Trim to max
+  d.prepare(
+    'DELETE FROM saved_sessions WHERE chat_id = ? AND id NOT IN (SELECT id FROM saved_sessions WHERE chat_id = ? ORDER BY updated_at DESC LIMIT ?)'
+  ).run(chatId, chatId, MAX_SAVED_SESSIONS)
+}
+
+export function getSavedSessions(chatId: string): SavedSession[] {
+  return getDb().prepare(
+    'SELECT * FROM saved_sessions WHERE chat_id = ? ORDER BY updated_at DESC LIMIT ?'
+  ).all(chatId, MAX_SAVED_SESSIONS) as unknown as SavedSession[]
+}
+
+export function getSavedSession(id: number): SavedSession | undefined {
+  return getDb().prepare(
+    'SELECT * FROM saved_sessions WHERE id = ?'
+  ).get(id) as unknown as SavedSession | undefined
+}
+
+export function deleteSavedSession(id: number): void {
+  getDb().prepare('DELETE FROM saved_sessions WHERE id = ?').run(id)
 }
 
 // --- Memories ---
@@ -313,6 +368,7 @@ export interface Fact {
   topic: string
   content: string
   tags: string
+  source: string
   sector: 'semantic' | 'episodic'
   created_at: number
   updated_at: number
@@ -325,25 +381,25 @@ export interface FactInput {
   sector: 'semantic' | 'episodic'
 }
 
-export function insertFact(chatId: string, content: string, topic: string, sector: 'semantic' | 'episodic', tags = ''): number {
+export function insertFact(chatId: string, content: string, topic: string, sector: 'semantic' | 'episodic', tags = '', source = 'conversation'): number {
   const now = Math.floor(Date.now() / 1000)
   const result = getDb().prepare(
-    'INSERT INTO facts (chat_id, topic, content, tags, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(chatId, topic, content, tags, sector, now, now)
+    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(chatId, topic, content, tags, source, sector, now, now)
   return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
 }
 
-export function insertFactsBatch(chatId: string, facts: FactInput[]): number[] {
+export function insertFactsBatch(chatId: string, facts: FactInput[], source = 'conversation'): number[] {
   const now = Math.floor(Date.now() / 1000)
   const d = getDb()
   const stmt = d.prepare(
-    'INSERT INTO facts (chat_id, topic, content, tags, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   )
   const ids: number[] = []
   d.exec('BEGIN')
   try {
     for (const f of facts) {
-      const result = stmt.run(chatId, f.topic, f.content, f.tags, f.sector, now, now)
+      const result = stmt.run(chatId, f.topic, f.content, f.tags, source, f.sector, now, now)
       ids.push(Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid))
     }
     d.exec('COMMIT')
@@ -355,15 +411,37 @@ export function insertFactsBatch(chatId: string, facts: FactInput[]): number[] {
 }
 
 export function updateFact(id: number, chatId: string, content: string): boolean {
+  const d = getDb()
   const now = Math.floor(Date.now() / 1000)
-  const result = getDb().prepare(
+  // Manual FTS sync (no update trigger in Node.js SQLite)
+  try {
+    const old = d.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string } | undefined
+    if (old) {
+      d.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, old.content, old.tags)
+    }
+  } catch { /* FTS may be out of sync */ }
+  const result = d.prepare(
     'UPDATE facts SET content = ?, updated_at = ? WHERE id = ? AND chat_id = ?'
   ).run(content, now, id, chatId)
+  if ((result as unknown as { changes: number }).changes > 0) {
+    try {
+      const updated = d.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string }
+      d.prepare('INSERT INTO facts_fts(rowid, content, tags) VALUES(?, ?, ?)').run(id, updated.content, updated.tags)
+    } catch { /* ignore */ }
+  }
   return (result as unknown as { changes: number }).changes > 0
 }
 
 export function deleteFact(id: number, chatId: string): boolean {
-  const result = getDb().prepare('DELETE FROM facts WHERE id = ? AND chat_id = ?').run(id, chatId)
+  const d = getDb()
+  // FTS delete must be done manually (Node.js SQLite doesn't support FTS5 delete triggers)
+  try {
+    const row = d.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string } | undefined
+    if (row) {
+      d.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, row.content, row.tags)
+    }
+  } catch { /* FTS may be out of sync */ }
+  const result = d.prepare("DELETE FROM facts WHERE id = ? AND chat_id IN (?, 'admin')").run(id, chatId)
   return (result as unknown as { changes: number }).changes > 0
 }
 
@@ -377,7 +455,7 @@ export function searchFacts(chatId: string, query: string, limit = 10, topic?: s
       return getDb().prepare(`
         SELECT f.* FROM facts f
         JOIN facts_fts ff ON ff.rowid = f.id
-        WHERE facts_fts MATCH ? AND f.chat_id = ? AND f.topic = ?
+        WHERE facts_fts MATCH ? AND f.chat_id IN (?, 'admin') AND f.topic = ?
         ORDER BY rank
         LIMIT ?
       `).all(ftsQuery, chatId, topic, limit) as unknown as Fact[]
@@ -385,7 +463,7 @@ export function searchFacts(chatId: string, query: string, limit = 10, topic?: s
     return getDb().prepare(`
       SELECT f.* FROM facts f
       JOIN facts_fts ff ON ff.rowid = f.id
-      WHERE facts_fts MATCH ? AND f.chat_id = ?
+      WHERE facts_fts MATCH ? AND f.chat_id IN (?, 'admin')
       ORDER BY rank
       LIMIT ?
     `).all(ftsQuery, chatId, limit) as unknown as Fact[]
@@ -396,7 +474,7 @@ export function searchFacts(chatId: string, query: string, limit = 10, topic?: s
 
 export function getFactsByTopic(chatId: string, topic: string, limit = 50): Fact[] {
   return getDb().prepare(
-    'SELECT * FROM facts WHERE chat_id = ? AND topic = ? ORDER BY created_at DESC LIMIT ?'
+    "SELECT * FROM facts WHERE chat_id IN (?, 'admin') AND topic = ? ORDER BY created_at DESC LIMIT ?"
   ).all(chatId, topic, limit) as unknown as Fact[]
 }
 

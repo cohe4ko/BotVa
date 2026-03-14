@@ -237,6 +237,7 @@ export interface FactRow {
   topic: string
   content: string
   tags: string
+  source: string
   sector: 'semantic' | 'episodic'
   created_at: number
   updated_at: number
@@ -300,14 +301,32 @@ export function getFactTopics(bot: BotName): { topic: string; count: number }[] 
 
 export function updateFactContent(bot: BotName, id: number, content: string, tags: string): boolean {
   if (!ensureFactsTable(bot)) return false
+  const db = getBotDb(bot)
   const now = Math.floor(Date.now() / 1000)
-  const r = getBotDb(bot).prepare('UPDATE facts SET content = ?, tags = ?, updated_at = ? WHERE id = ?').run(content, tags, now, id)
+  // Manual FTS sync
+  try {
+    const old = db.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string } | undefined
+    if (old) {
+      db.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, old.content, old.tags)
+    }
+  } catch { /* FTS may be out of sync */ }
+  const r = db.prepare('UPDATE facts SET content = ?, tags = ?, updated_at = ? WHERE id = ?').run(content, tags, now, id)
+  if (r.changes > 0) {
+    try { db.prepare('INSERT INTO facts_fts(rowid, content, tags) VALUES(?, ?, ?)').run(id, content, tags) } catch { /* ignore */ }
+  }
   return r.changes > 0
 }
 
 export function deleteFact(bot: BotName, id: number): boolean {
   if (!ensureFactsTable(bot)) return false
-  const r = getBotDb(bot).prepare('DELETE FROM facts WHERE id = ?').run(id)
+  const db = getBotDb(bot)
+  try {
+    const row = db.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string } | undefined
+    if (row) {
+      db.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, row.content, row.tags)
+    }
+  } catch { /* FTS may be out of sync */ }
+  const r = db.prepare('DELETE FROM facts WHERE id = ?').run(id)
   return r.changes > 0
 }
 

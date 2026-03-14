@@ -11,6 +11,28 @@ import { join } from 'path'
 const app = new Hono<I18nEnv>()
 const PAGE_SIZE = 30
 
+const TOPIC_COLORS: Record<string, string> = {
+  health: '#dcfce7',
+  work: '#dbeafe',
+  family: '#fce7f3',
+  preferences: '#fef9c3',
+  contacts: '#e0e7ff',
+  projects: '#cffafe',
+  education: '#f3e8ff',
+  business: '#ffedd5',
+  tech: '#d1d5db',
+  hobbies: '#fbcfe8',
+  finance: '#d9f99d',
+  travel: '#bae6fd',
+  food: '#fed7aa',
+  goals: '#c4b5fd',
+  decisions: '#fca5a5',
+  general: '#e5e7eb',
+}
+function topicColor(topic: string): string {
+  return TOPIC_COLORS[topic] || TOPIC_COLORS['general']
+}
+
 // Track active rebuild processes for cancel
 const activeRebuilds = new Map<string, { abort: AbortController }>()
 
@@ -45,20 +67,23 @@ app.get('/bot/:name/facts', validateBot, (c) => {
       <h3 style="margin:0">${icon('database')} ${t('facts.title')}</h3>
       <small>${total} ${total === 1 ? 'fact' : 'facts'}${topics.length > 0 ? `, ${topics.length} topics` : ''}</small>
     </div>
+    ${topics.length > 0 ? html`
+      <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.75rem">
+        <a href="/bot/${name}/facts${q ? `?q=${encodeURIComponent(q)}` : ''}" style="font-size:0.7rem;padding:0.2rem 0.6rem;border-radius:10px;text-decoration:none;background:${!topicFilter ? 'var(--mc-accent)' : 'var(--mc-surface)'};color:${!topicFilter ? '#fff' : 'var(--mc-text-dim)'};border:1px solid ${!topicFilter ? 'var(--mc-accent)' : 'var(--mc-border)'}">${t('facts.allTopics')} (${total})</a>
+        ${topics.map(tp => {
+          const isActive = tp.topic === topicFilter
+          const bg = isActive ? topicColor(tp.topic) : 'var(--mc-surface)'
+          const border = isActive ? topicColor(tp.topic) : 'var(--mc-border)'
+          return html`<a href="/bot/${name}/facts?topic=${tp.topic}${q ? `&q=${encodeURIComponent(q)}` : ''}" style="font-size:0.7rem;padding:0.2rem 0.6rem;border-radius:10px;text-decoration:none;background:${bg};color:#1a1a2e;border:1px solid ${border};font-weight:${isActive ? '600' : '400'}">${tp.topic} (${tp.count})</a>`
+        })}
+      </div>
+    ` : ''}
     <form method="GET" action="/bot/${name}/facts" class="filter-bar">
+      <input type="hidden" name="topic" value="${topicFilter}">
       <label class="filter-search">
         <small>${t('facts.search')}</small>
         <input type="search" name="q" value="${q}" placeholder="${t('facts.searchPlaceholder')}">
       </label>
-      ${topics.length > 0 ? html`
-        <label>
-          <small>${t('facts.topic')}</small>
-          <select name="topic" style="min-width:120px">
-            <option value="">${t('facts.allTopics')}</option>
-            ${topics.map(tp => html`<option value="${tp.topic}" ${tp.topic === topicFilter ? 'selected' : ''}>${tp.topic} (${tp.count})</option>`)}
-          </select>
-        </label>
-      ` : ''}
       <button type="submit" class="btn-sm">${icon('search', 13)} ${t('facts.searchBtn')}</button>
       ${(q || topicFilter) ? html`<a href="/bot/${name}/facts" role="button" class="btn-sm outline" style="text-decoration:none">${icon('x', 13)}</a>` : ''}
     </form>
@@ -80,42 +105,50 @@ app.get('/bot/:name/facts', validateBot, (c) => {
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th style="width:40px">${t('facts.id')}</th>
-              <th style="width:90px">${t('facts.topic')}</th>
-              <th style="width:70px">${t('facts.sector')}</th>
+              <th style="width:30px"></th>
+              <th style="width:80px">${t('facts.topic')}</th>
               <th>${t('facts.content')}</th>
-              <th style="width:160px">${t('facts.tags')}</th>
-              <th style="width:100px">${t('facts.date')}</th>
-              <th style="width:70px"></th>
+              <th style="width:80px">${t('facts.date')}</th>
+              <th style="width:40px"></th>
             </tr></thead>
             <tbody>
-              ${facts.map(f => html`
+              ${facts.map(f => {
+                const sectorIcon = f.sector === 'semantic' ? 'bookmark' : 'calendar'
+                const sectorTitle = f.sector === 'semantic' ? 'fact' : 'event'
+                const dateStr = new Date(f.created_at * 1000).toISOString().slice(0, 10)
+                const tags = f.tags ? f.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
+                return html`
                 <tr id="fact-${f.id}">
-                  <td><small>${f.id}</small></td>
-                  <td><span class="badge badge-optional">${f.topic}</span></td>
-                  <td><small>${f.sector}</small></td>
+                  <td title="${sectorTitle}">${icon(sectorIcon, 14)}</td>
+                  <td><span style="font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:10px;background:${topicColor(f.topic)};color:#1a1a2e">${f.topic}</span></td>
                   <td>
-                    <div class="editable-cell" id="fact-content-${f.id}">
-                      <span class="editable-text" title="${f.content}" style="font-size:0.78rem;cursor:pointer"
-                        onclick="this.style.display='none';this.nextElementSibling.style.display='block'">${truncate(f.content, 80)}</span>
-                      <form style="display:none" hx-put="/bot/${name}/facts/${f.id}" hx-target="#facts-alerts" hx-swap="innerHTML">
-                        <textarea name="content" rows="2" style="width:100%;font-size:0.78rem">${f.content}</textarea>
-                        <input type="hidden" name="tags" value="${f.tags}">
-                        <div style="display:flex;gap:0.3rem;margin-top:0.3rem">
-                          <button type="submit" class="btn-sm">${icon('check', 11)}</button>
-                          <button type="button" class="btn-sm outline" onclick="this.closest('form').style.display='none';this.closest('form').previousElementSibling.style.display=''">${icon('x', 11)}</button>
+                    <div id="fact-view-${f.id}">
+                      <span style="font-size:0.8rem;cursor:pointer" title="Click to edit"
+                        onclick="document.getElementById('fact-view-${f.id}').style.display='none';document.getElementById('fact-edit-${f.id}').style.display='block'">
+                        ${f.content}
+                      </span>
+                      ${tags.length > 0 ? html`
+                        <div style="margin-top:0.25rem;display:flex;flex-wrap:wrap;gap:0.2rem">
+                          ${tags.map((tag: string) => html`<span style="font-size:0.6rem;padding:0.1rem 0.35rem;border-radius:8px;background:var(--mc-surface);color:var(--mc-text-dim);border:1px solid var(--mc-border)">${tag}</span>`)}
                         </div>
-                      </form>
+                      ` : ''}
                     </div>
+                    <form id="fact-edit-${f.id}" style="display:none" hx-put="/bot/${name}/facts/${f.id}" hx-target="#facts-alerts" hx-swap="innerHTML">
+                      <textarea name="content" rows="2" style="width:100%;font-size:0.8rem;margin-bottom:0.3rem">${f.content}</textarea>
+                      <input name="tags" value="${f.tags}" style="width:100%;font-size:0.7rem;padding:0.25rem 0.4rem;color:var(--mc-text-dim)" placeholder="tags (comma-separated)">
+                      <div style="display:flex;gap:0.3rem;margin-top:0.3rem">
+                        <button type="submit" class="btn-sm">${icon('check', 11)}</button>
+                        <button type="button" class="btn-sm outline" onclick="document.getElementById('fact-edit-${f.id}').style.display='none';document.getElementById('fact-view-${f.id}').style.display=''">${icon('x', 11)}</button>
+                      </div>
+                    </form>
                   </td>
-                  <td><small title="${f.tags}" style="color:var(--mc-text-dim)">${truncate(f.tags, 30)}</small></td>
-                  <td class="ts-cell">${formatTs(f.created_at)}</td>
+                  <td><small style="color:var(--mc-text-dim)">${dateStr}</small>${f.source && f.source !== 'conversation' ? html`<br><small style="font-size:0.55rem;color:var(--mc-text-dim)" title="${f.source}">${truncate(f.source, 15)}</small>` : ''}</td>
                   <td>
                     <button hx-post="/bot/${name}/facts/${f.id}/delete" hx-target="#fact-${f.id}" hx-swap="outerHTML"
                       hx-confirm="${t('facts.deleteConfirm')}" class="danger btn-sm">${icon('trash-2', 12)}</button>
                   </td>
                 </tr>
-              `)}
+              `})}
             </tbody>
           </table>
         </div>
@@ -256,6 +289,7 @@ app.get('/bot/:name/facts/rebuild/status', validateBot, (c) => {
             <div style="background:var(--mc-accent);height:100%;width:${pct}%;transition:width 0.3s"></div>
           </div>
           <small style="color:var(--mc-text-dim);margin-top:0.2rem;display:block">${state.currentFileName}</small>
+          ${state.error ? html`<small style="color:var(--mc-danger);margin-top:0.2rem;display:block">${state.error}</small>` : ''}
         </div>
         <button hx-post="/bot/${name}/facts/rebuild/stop" hx-target="#rebuild-section" hx-swap="innerHTML" class="btn-sm danger">
           ${icon('square', 13)} ${t('facts.stop')}
@@ -294,16 +328,14 @@ app.post('/bot/:name/facts/rebuild/stop', validateBot, (c) => {
   return c.html(html`<div id="rebuild-progress" hx-get="/bot/${name}/facts/rebuild/status" hx-trigger="load" hx-swap="innerHTML"></div>`)
 })
 
-// Background rebuild process — uses Claude API directly to extract facts as JSON, then inserts into DB
+// Background rebuild — uses Agent SDK query() to extract facts as JSON, inserts into DB
 async function rebuildFacts(bot: string, botDir: string, files: { name: string; content: string }[], state: RebuildState): Promise<void> {
   try {
-    const Anthropic = (await import('@anthropic-ai/sdk')).default
-    const client = new Anthropic()
+    const { query } = await import('@anthropic-ai/claude-agent-sdk')
     const db = getBotDb(bot)
 
     // Ensure facts table exists
     try { db.prepare("SELECT 1 FROM facts LIMIT 0").run() } catch {
-      // Table doesn't exist yet — skip, it will be created on bot start
       state.status = 'error'
       state.error = 'Facts table not found. Start the bot first to initialize the database.'
       return
@@ -319,26 +351,21 @@ async function rebuildFacts(bot: string, botDir: string, files: { name: string; 
       state.currentFileName = file.name
 
       try {
-        const response = await client.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          messages: [{
-            role: 'user',
-            content: `Extract ALL important facts from this file. Return ONLY a JSON array, no other text.
+        const prompt = `Extract ALL important facts from this file. Return ONLY a JSON array, no other text or explanation.
 
 Each fact object:
 {
   "content": "clean concise fact statement",
   "topic": "category (health, work, family, preferences, contacts, projects, education, business, tech, hobbies, finance)",
-  "tags": "comma-separated: synonyms, translations, related terms, alternative spellings — the MORE the better",
-  "sector": "semantic (permanent fact) or episodic (event/decision)"
+  "tags": "comma-separated: synonyms, translations, related terms — the MORE the better, include both Ukrainian and English",
+  "sector": "semantic or episodic"
 }
 
 Rules:
 - Each fact is a standalone statement, not raw text
-- Tags should include Ukrainian AND English terms, synonyms, related words
 - One fact per distinct piece of information
-- Skip headers, formatting, and meta-information — only actual facts
+- Skip headers, formatting, meta — only actual facts
+- sector: "semantic" for permanent facts, "episodic" for events/decisions
 
 File: ${file.name}
 ---
@@ -346,18 +373,34 @@ ${file.content}
 ---
 
 Return ONLY the JSON array.`
-          }],
-        }, { signal: state.abort.signal })
 
-        // Parse JSON from response
-        const text = response.content
-          .filter((b: any) => b.type === 'text')
-          .map((b: any) => b.text)
-          .join('')
+        let resultText = ''
+        const conversation = query({
+          prompt,
+          options: {
+            cwd: botDir,
+            permissionMode: 'bypassPermissions',
+            allowDangerouslySkipPermissions: true,
+            abortController: state.abort,
+          },
+        })
 
-        // Extract JSON array from response (may be wrapped in ```json...```)
-        const jsonMatch = text.match(/\[[\s\S]*\]/)
-        if (!jsonMatch) continue
+        for await (const event of conversation) {
+          if (state.abort.signal.aborted) break
+          if (event.type === 'result') {
+            resultText = event.subtype === 'success' ? event.result : ''
+            break  // result received, stop consuming events
+          }
+        }
+
+        if (!resultText || state.abort.signal.aborted) continue
+
+        // Extract JSON array from response
+        const jsonMatch = resultText.match(/\[[\s\S]*\]/)
+        if (!jsonMatch) {
+          console.error(`[rebuild-facts] No JSON in response for ${file.name}`)
+          continue
+        }
 
         const facts = JSON.parse(jsonMatch[0]) as { content: string; topic: string; tags: string; sector: string }[]
         if (!Array.isArray(facts) || facts.length === 0) continue
@@ -365,30 +408,36 @@ Return ONLY the JSON array.`
         // Insert into DB
         const now = Math.floor(Date.now() / 1000)
         const stmt = db.prepare(
-          'INSERT INTO facts (chat_id, topic, content, tags, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO facts (chat_id, topic, content, tags, source, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         )
         db.exec('BEGIN')
         try {
           for (const f of facts) {
             const sector = f.sector === 'episodic' ? 'episodic' : 'semantic'
-            stmt.run('admin', f.topic || 'general', f.content, f.tags || '', sector, now, now)
+            stmt.run('admin', f.topic || 'general', f.content, f.tags || '', `rebuild:${file.name}`, sector, now, now)
           }
           db.exec('COMMIT')
-        } catch {
+          // Rebuild FTS to stay in sync
+          try { db.exec("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')") } catch { /* ignore */ }
+        } catch (dbErr) {
           db.exec('ROLLBACK')
+          console.error(`[rebuild-facts] DB error for ${file.name}:`, dbErr)
         }
+
+        state.factsAdded = countFactsInDb(bot) - factsBefore
       } catch (err) {
         if (state.abort.signal.aborted) break
-        // Continue with next file on error
+        const errMsg = err instanceof Error ? err.message : String(err)
+        console.error(`[rebuild-facts] Error processing ${file.name}:`, errMsg)
+        state.error = `${file.name}: ${errMsg}`
       }
-
-      state.factsAdded = countFactsInDb(bot) - factsBefore
     }
 
     if (!state.abort.signal.aborted) {
       state.status = 'done'
     }
   } catch (err) {
+    console.error('[rebuild-facts] Fatal error:', err instanceof Error ? err.message : err)
     state.status = 'error'
     state.error = err instanceof Error ? err.message : String(err)
   }

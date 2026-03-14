@@ -47,12 +47,10 @@ app.get('/bot/:name/memories', validateBot, (c) => {
       : html`
         <div class="table-wrap">
           <table>
-            <thead><tr><th style="width:40px">${t('mem.id')}</th><th style="width:80px">${t('mem.sector')}</th><th>${t('mem.content')}</th><th style="width:130px">${t('mem.salience')}</th><th style="width:140px">${t('mem.created')}</th><th style="width:40px"></th></tr></thead>
+            <thead><tr><th>${t('mem.content')}</th><th style="width:130px">${t('mem.salience')}</th><th style="width:100px">${t('mem.created')}</th><th style="width:40px"></th></tr></thead>
             <tbody>
               ${memories.map(m => html`
                 <tr id="mem-${m.id}">
-                  <td><small>${m.id}</small></td>
-                  <td><span class="badge badge-optional">${m.sector}</span></td>
                   <td title="${m.content}" style="font-size:0.78rem">${truncate(m.content, 100)}</td>
                   <td>
                     <div style="display:flex;align-items:center;gap:0.3rem">

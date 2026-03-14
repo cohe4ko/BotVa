@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS facts (
   topic TEXT NOT NULL,
   content TEXT NOT NULL,
   tags TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'conversation',
   sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic')),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -118,14 +119,8 @@ CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
   INSERT INTO facts_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
 END;
 
-CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-  INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
-END;
-
-CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE OF content, tags ON facts BEGIN
-  INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', old.id, old.content, old.tags);
-  INSERT INTO facts_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
-END;
+-- No delete/update triggers: Node.js SQLite doesn't support FTS5 delete commands in triggers
+-- FTS sync for delete/update is handled manually in code
 `
 
 function getAvailableRoles(): string[] {
