@@ -2,11 +2,13 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { statusBadge, formatCost, formatTs } from '../views/components.js'
-import { getBotNames, getUsageSummary, getHealthMetrics, getProjectRoot } from '../db-multi.js'
+import { getBotNames, getUsageSummary, getHealthMetrics, getProjectRoot, getTasks, getReminders, countFacts, getBotDir } from '../db-multi.js'
 import { getBotStatus, startBot, stopBot, restartBot, getBotUptime, isSelf as isSelfBot } from '../bot-control.js'
 import { validateBot, botName } from '../bot-middleware.js'
-import { existsSync, readFileSync } from 'fs'
-import { resolve } from 'path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
+import { resolve, join } from 'path'
+import { execSync } from 'child_process'
+import { getConsolidationHour } from '../../system-settings.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const app = new Hono<I18nEnv>()
@@ -14,11 +16,13 @@ const app = new Hono<I18nEnv>()
 app.get('/', (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
+  const root = getProjectRoot()
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
   const todayTs = Math.floor(todayStart.getTime() / 1000)
+  const botNames = getBotNames()
 
-  const bots = getBotNames().map(name => {
+  const bots = botNames.map(name => {
     const status = getBotStatus(name)
     let usage = { requests: 0, costUSD: 0, inputTokens: 0, outputTokens: 0 }
     let health = { lastActivity: null as number | null, avgResponseTimeMs: null as number | null, errorCount24h: 0, requestCount24h: 0 }
@@ -32,13 +36,67 @@ app.get('/', (c) => {
   const totalRequests = bots.reduce((s, b) => s + b.usage.requests, 0)
   const runningCount = bots.filter(b => b.running).length
 
+  // --- Aggregate stats for service panels ---
+  let totalTasks = 0, activeTasks = 0, nextTaskRun: number | null = null
+  let totalReminders = 0, nextReminderAt: number | null = null
+  let totalFacts = 0
+  for (const name of botNames) {
+    try {
+      const tasks = getTasks(name)
+      totalTasks += tasks.length
+      const active = tasks.filter(t => t.status === 'active')
+      activeTasks += active.length
+      for (const t of active) {
+        if (nextTaskRun === null || t.next_run < nextTaskRun) nextTaskRun = t.next_run
+      }
+    } catch {}
+    try {
+      const pending = getReminders(name, 'pending')
+      totalReminders += pending.length
+      for (const r of pending) {
+        if (nextReminderAt === null || r.remind_at < nextReminderAt) nextReminderAt = r.remind_at
+      }
+    } catch {}
+    try { totalFacts += countFacts(name) } catch {}
+  }
+
+  // Consolidation info
+  const consolidationHour = getConsolidationHour(root)
+  let lastConsolidation = ''
+  for (const name of botNames) {
+    try {
+      const diaryDir = join(getBotDir(name), 'knowledge', 'diary')
+      if (existsSync(diaryDir)) {
+        const files = readdirSync(diaryDir).filter(f => f.endsWith('.md')).sort().reverse()
+        if (files.length > 0) {
+          const mtime = statSync(join(diaryDir, files[0])).mtimeMs
+          const ts = formatTs(Math.floor(mtime / 1000))
+          if (!lastConsolidation || ts > lastConsolidation) lastConsolidation = ts
+        }
+      }
+    } catch {}
+  }
+
+  // Disk usage
+  let diskUsage = '?'
+  try { diskUsage = execSync(`du -sh "${root}" 2>/dev/null`, { encoding: 'utf-8' }).split('\t')[0].trim() } catch {}
+
   const content = html`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
       <h2 style="margin:0">${icon('layout-dashboard')} ${t('dash.title')}</h2>
-      <a href="/create-bot" style="font-size:0.82rem">${icon('plus', 14)} ${t('dash.createBot')}</a>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        ${bots.length > 0 ? html`
+          <div class="btn-group" id="bulk-controls">
+            <button hx-post="/bots/start-all" hx-target="#bulk-controls" hx-swap="innerHTML" class="btn-sm outline">${icon('play', 11)} ${t('dash.startAll')}</button>
+            <button hx-post="/bots/stop-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="${t('dash.confirmStopAll')}" class="btn-sm secondary outline">${icon('square', 11)} ${t('dash.stopAll')}</button>
+            <button hx-post="/bots/restart-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="${t('dash.confirmRestartAll')}" class="btn-sm contrast outline">${icon('refresh-cw', 11)} ${t('dash.restartAll')}</button>
+          </div>
+        ` : ''}
+        <a href="/create-bot" class="btn-sm" style="text-decoration:none">${icon('plus', 12)} ${t('dash.createBot')}</a>
+      </div>
     </div>
 
-    <div class="stats-grid">
+    <div class="stats-grid" style="margin-bottom:1rem">
       <div class="stat-card">
         <div class="stat-label">${icon('activity', 12)} ${t('dash.botsOnline')}</div>
         <div class="stat-number">${runningCount}<small style="font-size:0.55em;color:var(--mc-text-dim);font-weight:400"> / ${bots.length}</small></div>
@@ -52,16 +110,6 @@ app.get('/', (c) => {
         <div class="stat-number">${formatCost(totalCost)}</div>
       </div>
     </div>
-
-    <div id="dash-embedding" hx-get="/embedding/status" hx-trigger="load, every 30s" hx-swap="innerHTML" style="margin-bottom:1rem"></div>
-
-    ${bots.length > 0 ? html`
-    <div class="btn-group" style="margin-bottom:1rem" id="bulk-controls">
-      <button hx-post="/bots/restart-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="${t('dash.confirmRestartAll')}" class="btn-sm contrast outline">${icon('refresh-cw', 12)} ${t('dash.restartAll')}</button>
-      <button hx-post="/bots/stop-all" hx-target="#bulk-controls" hx-swap="innerHTML" hx-confirm="${t('dash.confirmStopAll')}" class="btn-sm secondary outline">${icon('square', 12)} ${t('dash.stopAll')}</button>
-      <button hx-post="/bots/start-all" hx-target="#bulk-controls" hx-swap="innerHTML" class="btn-sm outline">${icon('play', 12)} ${t('dash.startAll')}</button>
-    </div>
-    ` : ''}
 
     <div class="bot-grid">
       ${bots.map(b => html`
@@ -124,6 +172,42 @@ app.get('/', (c) => {
         </div>
       `)}
     </div>
+
+    <h3 style="margin-top:1.5rem;margin-bottom:0.75rem">${icon('server')} ${t('dash.services')}</h3>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${icon('calendar', 12)} ${t('dash.scheduler')}</div>
+        <div class="stat-number">${activeTasks}<small style="font-size:0.55em;color:var(--mc-text-dim);font-weight:400"> / ${totalTasks}</small></div>
+        <div style="font-size:0.68rem;color:var(--mc-text-dim);margin-top:0.2rem">
+          ${nextTaskRun ? html`${t('dash.nextRun')}: ${formatTs(nextTaskRun)}` : t('dash.noTasks')}
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('bell', 12)} ${t('dash.reminders')}</div>
+        <div class="stat-number">${totalReminders}</div>
+        <div style="font-size:0.68rem;color:var(--mc-text-dim);margin-top:0.2rem">
+          ${nextReminderAt ? html`${t('dash.nextReminder')}: ${formatTs(nextReminderAt)}` : t('dash.noReminders')}
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('database', 12)} ${t('dash.facts')}</div>
+        <div class="stat-number">${totalFacts}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('refresh-cw', 12)} ${t('dash.consolidation')}</div>
+        <div class="stat-number" style="font-size:1rem">${String(consolidationHour).padStart(2, '0')}:00</div>
+        <div style="font-size:0.68rem;color:var(--mc-text-dim);margin-top:0.2rem">
+          ${lastConsolidation ? html`${t('dash.lastRun')}: ${lastConsolidation}` : t('dash.neverRun')}
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('hard-drive', 12)} ${t('dash.disk')}</div>
+        <div class="stat-number" style="font-size:1.1rem">${diskUsage}</div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:1rem;margin-bottom:0.75rem">${icon('brain')} ${t('dash.embeddingService')}</h3>
+    <div id="dash-embedding" hx-get="/embedding/status" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
   `
 
   return c.html(layout(t('dash.title'), content, '/', t, lang))
@@ -212,20 +296,19 @@ app.get('/embedding/status', async (c) => {
     return c.html(html`
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-label">${icon('brain', 12)} ${t('dash.embeddingService')}</div>
+          <div class="stat-label">${t('dash.embeddingStatus')}</div>
           <div class="stat-number" style="font-size:1rem"><span class="badge badge-missing">${icon('x', 11)} ${t('dash.embeddingOffline')}</span></div>
         </div>
       </div>
     `)
   }
 
-  let model = '', uptime = 0, ready = false, requestCount = 0, textsEmbedded = 0
+  let uptime = 0, ready = false, requestCount = 0, textsEmbedded = 0
   try {
     const { getHealth } = await import('../../embeddings.js')
     const health = await getHealth()
     if (health) {
       ready = health.ready === true
-      model = health.model ?? ''
       uptime = health.uptime ?? 0
       requestCount = health.requestCount ?? 0
       textsEmbedded = health.textsEmbedded ?? 0
@@ -241,7 +324,7 @@ app.get('/embedding/status', async (c) => {
   return c.html(html`
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">${icon('brain', 12)} ${t('dash.embeddingService')}</div>
+        <div class="stat-label">${t('dash.embeddingStatus')}</div>
         <div class="stat-number" style="font-size:1rem">
           ${ready
             ? html`<span class="badge badge-set">${icon('check', 11)} ${t('dash.embeddingOnline')}</span>`
