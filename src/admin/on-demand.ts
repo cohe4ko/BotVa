@@ -94,10 +94,8 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
     return { url: `${existing.url}/?token=${existing.token}`, token: existing.token! }
   }
 
-  // Check if port is already in use (e.g. standalone admin via deploy.sh)
-  if (isPortInUse(port)) {
-    throw new Error(`Port ${port} is already in use. Stop the existing admin panel first or set a different ADMIN_PORT.`)
-  }
+  // Kill whatever occupies the port (e.g. standalone admin via deploy.sh)
+  killPortOccupant(port)
 
   // Generate token
   const token = crypto.randomBytes(16).toString('hex')
@@ -148,13 +146,22 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
   return { url, token }
 }
 
-function isPortInUse(port: number): boolean {
+function killPortOccupant(port: number): void {
   try {
     const { execSync } = require('child_process')
-    const result = execSync(`lsof -i :${port} -t 2>/dev/null`, { encoding: 'utf-8' }).trim()
-    return result.length > 0
+    const pids = execSync(`lsof -i :${port} -t 2>/dev/null`, { encoding: 'utf-8' }).trim()
+    if (!pids) return
+    for (const pid of pids.split('\n')) {
+      const n = parseInt(pid, 10)
+      if (n && n !== process.pid) {
+        logger.info({ port, pid: n }, 'Killing process occupying admin port')
+        try { process.kill(n, 'SIGTERM') } catch {}
+      }
+    }
+    // Give it a moment to release the port
+    execSync('sleep 0.3')
   } catch {
-    return false // lsof returns non-zero if no process found
+    // lsof returns non-zero if no process found — port is free
   }
 }
 
