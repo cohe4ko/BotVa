@@ -295,14 +295,14 @@ export class MetaApiClient {
     const body = this.buildQueryString(requestData);
 
     // Enhanced debugging for ad set creation
-    console.log("=== AD SET CREATION DEBUG ===");
-    console.log("Campaign ID:", campaignId);
-    console.log("Account ID:", accountId);
-    console.log("Formatted Account ID:", formattedAccountId);
-    console.log("Request Data Object:", JSON.stringify(requestData, null, 2));
-    console.log("Request Body (URL-encoded):", body);
-    console.log("API Endpoint:", `${formattedAccountId}/adsets`);
-    console.log("===========================");
+    console.error("=== AD SET CREATION DEBUG ===");
+    console.error("Campaign ID:", campaignId);
+    console.error("Account ID:", accountId);
+    console.error("Formatted Account ID:", formattedAccountId);
+    console.error("Request Data Object:", JSON.stringify(requestData, null, 2));
+    console.error("Request Body (URL-encoded):", body);
+    console.error("API Endpoint:", `${formattedAccountId}/adsets`);
+    console.error("===========================");
 
     try {
       const result = await this.makeRequest<{ id: string }>(
@@ -313,54 +313,54 @@ export class MetaApiClient {
         true
       );
 
-      console.log("=== AD SET CREATION SUCCESS ===");
-      console.log("Created Ad Set ID:", result.id);
-      console.log("==============================");
+      console.error("=== AD SET CREATION SUCCESS ===");
+      console.error("Created Ad Set ID:", result.id);
+      console.error("==============================");
 
       return result;
     } catch (error) {
-      console.log("=== AD SET CREATION ERROR ===");
-      console.log("Error object:", error);
+      console.error("=== AD SET CREATION ERROR ===");
+      console.error("Error object:", error);
 
       if (error instanceof Error) {
-        console.log("Error message:", error.message);
+        console.error("Error message:", error.message);
 
         // Try to parse error response if it's JSON
         try {
           const errorData = JSON.parse(error.message);
-          console.log("Parsed error data:", JSON.stringify(errorData, null, 2));
+          console.error("Parsed error data:", JSON.stringify(errorData, null, 2));
 
           if (errorData.error) {
-            console.log("Meta API Error Details:");
-            console.log("- Message:", errorData.error.message);
-            console.log("- Code:", errorData.error.code);
-            console.log("- Type:", errorData.error.type);
-            console.log("- Error Subcode:", errorData.error.error_subcode);
-            console.log("- FBTrace ID:", errorData.error.fbtrace_id);
+            console.error("Meta API Error Details:");
+            console.error("- Message:", errorData.error.message);
+            console.error("- Code:", errorData.error.code);
+            console.error("- Type:", errorData.error.type);
+            console.error("- Error Subcode:", errorData.error.error_subcode);
+            console.error("- FBTrace ID:", errorData.error.fbtrace_id);
 
             if (errorData.error.error_data) {
-              console.log(
+              console.error(
                 "- Error Data:",
                 JSON.stringify(errorData.error.error_data, null, 2)
               );
             }
 
             if (errorData.error.error_user_title) {
-              console.log("- User Title:", errorData.error.error_user_title);
+              console.error("- User Title:", errorData.error.error_user_title);
             }
 
             if (errorData.error.error_user_msg) {
-              console.log("- User Message:", errorData.error.error_user_msg);
+              console.error("- User Message:", errorData.error.error_user_msg);
             }
           }
         } catch (parseError) {
-          console.log(
+          console.error(
             "Could not parse error as JSON, raw message:",
             error.message
           );
         }
       }
-      console.log("============================");
+      console.error("============================");
 
       throw error;
     }

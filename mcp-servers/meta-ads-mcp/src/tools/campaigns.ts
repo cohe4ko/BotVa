@@ -652,10 +652,13 @@ export function registerCampaignTools(
           adSetData.promoted_object = promoted_object;
         }
 
-        // Add required Meta API fields with defaults and validation
-        adSetData.attribution_spec = attribution_spec || [
-          { event_type: "CLICK_THROUGH", window_days: 1 },
-        ];
+        // Add attribution_spec only for non-awareness campaigns (Meta rejects it for REACH/AWARENESS)
+        const isAwarenessCampaign = campaign.objective === "OUTCOME_AWARENESS";
+        if (!isAwarenessCampaign) {
+          adSetData.attribution_spec = attribution_spec || [
+            { event_type: "CLICK_THROUGH", window_days: 1 },
+          ];
+        }
 
         // Set destination_type - use "UNDEFINED" as default per working SDK example
         adSetData.destination_type = destination_type || "UNDEFINED";
