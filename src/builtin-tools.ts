@@ -117,7 +117,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
 
 export type AskUserCallback = (
   question: string,
-  options: { label: string; description?: string }[]
+  options: { label: string; description?: string }[],
+  keyboard: 'inline' | 'reply'
 ) => Promise<string>
 
 export interface BuiltinToolsResult {
@@ -963,31 +964,57 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (askUser && isOn('AskUser')) tools.push(
     tool(
       'AskUser',
-      `Present choices to the user via Telegram inline buttons and wait for their response.
+      `Present choices to the user via Telegram buttons and wait for their response.
+
+IMPORTANT: AskUser is a STEP within your workflow, not an interruption. Call it mid-task when you need user input, get the answer, and continue working. Do NOT stop or summarize — just ask and proceed with the chosen option.
 
 WHEN TO USE:
 - The user's request can be fulfilled in several different ways and you need them to choose
-- Before an irreversible external action (sending email, creating CRM record, posting) when details are ambiguous
-- When search/analysis returned multiple results and user should pick one
+- Before an irreversible external action (email, CRM, posting) when details are ambiguous
+- Search returned multiple results and user should pick one
+- Yes/no confirmation before a risky or costly action
 
 WHEN NOT TO USE:
 - The choice is obvious from context or user already specified what they want
-- Simple yes/no — just ask in text
-- You need free-form input — just ask in text
+- You need free-form input (name, description, long text) — just ask in text
 - Only one valid option exists
+- User said "just do it" or similar
 
-BEHAVIOR: Sends buttons to Telegram chat. User clicks one or "Other". Tool blocks until user responds (2 min timeout). Keep labels short (1-4 words), 2-8 options max.`,
+KEYBOARD MODES:
+- 'inline' (default): buttons under message. Short labels only (1-4 words, max ~20 chars). Buttons disappear after click. Has "Other" option automatically.
+- 'reply': buttons replace the keyboard. Supports longer labels (full sentences OK). Answer appears as text in chat. Best for: yes/no, confirmations, options with long descriptions. No "Other" option.
+
+Use 'reply' when:
+- Yes/no or confirmation (Так/Ні)
+- Labels are longer than 4 words
+- You want the answer visible in chat history
+
+Use 'inline' when:
+- Short labels (1-4 words)
+- Multiple options (4+)
+- You want "Other" as fallback
+
+EXAMPLES:
+- "Знайди рецепт борщу" (3 results) → AskUser: "Який?", options=["Класичний", "Полтавський", "Вегетаріанський"], keyboard='inline'
+- "Видали файл" → AskUser: "Точно видалити?", options=["Так, видалити", "Ні, залишити"], keyboard='reply'
+- "Надішли email" → AskUser: "Надіслати цей лист Олені?", options=["Так, надіслати", "Ні, ще відредагую"], keyboard='reply'
+- Complex choice → AskUser: "Який формат?", options=["Детальний звіт з графіками", "Коротке резюме на 1 сторінку", "Таблиця з даними"], keyboard='reply'
+
+2-8 options. Tool blocks until user responds (2 min timeout).`,
       {
         question: z.string().describe('The question to ask the user'),
         options: z.array(z.object({
-          label: z.string().describe('Button label (short, 1-4 words)'),
+          label: z.string().describe('Button label'),
           description: z.string().optional().describe('Brief explanation shown under the question'),
         })).min(2).max(8).describe('Available choices (2-8 options)'),
+        keyboard: z.enum(['inline', 'reply']).default('inline').describe(
+          'inline = buttons under message (short labels, has "Other"), reply = buttons replace keyboard (long labels OK, answer as text in chat)'
+        ),
       },
-      async ({ question, options }) => {
+      async ({ question, options, keyboard }) => {
         usedTools.add('AskUser')
         try {
-          const answer = await askUser(question, options)
+          const answer = await askUser(question, options, keyboard)
           if (answer === '__skip__') {
             return { content: [{ type: 'text' as const, text: 'User wants a different option (clicked "Other"). Ask them in text what they prefer.' }] }
           }

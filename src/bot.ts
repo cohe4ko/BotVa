@@ -25,8 +25,14 @@ import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } 
 import { createBuiltinMcpServer } from './builtin-tools.js'
 import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, getSessionDetail, type DiskSession, type ClaudeProject } from './disk-sessions.js'
 
-// --- AskUserQuestion pending responses ---
+// --- AskUser pending responses ---
 const pendingQuestions = new Map<string, {
+  resolve: (answer: string) => void
+  reject: (err: Error) => void
+  timeout: ReturnType<typeof setTimeout>
+}>()
+
+const pendingReplyKeyboard = new Map<string, {
   resolve: (answer: string) => void
   reject: (err: Error) => void
   timeout: ReturnType<typeof setTimeout>
@@ -314,17 +320,38 @@ async function handleMessage(
       await sendTyping()
 
       // Create askUser callback for AskUser builtin tool
-      const askUserCallback = async (question: string, options: { label: string; description?: string }[]) => {
+      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply') => {
         const descriptions = options.filter(o => o.description).map(o => `• <b>${escapeHtml(o.label)}</b> — ${escapeHtml(o.description!)}`)
-        const text = descriptions.length > 0
+        const msgText = descriptions.length > 0
           ? `❓ <b>${escapeHtml(question)}</b>\n\n${descriptions.join('\n')}`
           : `❓ <b>${escapeHtml(question)}</b>`
-        const keyboard = options.map(o => [{ text: o.label, callback_data: `ask:${o.label}` }])
-        keyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
 
-        await ctx.api.sendMessage(chatId, text, {
+        if (keyboardMode === 'reply') {
+          const replyKeyboard = options.map(o => [{ text: o.label }])
+          await ctx.api.sendMessage(chatId, msgText, {
+            parse_mode: 'HTML',
+            reply_markup: { keyboard: replyKeyboard, one_time_keyboard: true, resize_keyboard: true },
+          })
+
+          return new Promise<string>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              pendingReplyKeyboard.delete(chatIdStr)
+              ctx.api.sendMessage(chatId, '⏰', { reply_markup: { remove_keyboard: true } })
+                .then(msg => ctx.api.deleteMessage(chatId, msg.message_id).catch(() => {}))
+                .catch(() => {})
+              reject(new Error('timeout'))
+            }, ASK_USER_TIMEOUT_MS)
+            pendingReplyKeyboard.set(chatIdStr, { resolve, reject, timeout })
+          })
+        }
+
+        // Inline keyboard (default)
+        const inlineKeyboard = options.map(o => [{ text: o.label, callback_data: `ask:${o.label}` }])
+        inlineKeyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
+
+        await ctx.api.sendMessage(chatId, msgText, {
           parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboard },
+          reply_markup: { inline_keyboard: inlineKeyboard },
         })
 
         return new Promise<string>((resolve, reject) => {
@@ -1057,12 +1084,27 @@ export function createBot(): Bot {
   // Text messages
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
+    const chatIdStr = String(ctx.chat.id)
+
+    // Reply keyboard answer interception
+    const pendingReply = pendingReplyKeyboard.get(chatIdStr)
+    if (pendingReply) {
+      clearTimeout(pendingReply.timeout)
+      pendingReplyKeyboard.delete(chatIdStr)
+      // Remove reply keyboard silently
+      await ctx.reply('✓', { reply_markup: { remove_keyboard: true } })
+        .then(msg => ctx.api.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {}))
+        .catch(() => {})
+      pendingReply.resolve(text)
+      return
+    }
+
     // skip known bot commands (they have their own handlers above)
     if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session)\b/.test(text)) return
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
     if (text.startsWith('/')) {
-      logAudit(String(ctx.chat.id), 'command', text.split(' ')[0])
+      logAudit(chatIdStr, 'command', text.split(' ')[0])
     }
     await handleMessage(ctx, cleanText)
   })
