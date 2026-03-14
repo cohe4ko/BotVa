@@ -6,7 +6,7 @@ import { layout, botNav } from '../views/layout.js'
 import { alert, formatTs } from '../views/components.js'
 import { getSettings, upsertSetting, deleteSetting, getSessions, deleteSession } from '../db-multi.js'
 import { validateBot, botName } from '../bot-middleware.js'
-import { listDiskSessions } from '../disk-sessions.js'
+import { listDiskSessions } from '../../disk-sessions.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))

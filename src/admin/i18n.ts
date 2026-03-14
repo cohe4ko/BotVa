@@ -239,6 +239,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'sess.noSessions': 'No sessions',
     'sess.clearConfirm': 'Clear session?',
     'sess.clear': 'Clear',
+    'sess.disk': 'Disk Sessions (Claude Code)',
+    'sess.noDisk': 'No disk sessions found.',
+    'sess.preview': 'Preview',
 
     // Settings
     'settings.title': 'Chat Settings',
@@ -765,6 +768,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'sess.noSessions': 'Немає сесій',
     'sess.clearConfirm': 'Очистити сесію?',
     'sess.clear': 'Очистити',
+    'sess.disk': 'Сесії на диску (Claude Code)',
+    'sess.noDisk': 'Сесій на диску не знайдено.',
+    'sess.preview': 'Превʼю',
 
     // Settings
     'settings.title': 'Налаштування чатів',

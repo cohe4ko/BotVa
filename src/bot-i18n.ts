@@ -10,7 +10,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'auth.noReply': '(no reply)',
 
     // Start / Help
-    'cmd.start': "BotVa online.\n\nYour chat ID: <code>{chatId}</code>\n\n/new -- new session\n/cancel -- cancel current request\n/model -- switch AI model\n/memory -- recent memories\n/usage -- usage stats\n/settings -- voice, language, style & more\n/admin -- admin panel",
+    'cmd.start': "BotVa online.\n\nYour chat ID: <code>{chatId}</code>\n\n/new -- new session\n/cancel -- cancel current request\n/model -- switch AI model\n/memory -- recent memories\n/usage -- usage stats\n/settings -- voice, language, style & more\n/session -- switch sessions, import from CLI\n/admin -- admin panel",
     'cmd.chatid': 'Your chat ID: <code>{chatId}</code>',
 
     // Session
@@ -183,6 +183,29 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.desc.delay': 'How long progress stays visible after the final reply (0 = remove immediately, ∞ = keep forever)',
     'settings.desc.team': 'Show teammate work: all steps, result only, or hidden',
 
+    // Sessions
+    'cmd.session.title': 'Sessions',
+    'cmd.session.active': 'Active session',
+    'cmd.session.none': 'No active session',
+    'cmd.session.saved': 'Saved sessions:',
+    'cmd.session.empty': 'No saved sessions.',
+    'cmd.session.saved_ok': 'Session saved: {name}',
+    'cmd.session.loaded': 'Session loaded: {name}',
+    'cmd.session.deleted': 'Session deleted: {name}',
+    'cmd.session.imported': 'CLI session imported. Send a message to continue.',
+    'cmd.session.import_usage': 'Usage: /session import <session_id>',
+    'cmd.session.cli': 'Resume in CLI:',
+    'cmd.session.btn.save': '💾 Save',
+    'cmd.session.btn.new': '🆕 New',
+    'cmd.session.btn.import': '🔗 Import CLI',
+    'cmd.session.btn.delete': '🗑',
+    'cmd.session.auto_name': 'Session {n}',
+    'cmd.session.ago.now': 'just now',
+    'cmd.session.ago.min': '{n}m ago',
+    'cmd.session.ago.hour': '{n}h ago',
+    'cmd.session.ago.day': '{n}d ago',
+    'menu.session': 'Sessions (switch, save, import)',
+
     // Bot commands menu
     'menu.start': 'Start',
     'menu.new': 'New session (clear context)',
@@ -200,7 +223,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'auth.noReply': '(без відповіді)',
 
     // Start / Help
-    'cmd.start': "BotVa на зв'язку.\n\nТвій chat ID: <code>{chatId}</code>\n\n/new -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/memory -- останні спогади\n/usage -- статистика використання\n/settings -- голос, мова, стиль та інше\n/admin -- адмін панель",
+    'cmd.start': "BotVa на зв'язку.\n\nТвій chat ID: <code>{chatId}</code>\n\n/new -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/memory -- останні спогади\n/usage -- статистика використання\n/settings -- голос, мова, стиль та інше\n/session -- перемикання сесій, імпорт з CLI\n/admin -- адмін панель",
     'cmd.chatid': 'Твій chat ID: <code>{chatId}</code>',
 
     // Session
@@ -372,6 +395,29 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.desc.style': 'Стиль індикатора прогресу: brunette (технічний) або blonde (милі емодзі)',
     'settings.desc.delay': 'Скільки прогрес видно після фінальної відповіді (0 = прибрати одразу, ∞ = залишити)',
     'settings.desc.team': 'Показ роботи команди: всі кроки, тільки результат або приховано',
+
+    // Sessions
+    'cmd.session.title': 'Сесії',
+    'cmd.session.active': 'Активна сесія',
+    'cmd.session.none': 'Немає активної сесії',
+    'cmd.session.saved': 'Збережені сесії:',
+    'cmd.session.empty': 'Збережених сесій немає.',
+    'cmd.session.saved_ok': 'Сесію збережено: {name}',
+    'cmd.session.loaded': 'Сесію завантажено: {name}',
+    'cmd.session.deleted': 'Сесію видалено: {name}',
+    'cmd.session.imported': 'CLI сесію імпортовано. Надішли повідомлення щоб продовжити.',
+    'cmd.session.import_usage': 'Використання: /session import <session_id>',
+    'cmd.session.cli': 'Продовжити в CLI:',
+    'cmd.session.btn.save': '💾 Зберегти',
+    'cmd.session.btn.new': '🆕 Нова',
+    'cmd.session.btn.import': '🔗 Імпорт CLI',
+    'cmd.session.btn.delete': '🗑',
+    'cmd.session.auto_name': 'Сесія {n}',
+    'cmd.session.ago.now': 'щойно',
+    'cmd.session.ago.min': '{n}хв тому',
+    'cmd.session.ago.hour': '{n}год тому',
+    'cmd.session.ago.day': '{n}д тому',
+    'menu.session': 'Сесії (перемикання, збереження, імпорт)',
 
     // Bot commands menu
     'menu.start': 'Почати роботу',

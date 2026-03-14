@@ -6,6 +6,7 @@ import {
   TYPING_REFRESH_MS,
   TELEGRAPH_ENABLED,
   BOT_NAME,
+  BOT_DIR,
 } from './config.js'
 import { getSession, setSession, clearSession, getAllMemories, logUsage, getUsageSince, getChatSetting, setChatSetting, deleteChatSetting, logAudit } from './db.js'
 import { runAgent, type UsageStats, type AskUserQuestion, type AskUserHandler } from './agent.js'
@@ -22,6 +23,7 @@ import { editImage } from './imagen.js'
 import { getModel, setModel, MODELS, getModelLabel } from './model.js'
 import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
+import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, type DiskSession, type ClaudeProject } from './disk-sessions.js'
 
 // --- AskUserQuestion pending responses ---
 const pendingQuestions = new Map<string, {
@@ -504,6 +506,136 @@ export function createBot(): Bot {
     return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
   }
 
+  // --- Session helpers ---
+
+  const SESSIONS_PER_PAGE = 5
+  const PROJECTS_PER_PAGE = 8
+
+  function timeAgo(ts: number, t: BotT): string {
+    const diff = Math.floor(Date.now() / 1000) - ts
+    if (diff < 60) return t('cmd.session.ago.now')
+    if (diff < 3600) return t('cmd.session.ago.min', { n: Math.floor(diff / 60) })
+    if (diff < 86400) return t('cmd.session.ago.hour', { n: Math.floor(diff / 3600) })
+    return t('cmd.session.ago.day', { n: Math.floor(diff / 86400) })
+  }
+
+  function formatSessionDate(ts: number): string {
+    const d = new Date(ts * 1000)
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mon = String(d.getMonth() + 1).padStart(2, '0')
+    return `${dd}.${mon} ${hh}:${mm}`
+  }
+
+  /** Build projects list view (level 1) */
+  function buildProjectsMessage(chatId: string, page = 0) {
+    const t = chatT(chatId)
+    const currentSessionId = getSession(chatId)
+    const projects = listClaudeProjects()
+    const totalPages = Math.max(1, Math.ceil(projects.length / PROJECTS_PER_PAGE))
+    const safePage = Math.max(0, Math.min(page, totalPages - 1))
+    const pageProjects = projects.slice(safePage * PROJECTS_PER_PAGE, (safePage + 1) * PROJECTS_PER_PAGE)
+
+    const lines: string[] = [
+      `📋 <b>${t('cmd.session.title')}</b>`,
+      '',
+    ]
+
+    if (currentSessionId) {
+      const shortId = currentSessionId.slice(0, 8)
+      lines.push(`▸ <b>${t('cmd.session.active')}</b>: <code>${shortId}…</code>`)
+      lines.push(`<code>claude --resume ${currentSessionId}</code>`)
+    } else {
+      lines.push(`▸ ${t('cmd.session.none')}`)
+    }
+
+    lines.push('')
+    for (const p of pageProjects) {
+      lines.push(`📁 <b>${escapeHtml(p.label)}</b> — ${p.sessionCount} ses, ${timeAgo(p.lastUpdated, t)}`)
+    }
+
+    if (totalPages > 1) {
+      lines.push('', `📄 ${safePage + 1} / ${totalPages}`)
+    }
+
+    const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
+    // Project buttons — 2 per row
+    for (let i = 0; i < pageProjects.length; i += 2) {
+      const row: Array<{ text: string; callback_data: string }> = []
+      row.push({ text: `📁 ${pageProjects[i].label}`, callback_data: `ses:proj:${pageProjects[i].key}:0` })
+      if (i + 1 < pageProjects.length) {
+        row.push({ text: `📁 ${pageProjects[i + 1].label}`, callback_data: `ses:proj:${pageProjects[i + 1].key}:0` })
+      }
+      keyboard.push(row)
+    }
+
+    // Navigation
+    const navRow: Array<{ text: string; callback_data: string }> = []
+    if (safePage > 0) navRow.push({ text: '◀️', callback_data: `ses:ppage:${safePage - 1}` })
+    navRow.push({ text: t('cmd.session.btn.new'), callback_data: 'ses:new' })
+    if (safePage < totalPages - 1) navRow.push({ text: '▶️', callback_data: `ses:ppage:${safePage + 1}` })
+    keyboard.push(navRow)
+
+    return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
+  }
+
+  /** Build sessions list for a specific project (level 2) */
+  function buildSessionMessage(chatId: string, projectKey: string, page = 0) {
+    const t = chatT(chatId)
+    const currentSessionId = getSession(chatId)
+    const allSessions = listDiskSessionsByKey(projectKey)
+    const totalPages = Math.max(1, Math.ceil(allSessions.length / SESSIONS_PER_PAGE))
+    const safePage = Math.max(0, Math.min(page, totalPages - 1))
+    const pageSessions = allSessions.slice(safePage * SESSIONS_PER_PAGE, (safePage + 1) * SESSIONS_PER_PAGE)
+
+    // Find project label
+    const projects = listClaudeProjects()
+    const proj = projects.find(p => p.key === projectKey)
+    const projLabel = proj?.label ?? projectKey
+
+    const lines: string[] = [
+      `📁 <b>${escapeHtml(projLabel)}</b> — ${allSessions.length} sessions`,
+      '',
+    ]
+
+    if (allSessions.length > 0) {
+      for (const s of pageSessions) {
+        const active = currentSessionId === s.sessionId ? ' ✓' : ''
+        const date = formatSessionDate(s.updatedAt)
+        const ago = timeAgo(s.updatedAt, t)
+        lines.push(`<code>${s.sessionId.slice(0, 8)}</code>${active}`)
+        lines.push(`  ${escapeHtml(s.preview)}`)
+        lines.push(`  <i>${date} (${ago})</i>`)
+        lines.push('')
+      }
+      if (totalPages > 1) {
+        lines.push(`📄 ${safePage + 1} / ${totalPages}`)
+      }
+    } else {
+      lines.push(t('cmd.session.empty'))
+    }
+
+    const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
+
+    for (const s of pageSessions) {
+      const active = currentSessionId === s.sessionId ? '✓ ' : ''
+      const label = s.preview.slice(0, 35) || s.sessionId.slice(0, 8)
+      keyboard.push([
+        { text: `${active}${label}`, callback_data: `ses:load:${s.sessionId}` },
+      ])
+    }
+
+    // Navigation
+    const navRow: Array<{ text: string; callback_data: string }> = []
+    if (safePage > 0) navRow.push({ text: '◀️', callback_data: `ses:proj:${projectKey}:${safePage - 1}` })
+    navRow.push({ text: '← back', callback_data: 'ses:projects:0' })
+    if (safePage < totalPages - 1) navRow.push({ text: '▶️', callback_data: `ses:proj:${projectKey}:${safePage + 1}` })
+    keyboard.push(navRow)
+
+    return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
+  }
+
   // Pre-middleware: handle stop/cancel immediately, bypass grammy's sequential processing
   bot.use(async (ctx, next) => {
     // AskUserQuestion answer callback
@@ -633,6 +765,55 @@ export function createBot(): Bot {
         `${_t('cmd.model.title', { label })}\n\n${lines.join('\n')}`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
       )
+      return
+    }
+    // Session callbacks
+    if (ctx.callbackQuery?.data?.startsWith('ses:')) {
+      const chatIdStr = String(ctx.chat?.id)
+      if (!isAuthorised(ctx.chat!.id)) return
+      const action = ctx.callbackQuery.data.slice(4) // remove 'ses:'
+      const _t = chatT(chatIdStr)
+
+      if (action === 'new') {
+        clearSession(chatIdStr)
+        logAudit(chatIdStr, 'session_clear')
+        await ctx.answerCallbackQuery({ text: _t('cmd.newchat') })
+        const { text, reply_markup } = buildProjectsMessage(chatIdStr)
+        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
+        return
+      }
+
+      // Projects list pagination
+      if (action.startsWith('projects:') || action.startsWith('ppage:')) {
+        const page = parseInt(action.split(':')[1], 10)
+        await ctx.answerCallbackQuery()
+        const { text, reply_markup } = buildProjectsMessage(chatIdStr, page)
+        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
+        return
+      }
+
+      // Open project sessions: ses:proj:<key>:<page>
+      if (action.startsWith('proj:')) {
+        const parts = action.slice(5) // remove 'proj:'
+        const lastColon = parts.lastIndexOf(':')
+        const projectKey = parts.slice(0, lastColon)
+        const page = parseInt(parts.slice(lastColon + 1), 10) || 0
+        await ctx.answerCallbackQuery()
+        const { text, reply_markup } = buildSessionMessage(chatIdStr, projectKey, page)
+        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
+        return
+      }
+
+      if (action.startsWith('load:')) {
+        const sessionId = action.slice(5)
+        setSession(chatIdStr, sessionId)
+        const shortId = sessionId.slice(0, 8)
+        await ctx.answerCallbackQuery({ text: _t('cmd.session.loaded', { name: shortId }) })
+        const { text, reply_markup } = buildProjectsMessage(chatIdStr)
+        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
+        return
+      }
+
       return
     }
     // /cancel command
@@ -795,6 +976,31 @@ export function createBot(): Bot {
   bot.command('delay', openSettingsHandler)
   bot.command('show_team_work', openSettingsHandler)
 
+  // --- /session (multi-session management) ---
+  bot.command('session', async (ctx) => {
+    if (!isAuthorised(ctx.chat.id)) return
+    const chatIdStr = String(ctx.chat.id)
+    const t = chatT(chatIdStr)
+    const text = ctx.message?.text ?? ''
+    const args = text.replace(/^\/session\s*/, '').trim()
+
+    // /session import <session_id> — resume a CLI session in Telegram
+    if (args.startsWith('import ')) {
+      const sessionId = args.slice(7).trim()
+      if (!sessionId) {
+        await ctx.reply(t('cmd.session.import_usage'))
+        return
+      }
+      setSession(chatIdStr, sessionId)
+      await ctx.reply(t('cmd.session.imported'))
+      return
+    }
+
+    // Default: show projects list
+    const { text: msgText, reply_markup } = buildProjectsMessage(chatIdStr)
+    await ctx.reply(msgText, { parse_mode: 'HTML', reply_markup })
+  })
+
   bot.command('admin', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const t = chatT(String(ctx.chat.id))
@@ -836,7 +1042,7 @@ export function createBot(): Bot {
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
     // skip known bot commands (they have their own handlers above)
-    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings)\b/.test(text)) return
+    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session)\b/.test(text)) return
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
     if (text.startsWith('/')) {
@@ -962,6 +1168,7 @@ export function createBot(): Bot {
     { command: 'memory', description: t('menu.memory') },
     { command: 'usage', description: t('menu.usage') },
     { command: 'settings', description: t('menu.settings') },
+    { command: 'session', description: t('menu.session') },
     { command: 'admin', description: t('menu.admin') },
   ]
   // Default commands in Ukrainian
