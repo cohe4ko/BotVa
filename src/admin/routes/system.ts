@@ -516,6 +516,7 @@ app.get('/system/embedding/status', async (c) => {
               ? html`<span class="badge" style="background:var(--mc-warning);color:#000">${icon('loader', 11)} Loading...</span>`
               : html`<span class="badge badge-missing">${icon('x', 11)} ${t('sys.embeddingOffline')}</span>`
           }
+          ${pid ? html`<div style="font-size:0.7rem;color:var(--mc-text-dim);margin-top:0.25rem">PID ${pid}</div>` : ''}
         </div>
       </div>
       <div class="stat-card">
@@ -537,11 +538,24 @@ app.get('/system/embedding/status', async (c) => {
     </div>
     <div style="margin-top:0.5rem;display:flex;gap:0.5rem">
       ${running
-        ? html`<button hx-post="/system/embedding/stop" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm secondary outline">${icon('square', 11)} ${t('sys.embeddingStop')}</button>`
+        ? html`
+          <button hx-post="/system/embedding/stop" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm secondary outline">${icon('square', 11)} ${t('sys.embeddingStop')}</button>
+          <button hx-post="/system/embedding/reset" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm outline">${icon('refresh-cw', 11)} ${t('sys.embeddingReset')}</button>
+        `
         : html`<button hx-post="/system/embedding/start" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} ${t('sys.embeddingStart')}</button>`
       }
     </div>
   `)
+})
+
+app.post('/system/embedding/reset', async (c) => {
+  try {
+    const { resetStats } = await import('../../embeddings.js')
+    await resetStats()
+  } catch {}
+  // HX-Redirect to trigger re-fetch of status fragment
+  c.header('HX-Trigger', 'embeddingRefresh')
+  return c.html(html`<div hx-get="/system/embedding/status" hx-trigger="load" hx-target="#embedding-status" hx-swap="innerHTML"></div>`)
 })
 
 app.post('/system/embedding/start', (c) => {

@@ -156,3 +156,16 @@ export async function getHealth(): Promise<HealthResponse | null> {
     return null
   }
 }
+
+/**
+ * Reset request counters.
+ */
+export async function resetStats(): Promise<boolean> {
+  if (!socketExists()) return false
+  try {
+    const resp = await sendRequest<{ ok?: boolean }>({ action: 'reset-stats' }, 3000)
+    return resp.ok === true
+  } catch {
+    return false
+  }
+}

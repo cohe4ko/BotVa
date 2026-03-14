@@ -11,7 +11,7 @@
  */
 
 import { createServer as createNetServer } from 'net'
-import { existsSync, unlinkSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, unlinkSync, writeFileSync, readFileSync, mkdirSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -20,14 +20,32 @@ const PROJECT_ROOT = resolve(__dirname, '..', '..')
 const STORE_DIR = resolve(PROJECT_ROOT, 'store')
 const SOCK_PATH = process.env['EMBEDDING_SOCK_PATH'] ?? resolve(STORE_DIR, 'embedding.sock')
 const PID_FILE = resolve(STORE_DIR, 'embedding.pid')
+const STATS_FILE = resolve(STORE_DIR, 'embedding-stats.json')
 
 const MODEL_NAME = 'intfloat/multilingual-e5-small'
 const startTime = Date.now()
 
 let pipeline: any = null
 let ready = false
-let requestCount = 0
-let textsEmbedded = 0
+
+// --- Persistent stats ---
+interface Stats { requestCount: number; textsEmbedded: number }
+
+function loadStats(): Stats {
+  try {
+    if (existsSync(STATS_FILE)) {
+      return JSON.parse(readFileSync(STATS_FILE, 'utf-8'))
+    }
+  } catch {}
+  return { requestCount: 0, textsEmbedded: 0 }
+}
+
+function saveStats(): void {
+  try { writeFileSync(STATS_FILE, JSON.stringify(stats)) } catch {}
+}
+
+const stats: Stats = loadStats()
+let statsDirty = false
 
 async function loadModel(): Promise<void> {
   console.log(`Loading model: ${MODEL_NAME}...`)
@@ -83,9 +101,18 @@ function startServer(): void {
             ready,
             model: MODEL_NAME,
             uptime: Math.floor((Date.now() - startTime) / 1000),
-            requestCount,
-            textsEmbedded,
+            requestCount: stats.requestCount,
+            textsEmbedded: stats.textsEmbedded,
           }) + '\n')
+          conn.end()
+          return
+        }
+
+        if (req.action === 'reset-stats') {
+          stats.requestCount = 0
+          stats.textsEmbedded = 0
+          saveStats()
+          conn.write(JSON.stringify({ ok: true }) + '\n')
           conn.end()
           return
         }
@@ -103,8 +130,9 @@ function startServer(): void {
             conn.end()
             return
           }
-          requestCount++
-          textsEmbedded += texts.length
+          stats.requestCount++
+          stats.textsEmbedded += texts.length
+          statsDirty = true
           embed(texts, type)
             .then(embeddings => {
               conn.write(JSON.stringify({ embeddings }) + '\n')
@@ -132,9 +160,15 @@ function startServer(): void {
   // Write PID file
   writeFileSync(PID_FILE, String(process.pid))
 
+  // Periodic stats flush (every 30s if dirty)
+  setInterval(() => {
+    if (statsDirty) { saveStats(); statsDirty = false }
+  }, 30_000)
+
   // Graceful shutdown
   const shutdown = () => {
     console.log('Shutting down...')
+    saveStats()
     server.close()
     try { unlinkSync(SOCK_PATH) } catch {}
     try { unlinkSync(PID_FILE) } catch {}
