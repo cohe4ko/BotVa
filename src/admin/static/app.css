@@ -1086,8 +1086,8 @@ details.inline > :last-child { padding-bottom: 0; }
   table { font-size: 0.7rem; }
   thead th { padding: 0.25rem 0.3rem; font-size: 0.6rem; letter-spacing: 0.02em; }
   tbody td { padding: 0.25rem 0.3rem; }
-  /* Reset fixed column widths so columns can shrink */
-  thead th[style*="width"], tbody td[style*="width"] { min-width: 0 !important; }
+  /* Reset inline fixed column widths so columns can shrink */
+  thead th, tbody td { width: auto !important; }
   .table-wrap { border-radius: 8px; }
   .detail-cell { max-width: 120px; font-size: 0.68rem; }
   .ts-cell { font-size: 0.68rem; white-space: normal; }
