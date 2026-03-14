@@ -94,6 +94,11 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
     return { url: `${existing.url}/?token=${existing.token}`, token: existing.token! }
   }
 
+  // Check if port is already in use (e.g. standalone admin via deploy.sh)
+  if (isPortInUse(port)) {
+    throw new Error(`Port ${port} is already in use. Stop the existing admin panel first or set a different ADMIN_PORT.`)
+  }
+
   // Generate token
   const token = crypto.randomBytes(16).toString('hex')
   setSessionToken(token)
@@ -121,6 +126,17 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
   // Start HTTP server
   state.server = serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
 
+  // Handle server errors (e.g. port conflict race condition)
+  state.server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.error({ port }, `Port ${port} already in use — admin panel not started`)
+      state.server = null
+      setSessionToken(null)
+      state.token = null
+      removeLock()
+    }
+  })
+
   // Write lock
   writeLock({ pid: process.pid, port, token, startedBy: botName, startedAt: Date.now() })
 
@@ -130,6 +146,16 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
   const url = `http://${getLocalIP()}:${port}/?token=${token}`
   logger.info({ port, botName }, `Admin panel запущено: ${url}`)
   return { url, token }
+}
+
+function isPortInUse(port: number): boolean {
+  try {
+    const { execSync } = require('child_process')
+    const result = execSync(`lsof -i :${port} -t 2>/dev/null`, { encoding: 'utf-8' }).trim()
+    return result.length > 0
+  } catch {
+    return false // lsof returns non-zero if no process found
+  }
 }
 
 export function stopAdmin(): void {

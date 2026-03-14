@@ -1038,9 +1038,17 @@ export function createBot(): Bot {
     const port = parseInt(process.env.ADMIN_PORT || '3000', 10)
     const chatId = ctx.chat.id
 
-    const { url } = startAdmin(port, BOT_NAME, () => {
-      ctx.api.sendMessage(chatId, t('admin.idle')).catch(() => {})
-    })
+    let url: string
+    try {
+      const result = startAdmin(port, BOT_NAME, () => {
+        ctx.api.sendMessage(chatId, t('admin.idle')).catch(() => {})
+      })
+      url = result.url
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      await ctx.reply(`⚠️ ${msg}`)
+      return
+    }
 
     await ctx.reply(
       t('admin.started'),
