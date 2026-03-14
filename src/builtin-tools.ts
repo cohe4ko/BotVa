@@ -102,6 +102,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'CurrencyRates', icon: 'banknote', category: 'finance', description: 'Cash exchange rates from Ukrainian exchangers', available: true },
     // Time
     { name: 'GetCurrentTime', icon: 'clock', category: 'utility', description: 'Current time in any timezone', available: true },
+    // Code
+    { name: 'RunPython', icon: 'code', category: 'code', description: 'Execute Python code (calculations, data, charts)', available: true },
     // Reminders
     { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a one-shot reminder', available: true },
     { name: 'ListReminders', icon: 'bell-ring', category: 'reminders', description: 'List pending reminders', available: true },
@@ -114,6 +116,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
 export interface BuiltinToolsResult {
   server: McpSdkServerConfigWithInstance
   usedTools: Set<string>
+  cleanup?: () => void
 }
 
 export async function createBuiltinMcpServer(ctx: Context, chatId: number): Promise<BuiltinToolsResult | null> {
@@ -1000,6 +1003,56 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
     )
   )
 
+  // --- Python sandbox ---
+
+  let sandbox: import('./python-sandbox.js').PythonSandbox | null = null
+
+  if (isOn('RunPython')) tools.push(
+    tool(
+      'RunPython',
+      'Execute Python code in a persistent sandbox. Use for:\n- Calculations, math, statistics\n- Data analysis with pandas/numpy\n- Charts and plots with matplotlib (auto-sent to chat)\n- Symbolic math with sympy\n\nVariables and imports persist between calls. Generated images are automatically sent to the chat.',
+      { code: z.string().describe('Python code to execute') },
+      async (args) => {
+        usedTools.add('RunPython')
+        try {
+          if (!sandbox) {
+            const { PythonSandbox } = await import('./python-sandbox.js')
+            const { BOT_DIR } = await import('./env.js')
+            const sandboxDir = resolve(BOT_DIR, 'workspace', 'sandbox')
+            sandbox = new PythonSandbox(sandboxDir)
+          }
+          const result = await sandbox.execute(args.code)
+
+          // Send generated files to chat
+          for (const filePath of result.files) {
+            try {
+              if (/\.(png|jpg|jpeg|gif|webp)$/i.test(filePath)) {
+                await ctx.replyWithPhoto(new InputFile(filePath))
+              } else {
+                await ctx.replyWithDocument(new InputFile(filePath))
+              }
+            } catch (sendErr) {
+              logger.error({ err: sendErr, filePath }, 'Failed to send sandbox file')
+            }
+          }
+
+          const parts: string[] = []
+          if (result.stdout) parts.push(result.stdout)
+          if (result.stderr) parts.push(`stderr: ${result.stderr}`)
+          if (result.error) parts.push(`Error:\n${result.error}`)
+          if (result.files.length > 0) parts.push(`Files sent: ${result.files.map(f => f.split('/').pop()).join(', ')}`)
+          const text = parts.join('\n') || 'Code executed successfully (no output)'
+
+          return { content: [{ type: 'text' as const, text }], isError: !!result.error }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'RunPython tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
   if (tools.length === 0) return null
 
   const server = createSdkMcpServer({
@@ -1008,7 +1061,12 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
     tools,
   })
 
+  const cleanup = () => {
+    sandbox?.kill()
+    sandbox = null
+  }
+
   logger.debug({ toolCount: tools.length, tools: tools.map(t => t.name) }, 'Builtin MCP server created')
 
-  return { server, usedTools }
+  return { server, usedTools, cleanup }
 }

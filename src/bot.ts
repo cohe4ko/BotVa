@@ -391,6 +391,7 @@ async function handleMessage(
 
       // No follow-up — normal cleanup (delayed delete)
       await reporter.cleanup()
+      builtin?.cleanup?.()
 
       // No follow-up — send the result
       if (!text) {

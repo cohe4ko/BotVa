@@ -98,7 +98,8 @@ CreateBackup, ListBackups, VerifyBackup, RestoreBackup, DeleteBackup, SendEmail,
 SaveFact, SearchMemory, DeleteFact,
 CreateBot, DeleteBot, ListBots,
 CurrencyRates, GetCurrentTime,
-CreateReminder, ListReminders, DeleteReminder
+CreateReminder, ListReminders, DeleteReminder,
+RunPython
 
 **MCP сервери** (mcp-servers.json):
 - bitrix24 -- CRM: контакти, ліди, угоди, компанії, звіти
