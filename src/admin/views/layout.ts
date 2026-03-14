@@ -131,6 +131,9 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
     document.addEventListener('click', function() {
       document.querySelectorAll('.nav-dropdown.open').forEach(function(dd) { dd.classList.remove('open'); });
     });
+    // Scroll active bot-nav tab into view
+    var activeTab = document.querySelector('.bot-nav a.active');
+    if (activeTab) activeTab.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'instant' });
   </script>
 </body>
 </html>` as HtmlEscapedString
