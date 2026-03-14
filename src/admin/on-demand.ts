@@ -171,10 +171,13 @@ export function stopAdmin(manual = false): void {
     state.server = null
   }
 
-  // Kill any process on the admin port (covers deploy.sh, other bots, etc.)
-  const lock = readLock()
-  const port = lock?.port ?? parseInt(process.env.ADMIN_PORT || '3000', 10)
-  killPortOccupant(port)
+  // Only kill port occupant if we started the server ourselves (on-demand mode)
+  // Don't kill standalone admin started via deploy.sh
+  if (state.token) {
+    const lock = readLock()
+    const port = lock?.port ?? parseInt(process.env.ADMIN_PORT || '3000', 10)
+    killPortOccupant(port)
+  }
 
   setSessionToken(null)
   state.token = null

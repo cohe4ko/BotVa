@@ -69,7 +69,7 @@ function checkpointDatabases(dir: string): void {
     } else if (entry.isFile() && entry.name.endsWith('.db')) {
       try {
         const db = new DatabaseSync(fullPath)
-        db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+        db.exec('PRAGMA wal_checkpoint(PASSIVE)')
         db.close()
       } catch { /* skip non-sqlite files or locked dbs */ }
     }

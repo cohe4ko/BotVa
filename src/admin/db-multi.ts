@@ -40,6 +40,14 @@ export function getBotDb(name: BotName): DatabaseSync {
   return db
 }
 
+export function closeBotDb(name: BotName): void {
+  const db = connections.get(name)
+  if (db) {
+    try { db.close() } catch { /* ignore */ }
+    connections.delete(name)
+  }
+}
+
 export function getBotDir(name: BotName): string {
   return resolve(PROJECT_ROOT, 'bots', name)
 }

@@ -95,6 +95,14 @@ if (isDirectRun) {
     return originalFetch(req, ...args)
   }
 
+  // Prevent crashes from killing admin
+  process.on('uncaughtException', (err) => {
+    console.error('Admin uncaughtException:', err)
+  })
+  process.on('unhandledRejection', (err) => {
+    console.error('Admin unhandledRejection:', err)
+  })
+
   resetIdleTimer()
   console.log(`\n  BotVa Admin Panel\n  http://localhost:${port}\n  Auto-shutdown after 20 min inactivity\n`)
   serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })

@@ -361,6 +361,12 @@ export async function deleteBot(name: string): Promise<DeleteBotResult> {
   stopBot(name as BotName)
   await new Promise(r => setTimeout(r, 500))
 
+  // Close cached DB connection (prevents WAL checkpoint hang)
+  try {
+    const { closeBotDb } = await import('./admin/db-multi.js')
+    closeBotDb(name)
+  } catch { /* admin module may not be loaded */ }
+
   // Backup before delete
   const info = createBackup({ type: 'bot', botName: name })
 
