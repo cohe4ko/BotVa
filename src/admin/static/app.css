@@ -871,6 +871,162 @@ article > p { padding: 0.85rem; margin: 0; }
   text-align: center;
 }
 
+/* === Generate/Edit Workspace === */
+.gen-workspace {
+  display: flex;
+  gap: 1rem;
+  background: var(--mc-white);
+  border: 1px solid var(--mc-border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+.gen-workspace-preview {
+  width: 180px;
+  min-height: 180px;
+  flex-shrink: 0;
+  border: 1px solid var(--mc-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mc-surface2);
+}
+.gen-workspace-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.gen-workspace-preview img[src=""] { display: none; }
+.gen-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--mc-text-dim);
+  font-size: 0.78rem;
+}
+.gen-workspace-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.gen-workspace-form textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+.gen-refs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.gen-dropzone {
+  border: 2px dashed var(--mc-border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  color: var(--mc-text-dim);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+.gen-dropzone:hover, .gen-dropzone.dragover {
+  border-color: var(--mc-accent);
+  background: var(--mc-accent-light);
+}
+.gen-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.gen-preview-chip {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--mc-border);
+}
+.gen-preview-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.gen-preview-rm {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.6) !important;
+  color: #fff;
+  border: none !important;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.gen-preview-rm:hover { background: rgba(0,0,0,0.8) !important; }
+.gen-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.gen-loading-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--mc-text-secondary);
+  font-size: 0.82rem;
+}
+.gen-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--mc-border);
+  border-top-color: var(--mc-accent);
+  border-radius: 50%;
+  animation: gen-spin 0.8s linear infinite;
+}
+@keyframes gen-spin { to { transform: rotate(360deg); } }
+
+/* Gallery card edit button */
+.gallery-item { position: relative; }
+.gallery-edit-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55) !important;
+  border: none !important;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+.gallery-edit-btn:hover { background: rgba(0,0,0,0.75) !important; }
+.gallery-item:hover .gallery-edit-btn { opacity: 1; }
+
 /* === Burger menu === */
 .burger-toggle {
   display: none;
@@ -1079,6 +1235,8 @@ details.inline > :last-child { padding-bottom: 0; }
   .bot-grid { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .gallery-grid { grid-template-columns: repeat(2, 1fr); }
+  .gen-workspace { flex-direction: column; }
+  .gen-workspace-preview { width: 100%; min-height: 120px; max-height: 200px; }
   .filter-bar { flex-direction: column; align-items: stretch; }
   .section-header { flex-wrap: wrap; gap: 0.5rem; }
 
