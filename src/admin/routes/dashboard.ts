@@ -82,9 +82,9 @@ app.get('/', (c) => {
   try { diskUsage = execSync(`du -sh "${root}" 2>/dev/null`, { encoding: 'utf-8' }).split('\t')[0].trim() } catch {}
 
   const content = html`
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem">
       <h2 style="margin:0">${icon('layout-dashboard')} ${t('dash.title')}</h2>
-      <div style="display:flex;gap:0.5rem;align-items:center">
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
         ${bots.length > 0 ? html`
           <div class="btn-group" id="bulk-controls">
             <button hx-post="/bots/start-all" hx-target="#bulk-controls" hx-swap="innerHTML" class="btn-sm outline">${icon('play', 11)} ${t('dash.startAll')}</button>
