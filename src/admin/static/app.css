@@ -205,6 +205,8 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
   margin: 0 auto;
   flex: 1;
   padding: 1.5rem;
+  position: relative;
+  z-index: 1;
 }
 
 /* === Page background icon (watermark) === */
@@ -213,7 +215,7 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
   bottom: -80px;
   left: -80px;
   pointer-events: none;
-  z-index: -1;
+  z-index: 0;
   opacity: 0.04;
   color: var(--mc-text);
 }
