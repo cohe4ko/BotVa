@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, statSync, openSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, statSync, openSync, mkdirSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import { spawn } from 'child_process'
 import { getBotDir, getProjectRoot, type BotName } from './db-multi.js'
+import { assembleClaudeMd } from '../bot-manager.js'
 
 export interface BotStatus {
   name: BotName
@@ -86,6 +87,13 @@ function spawnBot(name: BotName): void {
 export function startBot(name: BotName): boolean {
   const status = getBotStatus(name)
   if (status.running) return false
+
+  // Reassemble CLAUDE.md from role.md + current _base.md
+  const assembled = assembleClaudeMd(name)
+  if (assembled) {
+    writeFileSync(resolve(getBotDir(name), 'CLAUDE.md'), assembled)
+  }
+
   spawnBot(name)
   return true
 }

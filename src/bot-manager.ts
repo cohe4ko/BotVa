@@ -50,6 +50,27 @@ export function buildClaudeMd(role: string, botName: string, emoji: string): str
   return content
 }
 
+/** Build role-specific part WITHOUT inlining _base.md (keeps placeholder) */
+export function buildRoleMd(role: string, botName: string, emoji: string): string {
+  const rolePath = resolve(getRolesDir(), `${role}.md`)
+  let content = readFileSync(rolePath, 'utf-8')
+  content = content.replaceAll('{{BOT_NAME}}', botName)
+  content = content.replaceAll('{{BOT_EMOJI}}', emoji)
+  return content
+}
+
+/** Assemble CLAUDE.md from role.md + current _base.md. Returns null if no role.md exists. */
+export function assembleClaudeMd(botName: string): string | null {
+  const roleMdPath = resolve(getProjectRoot(), 'bots', botName, 'role.md')
+  if (!existsSync(roleMdPath)) return null
+
+  const basePath = resolve(getRolesDir(), '_base.md')
+  const base = existsSync(basePath) ? readFileSync(basePath, 'utf-8').trim() : ''
+  const role = readFileSync(roleMdPath, 'utf-8')
+
+  return role.replace('{{включено _base.md}}', base)
+}
+
 // --- Team JSON ---
 
 export function addToTeamJson(root: string, slug: string, description: string): void {
@@ -312,9 +333,11 @@ export function createBot(params: CreateBotParams): CreateBotResult {
   // Write .env
   writeFileSync(resolve(botDir, '.env'), ENV_TEMPLATE(token, chatId, groqKey, googleKey))
 
-  // Write CLAUDE.md
+  // Write CLAUDE.md (and role.md for template-based bots)
   let claudeMd: string
   if (role) {
+    const roleMd = buildRoleMd(role, displayName, emoji)
+    writeFileSync(resolve(botDir, 'role.md'), roleMd)
     claudeMd = buildClaudeMd(role, displayName, emoji)
   } else {
     claudeMd = DEFAULT_CLAUDE_MD(displayName)

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
 import { alert } from '../views/components.js'
-import { readEnvRaw, writeEnvRaw, readClaudeMd, writeClaudeMd, readEnv } from '../env-parser.js'
+import { readEnvRaw, writeEnvRaw, readClaudeMd, writeClaudeMd, readRoleMd, writeRoleMd, readEnv } from '../env-parser.js'
 import { getBotStatus, stopBot } from '../bot-control.js'
 import { validateBot, botName } from '../bot-middleware.js'
 import { getSettings, upsertSetting, getBotDir, getProjectRoot } from '../db-multi.js'
@@ -11,7 +11,7 @@ import { execSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
-import { deleteBot, removeFromTeamJson, getAvailableRoles, buildClaudeMd } from '../../bot-manager.js'
+import { deleteBot, removeFromTeamJson, getAvailableRoles, buildClaudeMd, buildRoleMd, assembleClaudeMd } from '../../bot-manager.js'
 
 function getModelLabels(t: TFunc) {
   return [
@@ -45,7 +45,8 @@ app.get('/bot/:name/config', validateBot, (c) => {
   const lang: Lang = c.get('lang')
   const name = botName(c)
   const envContent = readEnvRaw(name)
-  const claudeContent = readClaudeMd(name)
+  const roleMd = readRoleMd(name)
+  const claudeContent = roleMd ?? readClaudeMd(name)
   const status = getBotStatus(name)
   const MODELS = getModelLabels(t)
 
@@ -233,6 +234,8 @@ app.post('/bot/:name/config/apply-template', validateBot, async (c) => {
   }
 
   try {
+    const roleMd = buildRoleMd(slug, name, '🤖')
+    writeRoleMd(name, roleMd)
     const claudeMd = buildClaudeMd(slug, name, '🤖')
     writeClaudeMd(name, claudeMd)
     return c.html(html`
@@ -248,7 +251,16 @@ app.post('/bot/:name/config/claude', validateBot, async (c) => {
   const t: TFunc = c.get('t')
   const name = botName(c)
   const body = await c.req.parseBody()
-  writeClaudeMd(name, String(body['claude'] ?? ''))
+  const content = String(body['claude'] ?? '')
+  const hasRoleMd = readRoleMd(name) !== null
+  if (hasRoleMd) {
+    writeRoleMd(name, content)
+    // Regenerate CLAUDE.md with current _base.md
+    const assembled = assembleClaudeMd(name)
+    if (assembled) writeClaudeMd(name, assembled)
+  } else {
+    writeClaudeMd(name, content)
+  }
   return c.html(alert('success', t('config.claudeSaved')))
 })
 

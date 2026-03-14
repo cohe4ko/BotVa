@@ -61,3 +61,13 @@ export function writeClaudeMd(bot: BotName, content: string): void {
   const p = resolve(getBotDir(bot), 'CLAUDE.md')
   writeFileSync(p, content, 'utf-8')
 }
+
+export function readRoleMd(bot: BotName): string | null {
+  const p = resolve(getBotDir(bot), 'role.md')
+  if (!existsSync(p)) return null
+  return readFileSync(p, 'utf-8')
+}
+
+export function writeRoleMd(bot: BotName, content: string): void {
+  writeFileSync(resolve(getBotDir(bot), 'role.md'), content, 'utf-8')
+}
