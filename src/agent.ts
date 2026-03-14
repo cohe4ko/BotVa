@@ -153,7 +153,7 @@ async function runAgentOnce(
 
         const modelIds = Object.keys(event.modelUsage)
         if (modelIds.length > 0) {
-          logger.debug({ chatId, requestedModel: model, actualModels: modelIds }, 'Agent completed with models')
+          logger.info({ chatId, requestedModel: model, actualModels: modelIds }, 'Agent completed with models')
         }
         const models = Object.values(event.modelUsage)
         if (models.length > 0) {
