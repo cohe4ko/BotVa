@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { formatCost } from '../views/components.js'
-import { getBotNames, getUsageSummary, getBotDir, getProjectRoot } from '../db-multi.js'
+import { getBotNames, getUsageSummary, getBotDir, getProjectRoot, getToolUsageStats, type ToolUsageStat } from '../db-multi.js'
 import { readEnv } from '../env-parser.js'
 import { getMcpServersConfig, isServerDisabled, setServerEnabled, addMcpServer, removeMcpServer, getMcpServer, updateMcpServer, type McpServerEntry } from '../../mcp-config.js'
 import { getBuiltinToolDefs, setToolEnabled, type BuiltinToolDef } from '../../builtin-tools.js'
@@ -205,7 +205,7 @@ app.get('/system', (c) => {
     ${renderMcpTable(mcpServers, getEnvBotMap(), t)}
 
     <h3>${icon('wrench')} ${t('sys.agentTools')}</h3>
-    ${renderBuiltinToolsTable(getBuiltinToolDefs(mergedEnv), t)}
+    ${renderBuiltinToolsTable(getBuiltinToolDefs(mergedEnv), t, getToolUsageStats())}
 
     <h3>${icon('puzzle')} ${t('sys.skills')}</h3>
     ${renderSkillsTable(projectSkills, t)}
@@ -391,9 +391,14 @@ const CATEGORY_LABELS: Record<string, { en: string; uk: string }> = {
   telegram: { en: 'Telegram', uk: 'Telegram' },
 }
 
-function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc) {
+function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc, stats: Record<string, ToolUsageStat> = {}) {
   // Group by category
   const categories = [...new Set(tools.map(t => t.category))]
+
+  const fmtStat = (s?: ToolUsageStat) => {
+    if (!s || s.total === 0) return html`<span style="color:var(--mc-text-dim)">—</span>`
+    return html`<span style="font-size:0.68rem;color:var(--mc-text-secondary);white-space:nowrap">7д: <b>${s.last7d}</b> · 30д: <b>${s.last30d}</b> · ∑ <b>${s.total}</b></span>`
+  }
 
   return html`
     <div class="table-wrap" id="builtin-tools-table">
@@ -402,6 +407,7 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc) {
           <th style="width:40px"></th>
           <th>${t('sys.tool')}</th>
           <th>${t('sys.toolDesc')}</th>
+          <th style="width:180px">${t('sys.tool') === 'Tool' ? 'Usage' : 'Використання'}</th>
           <th style="width:120px">${t('sys.toolCondition')}</th>
           <th style="width:80px">${t('sys.skillStatus')}</th>
         </tr></thead>
@@ -411,12 +417,13 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc) {
             const lang = t('sys.tool') === 'Tool' ? 'en' : 'uk'
             const catLabel = CATEGORY_LABELS[cat]?.[lang] ?? cat
             return html`
-              <tr><td colspan="5" style="background:var(--mc-bg-alt);font-weight:600;font-size:0.78rem;padding:0.4rem 0.75rem;color:var(--mc-text-secondary)">${catLabel}</td></tr>
+              <tr><td colspan="6" style="background:var(--mc-bg-alt);font-weight:600;font-size:0.78rem;padding:0.4rem 0.75rem;color:var(--mc-text-secondary)">${catLabel}</td></tr>
               ${catTools.map(tool => html`
                 <tr${!tool.available ? ' style="opacity:0.45"' : ''}>
                   <td style="text-align:center;color:var(--mc-text-dim)">${icon(tool.icon, 15)}</td>
                   <td><code style="font-size:0.78rem">${tool.name}</code></td>
                   <td style="font-size:0.78rem;color:var(--mc-text-secondary)">${tool.description}</td>
+                  <td>${fmtStat(stats[tool.name])}</td>
                   <td style="font-size:0.72rem">${tool.condition
                     ? (tool.available
                       ? html`<span class="badge badge-set" style="font-size:0.65rem">${icon('check', 9)} ${tool.condition}</span>`
@@ -465,7 +472,7 @@ app.post('/system/tool-toggle/:name', (c) => {
   if (current && !current.system) {
     setToolEnabled(name, !current.enabled)
   }
-  return c.html(renderBuiltinToolsTable(getBuiltinToolDefs(env), t))
+  return c.html(renderBuiltinToolsTable(getBuiltinToolDefs(env), t, getToolUsageStats()))
 })
 
 // Toggle MCP server on/off

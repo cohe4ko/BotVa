@@ -625,3 +625,53 @@ export function deleteGalleryImage(id: number): GalleryRow | null {
   db.prepare('DELETE FROM gallery WHERE id = ?').run(id)
   return row as GalleryRow
 }
+
+// === Tool usage stats (aggregated across all bots) ===
+
+export interface ToolUsageStat {
+  total: number
+  last7d: number
+  last30d: number
+}
+
+export function getToolUsageStats(): Record<string, ToolUsageStat> {
+  const result: Record<string, ToolUsageStat> = {}
+  const now = Math.floor(Date.now() / 1000)
+  const ts7d = now - 7 * 86400
+  const ts30d = now - 30 * 86400
+
+  for (const bot of getBotNames()) {
+    let db: DatabaseSync
+    try { db = getBotDb(bot) } catch { continue }
+
+    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'").get()
+    if (!tableCheck) continue
+
+    const rows = db.prepare(`
+      SELECT
+        CASE WHEN INSTR(detail, ':') > 0
+          THEN SUBSTR(detail, 1, INSTR(detail, ':') - 1)
+          ELSE detail
+        END AS tool_name,
+        COUNT(*) AS total,
+        SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last7d,
+        SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last30d
+      FROM audit_log
+      WHERE event_type = 'tool_call' AND detail IS NOT NULL
+      GROUP BY tool_name
+    `).all(ts7d, ts30d) as unknown as { tool_name: string; total: number; last7d: number; last30d: number }[]
+
+    for (const row of rows) {
+      const name = row.tool_name.trim()
+      if (!name) continue
+      if (!result[name]) {
+        result[name] = { total: 0, last7d: 0, last30d: 0 }
+      }
+      result[name].total += row.total
+      result[name].last7d += row.last7d
+      result[name].last30d += row.last30d
+    }
+  }
+
+  return result
+}
