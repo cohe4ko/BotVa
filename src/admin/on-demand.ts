@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { createAdminApp } from './server.js'
 import { setSessionToken } from './auth.js'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { execSync } from 'child_process'
 import { resolve } from 'path'
 import crypto from 'crypto'
 import os from 'os'
@@ -147,7 +148,6 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
 }
 
 function killPortOccupant(port: number): void {
-  const { execSync } = require('child_process')
   try {
     const pids = execSync(`lsof -i :${port} -t 2>/dev/null`, { encoding: 'utf-8' }).trim()
     if (!pids) return
