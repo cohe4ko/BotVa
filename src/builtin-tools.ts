@@ -98,6 +98,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'CreateBot', icon: 'plus-circle', category: 'management', description: 'Create a new bot', available: true },
     { name: 'DeleteBot', icon: 'trash-2', category: 'management', description: 'Delete a bot (with backup)', available: true },
     { name: 'ListBots', icon: 'users', category: 'management', description: 'List all bots and their status', available: true },
+    // Currency
+    { name: 'CurrencyRates', icon: 'banknote', category: 'finance', description: 'Cash exchange rates from Ukrainian exchangers', available: true },
     // Reminders
     { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a one-shot reminder', available: true },
     { name: 'ListReminders', icon: 'bell-ring', category: 'reminders', description: 'List pending reminders', available: true },
@@ -695,6 +697,67 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'SendMedia tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Currency rates (Ukrainian exchangers via Minfin/treeumapp) ---
+
+  if (isOn('CurrencyRates')) tools.push(
+    tool(
+      'CurrencyRates',
+      'Get current cash exchange rates from Ukrainian exchange offices (обмінники). Returns average buy/sell rates and number of exchangers reporting. Use when user asks about dollar/euro rate, "курс долара", "скільки коштує євро", etc.',
+      {
+        currencies: z.array(z.string()).optional().describe('Currency codes to fetch (default: ["usd", "eur"]). Available: usd, eur, pln, gbp, chf'),
+        city: z.number().optional().describe('City ID (default: 3 = Lviv). 1 = Kyiv'),
+      },
+      async (args) => {
+        usedTools.add('CurrencyRates')
+        try {
+          const currencies = args.currencies ?? ['usd', 'eur']
+          const cityId = args.city ?? 3
+          const cityNames: Record<number, string> = { 1: 'Київ', 3: 'Львів' }
+          const cityName = cityNames[cityId] ?? `city ${cityId}`
+
+          // Fetch exchanger rates + PrivatBank in parallel
+          const [exchangerResults, privatResult] = await Promise.all([
+            Promise.all(
+              currencies.map(async (ccy) => {
+                const url = `https://va-rates.treeumapp.net/api/v1/rates?currency=${ccy}&kind=exchanger&city=${cityId}&group=day`
+                const resp = await fetch(url, {
+                  headers: {
+                    'origin': 'https://minfin.com.ua',
+                    'referer': 'https://minfin.com.ua/',
+                  },
+                })
+                if (!resp.ok) return `${ccy.toUpperCase()}: unavailable`
+                const data = await resp.json() as { items: Record<string, Array<{ buy: number; sell: number; buy_n: number; sell_n: number }>> }
+                const items = Object.values(data.items)[0]
+                if (!items || items.length === 0) return `${ccy.toUpperCase()}: no data`
+                const last = items[items.length - 1]
+                return `${ccy.toUpperCase()}: купівля ${last.buy.toFixed(2)} / продаж ${last.sell.toFixed(2)} (${last.buy_n.toFixed(0)} обмінників)`
+              })
+            ),
+            fetch('https://api.privatbank.ua/p24api/pubinfo?exchange&coursid=5')
+              .then(r => r.json())
+              .then((data: Array<{ ccy: string; buy: string; sale: string }>) => {
+                const filtered = data.filter(d => currencies.includes(d.ccy.toLowerCase()))
+                return filtered.map(d => `${d.ccy}: купівля ${parseFloat(d.buy).toFixed(2)} / продаж ${parseFloat(d.sale).toFixed(2)}`)
+              })
+              .catch(() => [] as string[]),
+          ])
+
+          const lines = [`Обмінники (${cityName}):`, ...exchangerResults]
+          if (privatResult.length > 0) {
+            lines.push('', 'ПриватБанк (готівка):', ...privatResult)
+          }
+
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'CurrencyRates tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
