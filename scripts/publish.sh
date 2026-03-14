@@ -1,5 +1,5 @@
 #!/bin/bash
-# Publish a file to share.devever.com
+# Publish a file to remote server (configured via PUBLISH_* env vars)
 # Usage: scripts/publish.sh /local/path/to/file.html [subfolder]
 # Returns: URL of the published file
 

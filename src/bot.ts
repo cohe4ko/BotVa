@@ -23,7 +23,7 @@ import { editImage } from './imagen.js'
 import { getModel, setModel, MODELS, getModelLabel } from './model.js'
 import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
-import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, type DiskSession, type ClaudeProject } from './disk-sessions.js'
+import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, getSessionDetail, type DiskSession, type ClaudeProject } from './disk-sessions.js'
 
 // --- AskUserQuestion pending responses ---
 const pendingQuestions = new Map<string, {
@@ -809,8 +809,23 @@ export function createBot(): Bot {
         setSession(chatIdStr, sessionId)
         const shortId = sessionId.slice(0, 8)
         await ctx.answerCallbackQuery({ text: _t('cmd.session.loaded', { name: shortId }) })
-        const { text, reply_markup } = buildProjectsMessage(chatIdStr)
-        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
+
+        // Show session info instead of menu
+        const detail = getSessionDetail(sessionId)
+        const lines: string[] = [
+          `✅ <b>${_t('cmd.session.loaded', { name: shortId })}</b>`,
+          '',
+          `<code>claude --resume ${sessionId}</code>`,
+        ]
+        if (detail) {
+          lines.push('', `📝 <b>${_t('cmd.session.first')}:</b>`)
+          lines.push(escapeHtml(detail.firstMessage))
+          if (detail.lastUserMessage) {
+            lines.push('', `💬 <b>${_t('cmd.session.last')}:</b>`)
+            lines.push(escapeHtml(detail.lastUserMessage))
+          }
+        }
+        await ctx.editMessageText(lines.join('\n'), { parse_mode: 'HTML' })
         return
       }
 

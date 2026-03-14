@@ -204,6 +204,8 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.session.ago.min': '{n}m ago',
     'cmd.session.ago.hour': '{n}h ago',
     'cmd.session.ago.day': '{n}d ago',
+    'cmd.session.first': 'First message',
+    'cmd.session.last': 'Last message',
     'menu.session': 'Sessions (switch, save, import)',
 
     // Bot commands menu
@@ -417,6 +419,8 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.session.ago.min': '{n}хв тому',
     'cmd.session.ago.hour': '{n}год тому',
     'cmd.session.ago.day': '{n}д тому',
+    'cmd.session.first': 'Перше повідомлення',
+    'cmd.session.last': 'Останнє повідомлення',
     'menu.session': 'Сесії (перемикання, збереження, імпорт)',
 
     // Bot commands menu

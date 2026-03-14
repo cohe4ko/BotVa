@@ -41,6 +41,58 @@ function isServiceSession(preview: string): boolean {
   return SERVICE_SESSION_PATTERNS.some(re => re.test(preview))
 }
 
+export interface SessionDetail {
+  firstMessage: string
+  lastUserMessage: string
+  updatedAt: number
+}
+
+/** Read session detail — first user message + last user message */
+export function getSessionDetail(sessionId: string): SessionDetail | null {
+  const root = getClaudeProjectsRoot()
+  // Search across all projects for this session
+  try {
+    const dirs = readdirSync(root)
+    for (const dir of dirs) {
+      const filePath = join(root, dir, `${sessionId}.jsonl`)
+      try {
+        const stat = statSync(filePath)
+        const content = readFileSync(filePath, 'utf-8')
+        const lines = content.split('\n')
+        let firstMessage = ''
+        let lastUserMessage = ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const entry = JSON.parse(line)
+            if (entry.type === 'user' && entry.message?.content) {
+              const text = extractMessageText(entry.message.content)
+              if (!text) continue
+              const cleaned = text
+                .replace(/^\[Щоденник.*?\n[\s\S]*?\n\n/m, '')
+                .replace(/^\[Memory context\][\s\S]*?\n\n/m, '')
+                .trim()
+              if (!cleaned) continue
+              if (!firstMessage) firstMessage = cleaned
+              lastUserMessage = cleaned
+            }
+          } catch { /* skip */ }
+        }
+        const trimTo = (s: string, n: number) => {
+          const oneLine = s.split('\n').slice(0, 3).join('\n')
+          return oneLine.length > n ? oneLine.slice(0, n) + '…' : oneLine
+        }
+        return {
+          firstMessage: trimTo(firstMessage, 200),
+          lastUserMessage: firstMessage === lastUserMessage ? '' : trimTo(lastUserMessage, 200),
+          updatedAt: Math.floor(stat.mtimeMs / 1000),
+        }
+      } catch { /* file not in this dir */ }
+    }
+  } catch { /* root not accessible */ }
+  return null
+}
+
 function getClaudeProjectsRoot(): string {
   return join(homedir(), '.claude', 'projects')
 }

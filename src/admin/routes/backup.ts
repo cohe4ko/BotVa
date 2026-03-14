@@ -14,15 +14,6 @@ import { loadScheduleConfig, saveScheduleConfig } from '../../backup/scheduler.j
 
 const app = new Hono<I18nEnv>()
 
-function alert(type: 'success' | 'error' | 'warning', msg: string) {
-  const colors: Record<string, string> = {
-    success: 'var(--success, #22c55e)',
-    error: 'var(--danger, #ef4444)',
-    warning: 'var(--warning, #f59e0b)',
-  }
-  return html`<div style="padding:0.75rem 1rem;border-radius:8px;margin-bottom:1rem;background:${colors[type]}22;border:1px solid ${colors[type]}44;color:var(--text)">${msg}</div>`
-}
-
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString('uk-UA', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -42,22 +33,26 @@ app.get('/backup', (c) => {
     <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
 
     <!-- Create Backup -->
-    <details open style="margin-bottom:1.5rem">
-      <summary style="cursor:pointer;font-weight:600;font-size:1.1rem">${icon('plus', 15)} ${t('bak.create')}</summary>
-      <form method="POST" action="/backup/create" style="margin-top:0.75rem">
-        <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:0.3rem">
-            <input type="radio" name="type" value="system" checked>
-            ${t('bak.createSystem')}
-          </label>
-          <label style="display:flex;align-items:center;gap:0.3rem">
-            <input type="radio" name="type" value="bot" onchange="document.getElementById('bot-select').style.display=this.checked?'inline-block':'none'">
-            ${t('bak.createBot')}
-          </label>
-          <select name="botName" id="bot-select" style="display:none">
-            ${bots.map(b => html`<option value="${b}">${b}</option>`)}
-          </select>
-          <button type="submit">${icon('download', 14)} ${t('bak.create')}</button>
+    <details open>
+      <summary>${icon('plus', 14)} ${t('bak.create')}</summary>
+      <form method="POST" action="/backup/create">
+        <div class="form-section">
+          <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:0.3rem;margin:0">
+              <input type="radio" name="type" value="system" checked style="width:auto">
+              ${t('bak.createSystem')}
+            </label>
+            <label style="display:flex;align-items:center;gap:0.3rem;margin:0">
+              <input type="radio" name="type" value="bot" style="width:auto">
+              ${t('bak.createBot')}
+            </label>
+            <select name="botName" id="bot-select" style="display:none;width:auto">
+              ${bots.map(b => html`<option value="${b}">${b}</option>`)}
+            </select>
+          </div>
+          <div class="btn-group" style="margin-top:0.75rem">
+            <button type="submit" class="primary">${icon('download', 14)} ${t('bak.create')}</button>
+          </div>
         </div>
       </form>
       <script>
@@ -71,11 +66,11 @@ app.get('/backup', (c) => {
     </details>
 
     <!-- Backup History -->
-    <h3>${icon('history', 16)} ${t('bak.history')}</h3>
+    <h3 style="margin-top:1.5rem">${icon('history', 16)} ${t('bak.history')}</h3>
     ${backups.length === 0
-      ? html`<p style="opacity:0.6">${t('bak.noBackups')}</p>`
+      ? html`<div class="empty-state"><div class="empty-icon">${icon('archive', 32)}</div><p>${t('bak.noBackups')}</p></div>`
       : html`
-        <div style="overflow-x:auto">
+        <div class="table-wrap">
           <table>
             <thead>
               <tr>
@@ -89,20 +84,22 @@ app.get('/backup', (c) => {
             <tbody>
               ${backups.map(b => html`
                 <tr>
-                  <td>${fmtDate(b.manifest.createdAt)}</td>
-                  <td><span class="badge">${t(`bak.${b.manifest.type}`)}</span></td>
+                  <td class="ts-cell">${fmtDate(b.manifest.createdAt)}</td>
+                  <td><span class="badge badge-active">${t(`bak.${b.manifest.type}`)}</span></td>
                   <td>${b.manifest.bots.join(', ')}</td>
                   <td>${formatSize(b.sizeBytes)}</td>
-                  <td style="white-space:nowrap">
-                    <a href="/backup/download/${b.filename}" style="margin-right:0.3rem" title="${t('bak.download')}">${icon('download', 14)}</a>
-                    <a href="/backup/manifest/${b.filename}" style="margin-right:0.3rem" title="${t('bak.manifest')}">${icon('file-json', 14)}</a>
-                    <a href="/backup/verify/${b.filename}" style="margin-right:0.3rem" title="${t('bak.verify')}">${icon('shield-check', 14)}</a>
-                    <form method="POST" action="/backup/restore/${b.filename}" style="display:inline" onsubmit="return confirm('${t('bak.restoreConfirm', { filename: b.filename })}')">
-                      <button type="submit" class="btn-link" title="${t('bak.restore')}">${icon('upload', 14)}</button>
-                    </form>
-                    <form method="POST" action="/backup/delete/${b.filename}" style="display:inline" onsubmit="return confirm('${t('bak.deleteConfirm', { filename: b.filename })}')">
-                      <button type="submit" class="btn-link danger" title="${t('bak.delete')}">${icon('trash-2', 14)}</button>
-                    </form>
+                  <td>
+                    <div class="btn-group">
+                      <a href="/backup/download/${b.filename}" class="btn-sm" role="button" title="${t('bak.download')}">${icon('download', 13)}</a>
+                      <a href="/backup/manifest/${b.filename}" class="btn-sm" role="button" title="${t('bak.manifest')}">${icon('file-json', 13)}</a>
+                      <a href="/backup/verify/${b.filename}" class="btn-sm" role="button" title="${t('bak.verify')}">${icon('shield-check', 13)}</a>
+                      <form method="POST" action="/backup/restore/${b.filename}" style="display:inline" onsubmit="return confirm('${t('bak.restoreConfirm', { filename: b.filename })}')">
+                        <button type="submit" class="btn-sm contrast outline" title="${t('bak.restore')}">${icon('upload', 13)}</button>
+                      </form>
+                      <form method="POST" action="/backup/delete/${b.filename}" style="display:inline" onsubmit="return confirm('${t('bak.deleteConfirm', { filename: b.filename })}')">
+                        <button type="submit" class="btn-sm secondary outline" title="${t('bak.delete')}">${icon('trash-2', 13)}</button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               `)}
@@ -114,35 +111,35 @@ app.get('/backup', (c) => {
 
     <!-- Schedule -->
     <details style="margin-top:1.5rem">
-      <summary style="cursor:pointer;font-weight:600;font-size:1.1rem">${icon('clock', 15)} ${t('bak.schedule')}</summary>
-      <form method="POST" action="/backup/schedule" style="margin-top:0.75rem">
-        <div style="display:grid;gap:0.75rem;max-width:500px">
+      <summary>${icon('clock', 14)} ${t('bak.schedule')}</summary>
+      <form method="POST" action="/backup/schedule">
+        <div class="form-section" style="max-width:500px">
           <label style="display:flex;align-items:center;gap:0.5rem">
-            <input type="checkbox" name="enabled" ${schedule?.enabled ? 'checked' : ''}>
+            <input type="checkbox" name="enabled" ${schedule?.enabled ? 'checked' : ''} style="width:auto">
             ${t('bak.scheduleEnable')}
           </label>
           <label>
             ${t('bak.scheduleType')}
-            <select name="type" style="margin-top:0.25rem">
+            <select name="type">
               <option value="system" ${schedule?.type === 'system' || !schedule ? 'selected' : ''}>${t('bak.createSystem')}</option>
               <option value="bot" ${schedule?.type === 'bot' ? 'selected' : ''}>${t('bak.createBot')}</option>
             </select>
           </label>
           <label>
             ${t('bak.selectBot')}
-            <select name="botName" style="margin-top:0.25rem">
+            <select name="botName">
               ${bots.map(b => html`<option value="${b}" ${schedule?.botName === b ? 'selected' : ''}>${b}</option>`)}
             </select>
           </label>
           <label>
             ${t('bak.scheduleCron')}
-            <input type="text" name="cron" value="${schedule?.cron ?? '0 3 * * *'}" placeholder="0 3 * * *" style="margin-top:0.25rem">
+            <input type="text" name="cron" value="${schedule?.cron ?? '0 3 * * *'}" placeholder="0 3 * * *">
           </label>
           <label>
             ${t('bak.scheduleRetention')}
-            <input type="number" name="retentionCount" value="${schedule?.retentionCount ?? 7}" min="1" max="100" style="margin-top:0.25rem">
+            <input type="number" name="retentionCount" value="${schedule?.retentionCount ?? 7}" min="1" max="100">
           </label>
-          <button type="submit">${t('common.save')}</button>
+          <button type="submit" class="primary" style="margin-top:0.75rem">${t('common.save')}</button>
         </div>
       </form>
     </details>
@@ -162,10 +159,20 @@ app.post('/backup/create', async (c) => {
   try {
     const info = createBackup({ type, botName })
     const msg = t('bak.created', { filename: info.filename, size: formatSize(info.sizeBytes) })
-    return c.html(layout(t('bak.title'), html`${alert('success', msg)}<a href="/backup">${t('common.back')}</a>`, '/backup', t, lang))
+    const content = html`
+      <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+      <div class="alert alert-success">${icon('check', 14)} ${msg}</div>
+      <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+    `
+    return c.html(layout(t('bak.title'), content, '/backup', t, lang))
   } catch (err) {
     const msg = t('bak.failed', { error: err instanceof Error ? err.message : String(err) })
-    return c.html(layout(t('bak.title'), html`${alert('error', msg)}<a href="/backup">${t('common.back')}</a>`, '/backup', t, lang))
+    const content = html`
+      <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+      <div class="alert alert-error">${icon('alert-circle', 14)} ${msg}</div>
+      <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+    `
+    return c.html(layout(t('bak.title'), content, '/backup', t, lang))
   }
 })
 
@@ -203,11 +210,16 @@ app.get('/backup/verify/:filename', (c) => {
   const filePath = resolve(root, 'backups', filename)
 
   const result = verifyBackup(filePath)
-  const content = result.valid
-    ? alert('success', t('bak.verified'))
-    : alert('error', t('bak.invalid', { errors: result.errors.join('; ') }))
+  const alertHtml = result.valid
+    ? html`<div class="alert alert-success">${icon('shield-check', 14)} ${t('bak.verified')}</div>`
+    : html`<div class="alert alert-error">${icon('alert-circle', 14)} ${t('bak.invalid', { errors: result.errors.join('; ') })}</div>`
 
-  return c.html(layout(t('bak.title'), html`${content}<a href="/backup">${t('common.back')}</a>`, '/backup', t, lang))
+  const content = html`
+    <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+    ${alertHtml}
+    <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+  `
+  return c.html(layout(t('bak.title'), content, '/backup', t, lang))
 })
 
 // --- Manifest ---
@@ -221,21 +233,33 @@ app.get('/backup/manifest/:filename', (c) => {
   try {
     const manifest = readManifest(filePath)
     const content = html`
-      <h2>${icon('file-json', 18)} ${t('bak.manifest')}: ${filename}</h2>
-      <table>
-        <tr><td><strong>${t('bak.type')}</strong></td><td>${manifest.type}</td></tr>
-        <tr><td><strong>${t('bak.date')}</strong></td><td>${fmtDate(manifest.createdAt)}</td></tr>
-        <tr><td><strong>${t('bak.hostname')}</strong></td><td>${manifest.hostname}</td></tr>
-        <tr><td><strong>${t('bak.version')}</strong></td><td>${manifest.botvaVersion}</td></tr>
-        <tr><td><strong>${t('bak.bots')}</strong></td><td>${manifest.bots.join(', ')}</td></tr>
-        <tr><td><strong>${t('bak.size')}</strong></td><td>${formatSize(manifest.totalSize)}</td></tr>
-        <tr><td><strong>Checksum</strong></td><td style="font-family:monospace;font-size:0.85rem">${manifest.checksum || '—'}</td></tr>
-      </table>
-      <a href="/backup">${t('common.back')}</a>
+      <h2>${icon('file-json', 18)} ${t('bak.manifest')}</h2>
+      <p style="margin-bottom:1rem"><code>${filename}</code></p>
+      <div class="table-wrap">
+        <table>
+          <tbody>
+            <tr><td><strong>${t('bak.type')}</strong></td><td>${manifest.type}</td></tr>
+            <tr><td><strong>${t('bak.date')}</strong></td><td>${fmtDate(manifest.createdAt)}</td></tr>
+            <tr><td><strong>${t('bak.hostname')}</strong></td><td>${manifest.hostname}</td></tr>
+            <tr><td><strong>${t('bak.version')}</strong></td><td>${manifest.botvaVersion}</td></tr>
+            <tr><td><strong>${t('bak.bots')}</strong></td><td>${manifest.bots.join(', ')}</td></tr>
+            <tr><td><strong>${t('bak.size')}</strong></td><td>${formatSize(manifest.totalSize)}</td></tr>
+            <tr><td><strong>Checksum</strong></td><td><code>${manifest.checksum || '—'}</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:1rem">
+        <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+      </div>
     `
     return c.html(layout(t('bak.manifest'), content, '/backup', t, lang))
   } catch (err) {
-    return c.html(layout(t('bak.title'), html`${alert('error', String(err))}<a href="/backup">${t('common.back')}</a>`, '/backup', t, lang))
+    const content = html`
+      <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+      <div class="alert alert-error">${icon('alert-circle', 14)} ${String(err)}</div>
+      <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+    `
+    return c.html(layout(t('bak.title'), content, '/backup', t, lang))
   }
 })
 
@@ -250,16 +274,22 @@ app.post('/backup/restore/:filename', async (c) => {
   try {
     const result = await restoreBackup({ archivePath: filePath, overwrite: true })
     const items = result.restored.join(', ')
-    const warnings = result.warnings.map(w => html`<p style="color:var(--warning)">⚠ ${w}</p>`)
+    const warnings = result.warnings.map(w => html`<div class="alert alert-warning">${icon('alert-triangle', 14)} ${w}</div>`)
     const content = html`
-      ${alert('success', t('bak.restored', { items }))}
+      <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+      <div class="alert alert-success">${icon('check', 14)} ${t('bak.restored', { items })}</div>
       ${warnings}
-      <a href="/backup">${t('common.back')}</a>
+      <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
     `
     return c.html(layout(t('bak.title'), content, '/backup', t, lang))
   } catch (err) {
     const msg = t('bak.restoreFailed', { error: err instanceof Error ? err.message : String(err) })
-    return c.html(layout(t('bak.title'), html`${alert('error', msg)}<a href="/backup">${t('common.back')}</a>`, '/backup', t, lang))
+    const content = html`
+      <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+      <div class="alert alert-error">${icon('alert-circle', 14)} ${msg}</div>
+      <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+    `
+    return c.html(layout(t('bak.title'), content, '/backup', t, lang))
   }
 })
 
@@ -270,7 +300,12 @@ app.post('/backup/delete/:filename', (c) => {
   const filename = c.req.param('filename')
 
   deleteBackup(filename)
-  return c.html(layout(t('bak.title'), html`${alert('success', t('bak.deleted'))}<a href="/backup">${t('common.back')}</a>`, '/backup', t, lang))
+  const content = html`
+    <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+    <div class="alert alert-success">${icon('check', 14)} ${t('bak.deleted')}</div>
+    <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+  `
+  return c.html(layout(t('bak.title'), content, '/backup', t, lang))
 })
 
 // --- Schedule ---
@@ -287,7 +322,12 @@ app.post('/backup/schedule', async (c) => {
     retentionCount: parseInt(String(body['retentionCount'] ?? '7'), 10) || 7,
   })
 
-  return c.html(layout(t('bak.title'), html`${alert('success', t('bak.scheduleSaved'))}<a href="/backup">${t('common.back')}</a>`, '/backup', t, lang))
+  const content = html`
+    <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+    <div class="alert alert-success">${icon('check', 14)} ${t('bak.scheduleSaved')}</div>
+    <a href="/backup" role="button" class="outline">${icon('arrow-left', 14)} ${t('common.back')}</a>
+  `
+  return c.html(layout(t('bak.title'), content, '/backup', t, lang))
 })
 
 export default app

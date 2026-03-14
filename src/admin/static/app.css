@@ -978,6 +978,30 @@ details.inline > :last-child { padding-bottom: 0; }
 /* File browser row icons */
 .file-icon { color: var(--mc-text-dim); flex-shrink: 0; }
 
+/* === Documentation content (rendered markdown) === */
+.doc-content { padding: 1.5rem; line-height: 1.7; }
+.doc-content h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--mc-border); }
+.doc-content h2 { font-size: 1.2rem; font-weight: 600; margin: 1.75rem 0 0.6rem; }
+.doc-content h3 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+.doc-content h4 { font-size: 0.9rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+.doc-content p { margin-bottom: 0.6rem; color: var(--mc-text-secondary); }
+.doc-content ul, .doc-content ol { padding-left: 1.5rem; margin-bottom: 0.6rem; }
+.doc-content li { margin-bottom: 0.3rem; color: var(--mc-text-secondary); }
+.doc-content pre { background: var(--mc-surface2); border: 1px solid var(--mc-border); border-radius: var(--radius-sm); padding: 0.85rem; font-size: 0.8rem; overflow-x: auto; margin-bottom: 0.75rem; }
+.doc-content pre code { background: none; padding: 0; color: var(--mc-text); font-size: inherit; }
+.doc-content code { background: var(--mc-surface2); color: var(--mc-accent); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.85em; }
+.doc-content table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; font-size: 0.85rem; }
+.doc-content th { background: var(--mc-surface2); padding: 0.5rem 0.75rem; text-align: left; font-weight: 600; font-size: 0.78rem; border-bottom: 1px solid var(--mc-border); color: var(--mc-text-dim); }
+.doc-content td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--mc-border); color: var(--mc-text-secondary); }
+.doc-content tr:last-child td { border-bottom: none; }
+.doc-content blockquote { border-left: 3px solid var(--mc-accent); margin: 0.5rem 0; padding: 0.5rem 1rem; background: var(--mc-accent-light); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.doc-content blockquote p { color: var(--mc-text); margin: 0; }
+.doc-content hr { border: none; border-top: 1px solid var(--mc-border); margin: 1.25rem 0; }
+.doc-content a { color: var(--mc-accent); text-decoration: none; }
+.doc-content a:hover { text-decoration: underline; }
+.doc-content img { max-width: 100%; border-radius: var(--radius-sm); }
+.doc-content strong { color: var(--mc-text); }
+
 /* === Responsive === */
 @media (max-width: 768px) {
   .top-nav { padding: 0 0.75rem; position: sticky; top: 0; z-index: 100; background: #ffffff; }
