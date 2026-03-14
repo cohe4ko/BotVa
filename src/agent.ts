@@ -1,6 +1,7 @@
 import { query, type SDKMessage, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
 import { buildMcpServers } from './mcp-config.js'
+import { readEnvFile } from './env.js'
 import { isManager } from './team.js'
 import { logger } from './logger.js'
 import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted } from './request-queue.js'
@@ -56,7 +57,7 @@ async function runAgentOnce(
   const abortController = createAbortController(chatId)
 
   try {
-    const mcpServers: Record<string, any> = buildMcpServers()
+    const mcpServers: Record<string, any> = buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() })
 
     // Built-in tools MCP (image generation, voice, telegraph, etc.)
     if (builtinMcpServer) {
