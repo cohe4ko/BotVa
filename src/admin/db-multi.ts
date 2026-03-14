@@ -714,6 +714,13 @@ export interface ToolUsageStat {
   last30d: number
 }
 
+// SDK tools logged under different names → map to builtin tool defs
+const SDK_TOOL_ALIASES: Record<string, string> = {
+  Read: 'FileSystem', Edit: 'FileSystem', Write: 'FileSystem',
+  Glob: 'FileSystem', Grep: 'FileSystem',
+  KillShell: 'Bash',
+}
+
 export function getToolUsageStats(): Record<string, ToolUsageStat> {
   const result: Record<string, ToolUsageStat> = {}
   const now = Math.floor(Date.now() / 1000)
@@ -727,27 +734,35 @@ export function getToolUsageStats(): Record<string, ToolUsageStat> {
     const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'").get()
     if (!tableCheck) continue
 
-    // Builtin tools are logged as "mcp__builtin__ToolName" in detail
     const rows = db.prepare(`
       SELECT
-        REPLACE(
-          CASE WHEN INSTR(detail, ':') > 0
-            THEN SUBSTR(detail, 1, INSTR(detail, ':') - 1)
-            ELSE detail
-          END,
-          'mcp__builtin__', ''
-        ) AS tool_name,
+        CASE WHEN INSTR(detail, ':') > 0
+          THEN SUBSTR(detail, 1, INSTR(detail, ':') - 1)
+          ELSE detail
+        END AS tool_name,
         COUNT(*) AS total,
         SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last7d,
         SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last30d
       FROM audit_log
-      WHERE event_type = 'tool_call' AND detail LIKE 'mcp__builtin__%'
+      WHERE event_type = 'tool_call'
       GROUP BY tool_name
     `).all(ts7d, ts30d) as unknown as { tool_name: string; total: number; last7d: number; last30d: number }[]
 
     for (const row of rows) {
-      const name = row.tool_name.trim()
+      let name = row.tool_name.trim()
       if (!name) continue
+
+      // Strip mcp__builtin__ prefix for custom builtin tools
+      if (name.startsWith('mcp__builtin__')) {
+        name = name.slice('mcp__builtin__'.length)
+      } else if (name.startsWith('mcp__')) {
+        // External MCP server tools — skip
+        continue
+      }
+
+      // Map SDK tool names to builtin def names
+      name = SDK_TOOL_ALIASES[name] ?? name
+
       if (!result[name]) {
         result[name] = { total: 0, last7d: 0, last30d: 0 }
       }
