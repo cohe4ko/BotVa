@@ -519,111 +519,9 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
 
   const chatIdStr = String(chatId)
 
-  if (isOn('SaveFact')) tools.push(
-    tool(
-      'SaveFact',
-      'Save facts to PERMANENT memory (never decays). ALWAYS SearchMemory first to avoid duplicates — if fact exists and changed, DeleteFact old + SaveFact new. Use PROACTIVELY when user shares: dates, names, preferences, health info, decisions, contacts. Also save important results from tool calls (WebSearch, CRM, stagehand) if they answer a specific question and will be useful in future conversations. Batch supported. Tags must include synonyms and translations for better search.',
-      {
-        facts: z.array(z.object({
-          content: z.string().describe('Clean, concise statement. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin"'),
-          topic: z.string().describe('Topic (lowercase): health, work, family, preferences, finance, travel, goals, projects, contacts, food, hobbies'),
-          tags: z.string().describe('Comma-separated search tags: synonyms, translations, related terms. MORE is better. E.g. for allergy fact: "алергія, алергічний, allergy, penicillin, пеніцилін, антибіотик, ліки"'),
-          sector: z.enum(['semantic', 'episodic']).describe('"semantic" = permanent fact. "episodic" = event/decision'),
-        })).describe('Array of facts to save (batch)'),
-      },
-      async (args) => {
-        usedTools.add('SaveFact')
-        try {
-          const { insertFactsBatch } = await import('./db.js')
-          const ids = insertFactsBatch(chatIdStr, args.facts)
-          // Fire-and-forget: generate embeddings for new facts
-          Promise.all([import('./embeddings.js'), import('./db.js')]).then(([{ embedBatch }, { updateFactEmbedding }]) =>
-            embedBatch(args.facts.map(f => f.content), 'passage').then(vecs => {
-              for (let i = 0; i < ids.length; i++) {
-                if (vecs[i]) updateFactEmbedding(ids[i], vecs[i]!)
-              }
-            })
-          ).catch(err => logger.warn({ err }, 'Embedding generation failed'))
-          const summary = args.facts.map((f, i) => `#${ids[i]} [${f.topic}]: ${f.content}`).join('\n')
-          return { content: [{ type: 'text' as const, text: `Saved ${ids.length} facts:\n${summary}` }] }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'SaveFact tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
-
-  if (isOn('SearchMemory')) tools.push(
-    tool(
-      'SearchMemory',
-      'Search permanent memory (facts & events). Use: (1) BEFORE SaveFact to check for duplicates, (2) when user asks about past conversations/people/projects/preferences, (3) when you need context before answering. Supports semantic search — natural language queries work well.',
-      {
-        query: z.string().optional().describe('Keywords to search for (e.g. "birthday", "project deadline"). Omit to browse by topic only'),
-        topic: z.string().optional().describe('Filter by topic (e.g. "health", "work"). Omit to search all topics'),
-        limit: z.number().optional().describe('Max results (default 10)'),
-      },
-      async (args) => {
-        usedTools.add('SearchMemory')
-        try {
-          const { getFactsByTopic } = await import('./db.js')
-          const { searchFactsHybrid } = await import('./vector-search.js')
-          const limit = args.limit ?? 10
-          let results
-
-          if (args.query) {
-            results = await searchFactsHybrid(chatIdStr, args.query, limit, args.topic)
-          } else if (args.topic) {
-            results = getFactsByTopic(chatIdStr, args.topic, limit)
-          } else {
-            return { content: [{ type: 'text' as const, text: 'Provide query, topic, or both to search' }], isError: true }
-          }
-
-          if (!results || results.length === 0) {
-            const ctx = [args.query && `"${args.query}"`, args.topic && `topic:${args.topic}`].filter(Boolean).join(', ')
-            return { content: [{ type: 'text' as const, text: `No facts found for ${ctx}` }] }
-          }
-
-          const lines = results.map(f => {
-            const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
-            const sector = f.sector === 'semantic' ? 'fact' : 'event'
-            return `#${f.id} [${f.topic}] [${date}] (${sector}) ${f.content}`
-          })
-          return { content: [{ type: 'text' as const, text: `Found ${results.length} facts:\n\n${lines.join('\n\n')}` }] }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'SearchMemory tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
-
-  if (isOn('DeleteFact')) tools.push(
-    tool(
-      'DeleteFact',
-      'Delete a fact from long-term memory by ID. Use to remove outdated, incorrect, or duplicate facts.',
-      {
-        id: z.number().describe('Fact ID to delete (from SearchMemory results)'),
-      },
-      async (args) => {
-        usedTools.add('DeleteFact')
-        try {
-          const { deleteFact } = await import('./db.js')
-          const deleted = deleteFact(args.id, chatIdStr)
-          if (deleted) {
-            return { content: [{ type: 'text' as const, text: `Fact #${args.id} deleted` }] }
-          }
-          return { content: [{ type: 'text' as const, text: `Fact #${args.id} not found` }], isError: true }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          logger.error({ err }, 'DeleteFact tool failed')
-          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-        }
-      }
-    )
-  )
+  if (isOn('SaveFact')) tools.push(makeSaveFactTool(chatIdStr, usedTools))
+  if (isOn('SearchMemory')) tools.push(makeSearchMemoryTool(chatIdStr, usedTools))
+  if (isOn('DeleteFact')) tools.push(makeDeleteFactTool(chatIdStr, usedTools))
 
   // --- Email (SMTP) ---
 
@@ -1069,4 +967,134 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
   logger.debug({ toolCount: tools.length, tools: tools.map(t => t.name) }, 'Builtin MCP server created')
 
   return { server, usedTools, cleanup }
+}
+
+// --- Memory tool factories (shared between builtin and consolidation servers) ---
+
+function makeSaveFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpToolDefinition<any> {
+  return tool(
+    'SaveFact',
+    'Save facts to PERMANENT memory (never decays). ALWAYS SearchMemory first to avoid duplicates — if fact exists and changed, DeleteFact old + SaveFact new. Use PROACTIVELY when user shares: dates, names, preferences, health info, decisions, contacts. Also save important results from tool calls (WebSearch, CRM, stagehand) if they answer a specific question and will be useful in future conversations. Batch supported. Tags must include synonyms and translations for better search.',
+    {
+      facts: z.array(z.object({
+        content: z.string().describe('Clean, concise statement. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin"'),
+        topic: z.string().describe('Topic (lowercase): health, work, family, preferences, finance, travel, goals, projects, contacts, food, hobbies'),
+        tags: z.string().describe('Comma-separated search tags: synonyms, translations, related terms. MORE is better. E.g. for allergy fact: "алергія, алергічний, allergy, penicillin, пеніцилін, антибіотик, ліки"'),
+        sector: z.enum(['semantic', 'episodic']).describe('"semantic" = permanent fact. "episodic" = event/decision'),
+      })).describe('Array of facts to save (batch)'),
+    },
+    async (args) => {
+      usedTools.add('SaveFact')
+      try {
+        const { insertFactsBatch } = await import('./db.js')
+        const ids = insertFactsBatch(chatIdStr, args.facts)
+        // Fire-and-forget: generate embeddings for new facts
+        Promise.all([import('./embeddings.js'), import('./db.js')]).then(([{ embedBatch }, { updateFactEmbedding }]) =>
+          embedBatch(args.facts.map(f => f.content), 'passage').then(vecs => {
+            for (let i = 0; i < ids.length; i++) {
+              if (vecs[i]) updateFactEmbedding(ids[i], vecs[i]!)
+            }
+          })
+        ).catch(err => logger.warn({ err }, 'Embedding generation failed'))
+        const summary = args.facts.map((f, i) => `#${ids[i]} [${f.topic}]: ${f.content}`).join('\n')
+        return { content: [{ type: 'text' as const, text: `Saved ${ids.length} facts:\n${summary}` }] }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.error({ err }, 'SaveFact tool failed')
+        return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+      }
+    }
+  )
+}
+
+function makeSearchMemoryTool(chatIdStr: string, usedTools: Set<string>): SdkMcpToolDefinition<any> {
+  return tool(
+    'SearchMemory',
+    'Search permanent memory (facts & events). Use: (1) BEFORE SaveFact to check for duplicates, (2) when user asks about past conversations/people/projects/preferences, (3) when you need context before answering. Supports semantic search — natural language queries work well.',
+    {
+      query: z.string().optional().describe('Keywords to search for (e.g. "birthday", "project deadline"). Omit to browse by topic only'),
+      topic: z.string().optional().describe('Filter by topic (e.g. "health", "work"). Omit to search all topics'),
+      limit: z.number().optional().describe('Max results (default 10)'),
+    },
+    async (args) => {
+      usedTools.add('SearchMemory')
+      try {
+        const { getFactsByTopic } = await import('./db.js')
+        const { searchFactsHybrid } = await import('./vector-search.js')
+        const limit = args.limit ?? 10
+        let results
+
+        if (args.query) {
+          results = await searchFactsHybrid(chatIdStr, args.query, limit, args.topic)
+        } else if (args.topic) {
+          results = getFactsByTopic(chatIdStr, args.topic, limit)
+        } else {
+          return { content: [{ type: 'text' as const, text: 'Provide query, topic, or both to search' }], isError: true }
+        }
+
+        if (!results || results.length === 0) {
+          const searchCtx = [args.query && `"${args.query}"`, args.topic && `topic:${args.topic}`].filter(Boolean).join(', ')
+          return { content: [{ type: 'text' as const, text: `No facts found for ${searchCtx}` }] }
+        }
+
+        const lines = results.map(f => {
+          const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
+          const sector = f.sector === 'semantic' ? 'fact' : 'event'
+          return `#${f.id} [${f.topic}] [${date}] (${sector}) ${f.content}`
+        })
+        return { content: [{ type: 'text' as const, text: `Found ${results.length} facts:\n\n${lines.join('\n\n')}` }] }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.error({ err }, 'SearchMemory tool failed')
+        return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+      }
+    }
+  )
+}
+
+function makeDeleteFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpToolDefinition<any> {
+  return tool(
+    'DeleteFact',
+    'Delete a fact from long-term memory by ID. Use to remove outdated, incorrect, or duplicate facts.',
+    {
+      id: z.number().describe('Fact ID to delete (from SearchMemory results)'),
+    },
+    async (args) => {
+      usedTools.add('DeleteFact')
+      try {
+        const { deleteFact } = await import('./db.js')
+        const deleted = deleteFact(args.id, chatIdStr)
+        if (deleted) {
+          return { content: [{ type: 'text' as const, text: `Fact #${args.id} deleted` }] }
+        }
+        return { content: [{ type: 'text' as const, text: `Fact #${args.id} not found` }], isError: true }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.error({ err }, 'DeleteFact tool failed')
+        return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+      }
+    }
+  )
+}
+
+// --- Consolidation MCP server (memory tools only, no grammy Context needed) ---
+
+export function createConsolidationMcpServer(chatId: number): BuiltinToolsResult {
+  const chatIdStr = String(chatId)
+  const usedTools = new Set<string>()
+  const tools: SdkMcpToolDefinition<any>[] = [
+    makeSaveFactTool(chatIdStr, usedTools),
+    makeSearchMemoryTool(chatIdStr, usedTools),
+    makeDeleteFactTool(chatIdStr, usedTools),
+  ]
+
+  const server = createSdkMcpServer({
+    name: 'consolidation-builtin',
+    version: '1.0.0',
+    tools,
+  })
+
+  logger.debug({ chatId }, 'Consolidation MCP server created (SaveFact, SearchMemory, DeleteFact)')
+
+  return { server, usedTools }
 }

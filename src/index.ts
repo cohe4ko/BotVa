@@ -186,7 +186,7 @@ async function main(): Promise<void> {
   runDecaySweep()
   const decayInterval = setInterval(runDecaySweep, 24 * 60 * 60 * 1000)
 
-  // Schedule daily consolidation
+  // Schedule daily consolidation (recursive setTimeout to avoid drift)
   const scheduleConsolidation = () => {
     const hour = getConsolidationHour()
     const now = new Date()
@@ -198,16 +198,13 @@ async function main(): Promise<void> {
     const delay = next.getTime() - now.getTime()
     logger.info({ nextRun: next.toISOString(), delayMs: delay }, 'Consolidation scheduled')
 
-    setTimeout(() => {
-      runDailyConsolidation(sendMessage).catch(err =>
+    setTimeout(async () => {
+      try {
+        await runDailyConsolidation(sendMessage)
+      } catch (err) {
         logger.error({ err }, 'Daily consolidation failed')
-      )
-      // Reschedule for tomorrow
-      setInterval(() => {
-        runDailyConsolidation(sendMessage).catch(err =>
-          logger.error({ err }, 'Daily consolidation failed')
-        )
-      }, 24 * 60 * 60 * 1000)
+      }
+      scheduleConsolidation()
     }, delay)
   }
   scheduleConsolidation()

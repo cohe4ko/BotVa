@@ -330,9 +330,6 @@ export function createBot(params: CreateBotParams): CreateBotResult {
   db.exec(INIT_SQL)
   db.close()
 
-  // Write initial KEY_EVENTS.md
-  writeFileSync(resolve(botDir, 'context', 'KEY_EVENTS.md'), '# Key Events\n\n(auto-updated during daily consolidation)\n')
-
   // Add to team.json
   const roles = getAvailableRoles()
   const roleInfo = roles.find(r => r.slug === role)
