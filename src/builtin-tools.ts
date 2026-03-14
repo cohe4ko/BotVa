@@ -278,7 +278,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
   if (isOn('ListGalleryImages')) tools.push(
     tool(
       'ListGalleryImages',
-      'List images in the gallery with metadata (id, bot, type, prompt, size, date). Supports pagination and optional bot name filter.',
+      'List images in the gallery with metadata (id, bot, type, prompt, size, date). Results are sorted by date newest first — the FIRST item is the most recent. Supports pagination and optional bot name filter.',
       {
         limit: z.number().optional().describe('Max images to return (default 20)'),
         offset: z.number().optional().describe('Pagination offset (default 0)'),
@@ -300,7 +300,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
             const promptShort = img.prompt.length > 80 ? img.prompt.slice(0, 80) + '...' : img.prompt
             return `#${img.id} | ${img.bot_name} | ${img.type} | ${formatSize(img.image_bytes)} | ${date} | ${promptShort}`
           })
-          lines.unshift(`Gallery: ${total} images total, showing ${images.length}`)
+          lines.unshift(`Gallery: ${total} images total, showing ${images.length} (sorted by date, newest first)`)
           return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)

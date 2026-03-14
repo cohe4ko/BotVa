@@ -647,17 +647,21 @@ export function getToolUsageStats(): Record<string, ToolUsageStat> {
     const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'").get()
     if (!tableCheck) continue
 
+    // Builtin tools are logged as "mcp__builtin__ToolName" in detail
     const rows = db.prepare(`
       SELECT
-        CASE WHEN INSTR(detail, ':') > 0
-          THEN SUBSTR(detail, 1, INSTR(detail, ':') - 1)
-          ELSE detail
-        END AS tool_name,
+        REPLACE(
+          CASE WHEN INSTR(detail, ':') > 0
+            THEN SUBSTR(detail, 1, INSTR(detail, ':') - 1)
+            ELSE detail
+          END,
+          'mcp__builtin__', ''
+        ) AS tool_name,
         COUNT(*) AS total,
         SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last7d,
         SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last30d
       FROM audit_log
-      WHERE event_type = 'tool_call' AND detail IS NOT NULL
+      WHERE event_type = 'tool_call' AND detail LIKE 'mcp__builtin__%'
       GROUP BY tool_name
     `).all(ts7d, ts30d) as unknown as { tool_name: string; total: number; last7d: number; last30d: number }[]
 
