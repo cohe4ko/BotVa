@@ -2,7 +2,9 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { pagination, formatTs } from '../views/components.js'
-import { getGalleryImages, countGalleryImages, getBotNames } from '../db-multi.js'
+import { getGalleryImages, countGalleryImages, getBotNames, deleteGalleryImage, getProjectRoot } from '../db-multi.js'
+import { existsSync, unlinkSync } from 'fs'
+import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const PER_PAGE = 24
@@ -44,7 +46,7 @@ app.get('/gallery', (c) => {
     ` : html`
       <div class="gallery-grid">
         ${images.map(img => html`
-          <div class="gallery-item" onclick="openLightbox(this)" data-full="/gallery-img/${img.filename}">
+          <div class="gallery-item" onclick="openLightbox(this)" data-full="/gallery-img/${img.filename}" data-id="${img.id}">
             <img src="/gallery-thumb/${img.filename.replace(/\.\w+$/, '.jpg')}" alt="${img.prompt}" loading="lazy"
               onerror="this.src='/gallery-img/${img.filename}'">
             <div class="gallery-meta">
@@ -65,12 +67,19 @@ app.get('/gallery', (c) => {
       <div class="lightbox-content">
         <img id="lightbox-img" src="" alt="">
         <div id="lightbox-info" class="lightbox-info"></div>
+        <button id="lightbox-delete" class="danger btn-sm" style="margin-top:0.5rem" onclick="deleteImage()">
+          ${icon('trash-2', 13)} ${t('gallery.delete') ?? 'Delete'}
+        </button>
       </div>
     </div>
 
     <script>
+      var currentImageId = null;
+      var currentImageEl = null;
       function openLightbox(el) {
         var fullSrc = el.getAttribute('data-full');
+        currentImageId = el.getAttribute('data-id');
+        currentImageEl = el;
         var prompt = el.querySelector('.gallery-full-prompt').textContent;
         var metaEl = el.querySelector('.gallery-meta');
         var info = document.getElementById('lightbox-info');
@@ -88,6 +97,15 @@ app.get('/gallery', (c) => {
         document.getElementById('lightbox').classList.add('active');
         document.body.style.overflow = 'hidden';
       }
+      function deleteImage() {
+        if (!currentImageId || !confirm('${t('gallery.deleteConfirm') ?? 'Delete this image?'}')) return;
+        fetch('/gallery/delete/' + currentImageId, { method: 'POST' }).then(function(r) {
+          if (r.ok) {
+            if (currentImageEl) currentImageEl.remove();
+            closeLightbox({ target: document.getElementById('lightbox') });
+          }
+        });
+      }
       function closeLightbox(e) {
         if (e.target === document.getElementById('lightbox') || e.target.classList.contains('lightbox-close')) {
           document.getElementById('lightbox').classList.remove('active');
@@ -104,6 +122,20 @@ app.get('/gallery', (c) => {
   `
 
   return c.html(layout(t('gallery.title'), content, '/gallery', t, lang))
+})
+
+app.post('/gallery/delete/:id', (c) => {
+  const id = parseInt(c.req.param('id'), 10)
+  const deleted = deleteGalleryImage(id)
+  if (!deleted) return c.text('Not found', 404)
+  // Remove files
+  const root = getProjectRoot()
+  const imgPath = resolve(root, 'workspace/gallery', deleted.filename)
+  const thumbName = deleted.filename.replace(/\.\w+$/, '.jpg')
+  const thumbPath = resolve(root, 'workspace/gallery/thumbs', thumbName)
+  try { if (existsSync(imgPath)) unlinkSync(imgPath) } catch {}
+  try { if (existsSync(thumbPath)) unlinkSync(thumbPath) } catch {}
+  return c.text('OK')
 })
 
 export default app

@@ -335,6 +335,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'gallery.allBots': 'All bots',
     'gallery.images': 'images',
     'gallery.noImages': 'No images yet',
+    'gallery.delete': 'Delete',
+    'gallery.deleteConfirm': 'Delete this image?',
 
     // Knowledge
     'know.title': 'Knowledge',
@@ -900,6 +902,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'gallery.allBots': 'Всі боти',
     'gallery.images': 'зображень',
     'gallery.noImages': 'Зображень ще немає',
+    'gallery.delete': 'Видалити',
+    'gallery.deleteConfirm': 'Видалити це зображення?',
 
     // Knowledge
     'know.title': 'Знання',
