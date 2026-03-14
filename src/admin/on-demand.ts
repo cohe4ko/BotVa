@@ -147,22 +147,31 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
 }
 
 function killPortOccupant(port: number): void {
+  const { execSync } = require('child_process')
   try {
-    const { execSync } = require('child_process')
     const pids = execSync(`lsof -i :${port} -t 2>/dev/null`, { encoding: 'utf-8' }).trim()
     if (!pids) return
     for (const pid of pids.split('\n')) {
       const n = parseInt(pid, 10)
       if (n && n !== process.pid) {
         logger.info({ port, pid: n }, 'Killing process occupying admin port')
-        try { process.kill(n, 'SIGTERM') } catch {}
+        try { process.kill(n, 'SIGKILL') } catch {}
       }
     }
-    // Give it a moment to release the port
-    execSync('sleep 0.3')
   } catch {
     // lsof returns non-zero if no process found — port is free
+    return
   }
+  // Wait for port to be released
+  for (let i = 0; i < 10; i++) {
+    try {
+      execSync(`lsof -i :${port} -t 2>/dev/null`, { encoding: 'utf-8' })
+      execSync('sleep 0.2')
+    } catch {
+      return // port is free
+    }
+  }
+  logger.warn({ port }, 'Port still occupied after kill attempts')
 }
 
 export function stopAdmin(): void {
