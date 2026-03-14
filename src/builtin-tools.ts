@@ -94,6 +94,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
     { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video to chat', available: true },
+    // User interaction
+    { name: 'AskUser', icon: 'message-circle', category: 'telegram', description: 'Ask user to choose from options via buttons', available: true },
     // Bot management
     { name: 'CreateBot', icon: 'plus-circle', category: 'management', description: 'Create a new bot', available: true },
     { name: 'DeleteBot', icon: 'trash-2', category: 'management', description: 'Delete a bot (with backup)', available: true },
@@ -113,13 +115,18 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
   return defs.map(d => ({ ...d, enabled: config[d.name] !== false }))
 }
 
+export type AskUserCallback = (
+  question: string,
+  options: { label: string; description?: string }[]
+) => Promise<string>
+
 export interface BuiltinToolsResult {
   server: McpSdkServerConfigWithInstance
   usedTools: Set<string>
   cleanup?: () => void
 }
 
-export async function createBuiltinMcpServer(ctx: Context, chatId: number): Promise<BuiltinToolsResult | null> {
+export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUser?: AskUserCallback): Promise<BuiltinToolsResult | null> {
   const env = readEnvFile()
   const usedTools = new Set<string>()
   const tools: SdkMcpToolDefinition<any>[] = []
@@ -946,6 +953,47 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'RunPython tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- AskUser tool (present choices to user via Telegram buttons) ---
+
+  if (askUser && isOn('AskUser')) tools.push(
+    tool(
+      'AskUser',
+      `Present choices to the user via Telegram inline buttons and wait for their response.
+
+WHEN TO USE:
+- The user's request can be fulfilled in several different ways and you need them to choose
+- Before an irreversible external action (sending email, creating CRM record, posting) when details are ambiguous
+- When search/analysis returned multiple results and user should pick one
+
+WHEN NOT TO USE:
+- The choice is obvious from context or user already specified what they want
+- Simple yes/no — just ask in text
+- You need free-form input — just ask in text
+- Only one valid option exists
+
+BEHAVIOR: Sends buttons to Telegram chat. User clicks one or "Other". Tool blocks until user responds (2 min timeout). Keep labels short (1-4 words), 2-8 options max.`,
+      {
+        question: z.string().describe('The question to ask the user'),
+        options: z.array(z.object({
+          label: z.string().describe('Button label (short, 1-4 words)'),
+          description: z.string().optional().describe('Brief explanation shown under the question'),
+        })).min(2).max(8).describe('Available choices (2-8 options)'),
+      },
+      async ({ question, options }) => {
+        usedTools.add('AskUser')
+        try {
+          const answer = await askUser(question, options)
+          if (answer === '__skip__') {
+            return { content: [{ type: 'text' as const, text: 'User wants a different option (clicked "Other"). Ask them in text what they prefer.' }] }
+          }
+          return { content: [{ type: 'text' as const, text: `User chose: ${answer}` }] }
+        } catch {
+          return { content: [{ type: 'text' as const, text: 'User did not respond (timeout).' }], isError: true }
         }
       }
     )

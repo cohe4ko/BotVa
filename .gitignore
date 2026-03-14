@@ -26,3 +26,4 @@ mcp-servers.json
 *.p12
 credentials.json
 token.json
+roles/.history/

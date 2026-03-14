@@ -9,7 +9,7 @@ import {
   BOT_DIR,
 } from './config.js'
 import { getSession, setSession, clearSession, getAllMemories, logUsage, getUsageSince, getChatSetting, setChatSetting, deleteChatSetting, logAudit } from './db.js'
-import { runAgent, type UsageStats, type AskUserQuestion, type AskUserHandler } from './agent.js'
+import { runAgent, type UsageStats } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, voiceCapabilities, synthesizeSpeech } from './voice.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
@@ -313,8 +313,31 @@ async function handleMessage(
       const sendTyping = () => ctx.api.sendChatAction(chatId, 'typing').catch(() => {})
       await sendTyping()
 
+      // Create askUser callback for AskUser builtin tool
+      const askUserCallback = async (question: string, options: { label: string; description?: string }[]) => {
+        const descriptions = options.filter(o => o.description).map(o => `• <b>${escapeHtml(o.label)}</b> — ${escapeHtml(o.description!)}`)
+        const text = descriptions.length > 0
+          ? `❓ <b>${escapeHtml(question)}</b>\n\n${descriptions.join('\n')}`
+          : `❓ <b>${escapeHtml(question)}</b>`
+        const keyboard = options.map(o => [{ text: o.label, callback_data: `ask:${o.label}` }])
+        keyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
+
+        await ctx.api.sendMessage(chatId, text, {
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: keyboard },
+        })
+
+        return new Promise<string>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            pendingQuestions.delete(chatIdStr)
+            reject(new Error('timeout'))
+          }, ASK_USER_TIMEOUT_MS)
+          pendingQuestions.set(chatIdStr, { resolve, reject, timeout })
+        })
+      }
+
       // Create builtin MCP server (image gen, voice, telegraph, media sending)
-      const builtin = await createBuiltinMcpServer(ctx, chatId)
+      const builtin = await createBuiltinMcpServer(ctx, chatId, askUserCallback)
 
       // Run agent
       let text: string | null
@@ -336,34 +359,9 @@ async function handleMessage(
             logAudit(chatIdStr, 'session_start', event.session_id)
           }
         }
-        // AskUserQuestion handler: send to Telegram, wait for button click
-        const askUserHandler: AskUserHandler = async (questions) => {
-          const answers: string[] = []
-          for (const q of questions) {
-            const text = `❓ <b>${escapeHtml(q.header)}</b>\n\n${escapeHtml(q.question)}\n\n${q.options.map(o => `• <b>${escapeHtml(o.label)}</b> — ${escapeHtml(o.description)}`).join('\n')}`
-            const keyboard = q.options.map(o => [{ text: o.label, callback_data: `ask:${o.label}` }])
-            // Add "Other" option
-            keyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
-
-            await ctx.api.sendMessage(chatId, text, {
-              parse_mode: 'HTML',
-              reply_markup: { inline_keyboard: keyboard },
-            })
-
-            const answer = await new Promise<string>((resolve, reject) => {
-              const timeout = setTimeout(() => {
-                pendingQuestions.delete(chatIdStr)
-                reject(new Error('timeout'))
-              }, ASK_USER_TIMEOUT_MS)
-              pendingQuestions.set(chatIdStr, { resolve, reject, timeout })
-            })
-
-            if (answer !== '__skip__') answers.push(`${q.header}: ${answer}`)
-          }
-          return answers.join('; ') || chatT(chatIdStr)('cb.userSkipped')
-        }
-
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, getModel(chatIdStr), askUserHandler, builtin?.server)
+        const currentModel = getModel(chatIdStr)
+        logger.info({ chatId: chatIdStr, model: currentModel, hasSession: !!sessionId }, 'Running agent')
+        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage

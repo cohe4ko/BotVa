@@ -21,6 +21,7 @@ const PAGE_ICONS: Record<string, string> = {
   '/diagnostics': 'stethoscope',
   '/create-bot': 'plus-circle',
   '/docs': 'book-open',
+  '/templates': 'file-code',
 }
 
 export function layout(title: string, content: HtmlContent, activePath = '/', t?: TFunc, lang?: Lang, pageIcon?: string): HtmlContent {

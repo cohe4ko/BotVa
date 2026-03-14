@@ -22,6 +22,7 @@ import team from './routes/team.js'
 import botDiagnostics from './routes/bot-diagnostics.js'
 import diagnostics from './routes/diagnostics.js'
 import docs from './routes/docs.js'
+import templates from './routes/templates.js'
 
 export function createAdminApp(): Hono<I18nEnv> {
   const app = new Hono<I18nEnv>()
@@ -67,6 +68,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', botDiagnostics)
   app.route('/', diagnostics)
   app.route('/', docs)
+  app.route('/', templates)
 
   return app
 }

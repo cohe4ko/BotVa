@@ -158,7 +158,7 @@ c) Якщо факт вже існує але змінився — DeleteFact с
   const chatId = ALLOWED_CHAT_ID || '0'
   const { server } = createConsolidationMcpServer(Number(chatId))
 
-  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, undefined, server)
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
   logger.info({ targetDate, result: result.text?.slice(0, 100) }, 'Daily consolidation done')
 }
 
@@ -220,7 +220,7 @@ c) Якщо факт вже існує але змінився — DeleteFact с
   const chatId = ALLOWED_CHAT_ID || '0'
   const { server } = createConsolidationMcpServer(Number(chatId))
 
-  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, undefined, server)
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
   logger.info({ weekId, result: result.text?.slice(0, 100) }, 'Weekly consolidation done')
 }
 
@@ -250,7 +250,7 @@ async function migrateKeyEvents(): Promise<void> {
 Не дублюй існуючі факти. Пиши українською.`
 
   try {
-    await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, undefined, server)
+    await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
     renameSync(KEY_EVENTS_PATH, migratedPath)
     logger.info('KEY_EVENTS.md migrated and renamed to .migrated')
   } catch (err) {

@@ -7,15 +7,6 @@ import { logger } from './logger.js'
 import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted } from './request-queue.js'
 import { AgentWatchdog } from './agent-watchdog.js'
 
-export interface AskUserQuestion {
-  question: string
-  header: string
-  options: { label: string; description: string }[]
-  multiSelect?: boolean
-}
-
-export type AskUserHandler = (questions: AskUserQuestion[]) => Promise<string>
-
 export interface UsageStats {
   inputTokens: number
   outputTokens: number
@@ -33,7 +24,6 @@ async function runAgentOnce(
   chatId: string,
   onEvent?: (event: SDKMessage) => void,
   model?: string,
-  onAskUser?: AskUserHandler,
   builtinMcpServer?: McpSdkServerConfigWithInstance
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
@@ -79,27 +69,7 @@ async function runAgentOnce(
       }
     }
 
-    // AskUserQuestion handler via canUseTool
-    const canUseTool = onAskUser
-      ? async (toolName: string, input: Record<string, unknown>) => {
-          if (toolName === 'AskUserQuestion') {
-            try {
-              const questions = (input.questions ?? []) as AskUserQuestion[]
-              const answer = await onAskUser(questions)
-              return {
-                behavior: 'deny' as const,
-                message: `Відповідь користувача: ${answer}`,
-              }
-            } catch (err) {
-              return {
-                behavior: 'deny' as const,
-                message: 'Користувач не відповів на питання.',
-              }
-            }
-          }
-          return { behavior: 'allow' as const, updatedInput: input }
-        }
-      : undefined
+    logger.debug({ chatId, model, sessionId: sessionId?.slice(0, 8) }, 'Starting agent query')
 
     const conversation = query({
       prompt: message,
@@ -112,7 +82,6 @@ async function runAgentOnce(
         mcpServers,
         includePartialMessages: true,
         agentProgressSummaries: true,
-        ...(canUseTool ? { canUseTool } : {}),
         ...(model ? { model } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
       },
@@ -182,6 +151,10 @@ async function runAgentOnce(
           resultText = '(запит скасовано)'
         }
 
+        const modelIds = Object.keys(event.modelUsage)
+        if (modelIds.length > 0) {
+          logger.debug({ chatId, requestedModel: model, actualModels: modelIds }, 'Agent completed with models')
+        }
         const models = Object.values(event.modelUsage)
         if (models.length > 0) {
           const totals = models.reduce(
@@ -237,10 +210,9 @@ export async function runAgent(
   chatId: string,
   onEvent?: (event: SDKMessage) => void,
   model?: string,
-  onAskUser?: AskUserHandler,
   builtinMcpServer?: McpSdkServerConfigWithInstance
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, onAskUser, builtinMcpServer)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -248,7 +220,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, onAskUser, builtinMcpServer)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer)
     return { text: retry.text, newSessionId: retry.newSessionId, usage: retry.usage }
   }
 

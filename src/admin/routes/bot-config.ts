@@ -11,7 +11,7 @@ import { execSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
-import { deleteBot, removeFromTeamJson } from '../../bot-manager.js'
+import { deleteBot, removeFromTeamJson, getAvailableRoles, buildClaudeMd } from '../../bot-manager.js'
 
 function getModelLabels(t: TFunc) {
   return [
@@ -83,6 +83,38 @@ app.get('/bot/:name/config', validateBot, (c) => {
     </form>
 
     <h3 class="section-title">${icon('file-pen')} ${t('config.personality')}</h3>
+    ${(() => {
+      const roles = getAvailableRoles()
+      if (roles.length === 0) return ''
+      return html`
+        <div class="form-section" style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap">
+          <label style="flex:1;min-width:200px;margin:0">${t('config.templateSelect')}
+            <select id="tpl-select" name="template" style="margin:0">
+              <option value="">${t('config.templateNone')}</option>
+              ${roles.map(r => html`<option value="${r.slug}">${r.slug} — ${r.description}</option>`)}
+            </select>
+          </label>
+          <button type="button" id="tpl-preview-btn" class="outline" style="margin:0" onclick="
+            var slug = document.getElementById('tpl-select').value;
+            if (!slug) return;
+            fetch('/api/role-preview/' + slug).then(r => r.json()).then(d => {
+              var el = document.getElementById('tpl-preview-content');
+              el.textContent = d.content;
+              document.getElementById('tpl-preview').open = true;
+            });
+          ">${icon('eye', 13)} ${t('config.templatePreview')}</button>
+          <button type="button" class="outline" style="margin:0"
+            hx-post="/bot/${name}/config/apply-template" hx-include="#tpl-select"
+            hx-target="#config-alerts" hx-swap="innerHTML"
+            hx-confirm="${t('config.templateApplyConfirm')}"
+          >${icon('file-input', 13)} ${t('config.templateApply')}</button>
+        </div>
+        <details id="tpl-preview" style="margin-bottom:0.75rem">
+          <summary>${t('config.templatePreview')}</summary>
+          <pre id="tpl-preview-content" style="max-height:400px;overflow:auto;font-size:0.82rem;white-space:pre-wrap;background:var(--mc-surface2);padding:0.75rem;border-radius:var(--radius-sm)"></pre>
+        </details>
+      `
+    })()}
     <form class="form-section" hx-post="/bot/${name}/config/claude" hx-target="#config-alerts" hx-swap="innerHTML">
       <textarea name="claude" class="code" rows="20">${claudeContent}</textarea>
       <button type="submit">${icon('save', 13)} ${t('config.saveClaude')}</button>
@@ -188,6 +220,28 @@ app.post('/bot/:name/config/verify-token', validateBot, async (c) => {
     return c.html(alert('success', t('config.tokenValid', { name: result.botName ?? '' })))
   }
   return c.html(alert('error', t('config.tokenInvalid', { error: result.error ?? '' })))
+})
+
+app.post('/bot/:name/config/apply-template', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
+  const name = botName(c)
+  const body = await c.req.parseBody()
+  const slug = String(body['template'] ?? '').trim()
+
+  if (!slug) {
+    return c.html(alert('warning', t('config.templateNone')))
+  }
+
+  try {
+    const claudeMd = buildClaudeMd(slug, name, '🤖')
+    writeClaudeMd(name, claudeMd)
+    return c.html(html`
+      ${alert('success', t('config.templateApplied', { slug }))}
+      <script>setTimeout(function(){ location.reload(); }, 600);</script>
+    `)
+  } catch {
+    return c.html(alert('error', t('config.templateNotFound')))
+  }
 })
 
 app.post('/bot/:name/config/claude', validateBot, async (c) => {

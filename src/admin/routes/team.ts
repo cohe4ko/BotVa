@@ -99,6 +99,10 @@ app.get('/team', (c) => {
       </tbody>
     </table>
 
+    <div style="margin:1rem 0">
+      <a href="/templates" role="button" class="outline">${icon('file-code', 13)} ${t('tpl.manageLink')}</a>
+    </div>
+
     <details>
       <summary>${icon('file-json')} ${t('team.rawJson')}</summary>
       <pre style="margin-top:0.5rem"><code>${JSON.stringify(team, null, 2)}</code></pre>
