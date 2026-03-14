@@ -533,6 +533,14 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
         try {
           const { insertFactsBatch } = await import('./db.js')
           const ids = insertFactsBatch(chatIdStr, args.facts)
+          // Fire-and-forget: generate embeddings for new facts
+          Promise.all([import('./embeddings.js'), import('./db.js')]).then(([{ embedBatch }, { updateFactEmbedding }]) =>
+            embedBatch(args.facts.map(f => f.content), 'passage').then(vecs => {
+              for (let i = 0; i < ids.length; i++) {
+                if (vecs[i]) updateFactEmbedding(ids[i], vecs[i]!)
+              }
+            })
+          ).catch(err => logger.warn({ err }, 'Embedding generation failed'))
           const summary = args.facts.map((f, i) => `#${ids[i]} [${f.topic}]: ${f.content}`).join('\n')
           return { content: [{ type: 'text' as const, text: `Saved ${ids.length} facts:\n${summary}` }] }
         } catch (err) {
@@ -556,12 +564,13 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
       async (args) => {
         usedTools.add('SearchMemory')
         try {
-          const { searchFacts, getFactsByTopic } = await import('./db.js')
+          const { getFactsByTopic } = await import('./db.js')
+          const { searchFactsHybrid } = await import('./vector-search.js')
           const limit = args.limit ?? 10
           let results
 
           if (args.query) {
-            results = searchFacts(chatIdStr, args.query, limit, args.topic)
+            results = await searchFactsHybrid(chatIdStr, args.query, limit, args.topic)
           } else if (args.topic) {
             results = getFactsByTopic(chatIdStr, args.topic, limit)
           } else {

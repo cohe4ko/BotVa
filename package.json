@@ -23,6 +23,7 @@
     "@google/genai": "^1.44.0",
     "@grammyjs/runner": "^2.0.3",
     "@hono/node-server": "^1.19.11",
+    "@huggingface/transformers": "^3.8.1",
     "cron-parser": "^4.9.0",
     "grammy": "^1.30.0",
     "hono": "^4.12.7",

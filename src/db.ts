@@ -175,6 +175,8 @@ export function initDatabase(): void {
   // Migration: add tags column to existing facts tables
   try { d.exec('ALTER TABLE facts ADD COLUMN tags TEXT NOT NULL DEFAULT ""') } catch { /* already exists */ }
   try { d.exec('ALTER TABLE facts ADD COLUMN source TEXT NOT NULL DEFAULT "conversation"') } catch { /* already exists */ }
+  // Migration: add embedding column for vector search
+  try { d.exec('ALTER TABLE facts ADD COLUMN embedding BLOB') } catch { /* already exists */ }
 
   d.exec(`
     CREATE INDEX IF NOT EXISTS idx_facts_chat_topic ON facts(chat_id, topic)
@@ -508,6 +510,30 @@ export function getAllFacts(chatId: string, limit = 50): Fact[] {
   return getDb().prepare(
     'SELECT * FROM facts WHERE chat_id = ? ORDER BY updated_at DESC LIMIT ?'
   ).all(chatId, limit) as unknown as Fact[]
+}
+
+// --- Fact embeddings (vector search) ---
+
+export function updateFactEmbedding(id: number, embedding: Float32Array): void {
+  const buf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
+  getDb().prepare('UPDATE facts SET embedding = ? WHERE id = ?').run(buf, id)
+}
+
+export function getFactsWithEmbeddings(chatId: string, topic?: string): (Fact & { embedding: Buffer | null })[] {
+  if (topic) {
+    return getDb().prepare(
+      "SELECT * FROM facts WHERE chat_id IN (?, 'admin') AND topic = ? AND embedding IS NOT NULL"
+    ).all(chatId, topic) as unknown as (Fact & { embedding: Buffer | null })[]
+  }
+  return getDb().prepare(
+    "SELECT * FROM facts WHERE chat_id IN (?, 'admin') AND embedding IS NOT NULL"
+  ).all(chatId) as unknown as (Fact & { embedding: Buffer | null })[]
+}
+
+export function getFactsWithoutEmbeddings(chatId: string, limit = 100): { id: number; content: string }[] {
+  return getDb().prepare(
+    'SELECT id, content FROM facts WHERE chat_id = ? AND embedding IS NULL LIMIT ?'
+  ).all(chatId, limit) as unknown as { id: number; content: string }[]
 }
 
 // --- Scheduler ---

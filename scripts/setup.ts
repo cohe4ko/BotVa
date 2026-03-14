@@ -225,6 +225,93 @@ WantedBy=default.target
     console.log('  pm2 save && pm2 startup')
   }
 
+  // --- Embedding service (semantic search) ---
+  console.log(bold('\n🧠 Embedding Service (Semantic Search)\n'))
+  console.log('  Enables semantic search for facts (e.g. "food" finds "had borshch for lunch").')
+  console.log('  Uses ~130MB RAM for multilingual-e5-small model.\n')
+
+  const installEmbedding = await ask('  Install embedding service? (y/n): ')
+  if (installEmbedding.toLowerCase() === 'y') {
+    if (platform === 'darwin') {
+      const plistPath = join(
+        process.env.HOME ?? '~',
+        'Library',
+        'LaunchAgents',
+        'com.botva.embedding.plist'
+      )
+      const nodePath = process.execPath
+      const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.botva.embedding</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${nodePath}</string>
+    <string>${join(PROJECT_ROOT, 'dist', 'scripts', 'embedding-server.js')}</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${PROJECT_ROOT}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/botva-embedding.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/botva-embedding.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:${dirname(nodePath)}</string>
+  </dict>
+</dict>
+</plist>`
+
+      writeFileSync(plistPath, plist)
+      try {
+        execSync(`launchctl unload "${plistPath}" 2>/dev/null || true`)
+        execSync(`launchctl load "${plistPath}"`)
+        check('Embedding launchd service installed and loaded', true)
+      } catch {
+        check('Embedding launchd service install failed', false)
+        console.log(yellow(`  You can manually load it: launchctl load "${plistPath}"`))
+      }
+    } else if (platform === 'linux') {
+      const serviceDir = join(process.env.HOME ?? '~', '.config', 'systemd', 'user')
+      mkdirSync(serviceDir, { recursive: true })
+      const servicePath = join(serviceDir, 'botva-embedding.service')
+      const service = `[Unit]
+Description=BotVa Embedding Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${process.execPath} ${join(PROJECT_ROOT, 'dist', 'scripts', 'embedding-server.js')}
+WorkingDirectory=${PROJECT_ROOT}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+`
+      writeFileSync(servicePath, service)
+      try {
+        execSync('systemctl --user daemon-reload')
+        execSync('systemctl --user enable botva-embedding')
+        execSync('systemctl --user start botva-embedding')
+        check('Embedding systemd service installed and started', true)
+      } catch {
+        check('Embedding systemd service install failed', false)
+      }
+    } else {
+      console.log(yellow('  For Windows, run manually: node dist/scripts/embedding-server.js'))
+    }
+  }
+
   // --- Get chat ID ---
   console.log(bold('\n💬 Getting your Chat ID\n'))
   console.log(yellow('  Starting bot temporarily to capture your chat ID...'))

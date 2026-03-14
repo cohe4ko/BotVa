@@ -41,6 +41,10 @@ export const USER_GOOGLE_EMAIL = env['USER_GOOGLE_EMAIL'] ?? ''
 export const HA_URL = env['HA_URL'] ?? ''
 export const HA_TOKEN = env['HA_TOKEN'] ?? ''
 
+// Embeddings (semantic search)
+export const EMBEDDINGS_ENABLED = (env['EMBEDDINGS_ENABLED'] ?? 'true') === 'true'
+export const EMBEDDING_SOCK_PATH = env['EMBEDDING_SOCK_PATH'] ?? resolve(PROJECT_ROOT, 'store', 'embedding.sock')
+
 // Memory system
 export const MEMORY_SALIENCE_DECAY = parseFloat(env['MEMORY_SALIENCE_DECAY'] ?? '0.98')
 export const MEMORY_SALIENCE_MIN = parseFloat(env['MEMORY_SALIENCE_MIN'] ?? '0.1')

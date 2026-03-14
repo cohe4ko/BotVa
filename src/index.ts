@@ -162,6 +162,26 @@ async function main(): Promise<void> {
     initTelegraph().catch(err => logger.error({ err }, 'Telegraph init failed'))
   }
 
+  // Background embedding migration for existing facts
+  import('./embeddings.js').then(({ isReady, embedBatch }) => {
+    isReady().then(ready => {
+      if (!ready) return
+      import('./db.js').then(({ getFactsWithoutEmbeddings, updateFactEmbedding }) => {
+        const chatId = ALLOWED_CHAT_ID
+        if (!chatId) return
+        const facts = getFactsWithoutEmbeddings(chatId, 50)
+        if (facts.length === 0) return
+        logger.info({ count: facts.length }, 'Background embedding migration starting')
+        embedBatch(facts.map(f => f.content), 'passage').then(vecs => {
+          for (let i = 0; i < facts.length; i++) {
+            if (vecs[i]) updateFactEmbedding(facts[i].id, vecs[i]!)
+          }
+          logger.info({ count: facts.length }, 'Background embedding migration done')
+        }).catch(err => logger.warn({ err }, 'Background embedding migration failed'))
+      })
+    })
+  }).catch(() => {})
+
   // Run memory decay sweep on startup + daily
   runDecaySweep()
   const decayInterval = setInterval(runDecaySweep, 24 * 60 * 60 * 1000)

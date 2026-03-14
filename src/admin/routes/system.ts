@@ -6,9 +6,9 @@ import { getBotNames, getUsageSummary, getBotDir, getProjectRoot, getToolUsageSt
 import { readEnv } from '../env-parser.js'
 import { getMcpServersConfig, isServerDisabled, setServerEnabled, addMcpServer, removeMcpServer, getMcpServer, updateMcpServer, type McpServerEntry } from '../../mcp-config.js'
 import { getBuiltinToolDefs, setToolEnabled, type BuiltinToolDef } from '../../builtin-tools.js'
-import { existsSync, readdirSync, renameSync, readFileSync } from 'fs'
+import { existsSync, readdirSync, renameSync, readFileSync, openSync } from 'fs'
 import { resolve, join } from 'path'
-import { execSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { getConsolidationHour, setSystemSetting } from '../../system-settings.js'
 
@@ -92,6 +92,23 @@ function getProjectSkills(): SkillInfo[] {
   } catch { return [] }
 }
 
+// --- Embedding service helpers ---
+
+function readPidFile(path: string): number | null {
+  if (!existsSync(path)) return null
+  const raw = readFileSync(path, 'utf-8').trim()
+  const pid = parseInt(raw, 10)
+  return isNaN(pid) ? null : pid
+}
+
+function isPidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch { return false }
+}
+
+function getEmbeddingPidPath(): string {
+  return resolve(getProjectRoot(), 'store', 'embedding.pid')
+}
+
 app.get('/system', (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
@@ -159,6 +176,11 @@ app.get('/system', (c) => {
         <div class="stat-label">${icon('calendar', 12)} ${t('sys.cost30')}</div>
         <div class="stat-number">${formatCost(totalMonth)}</div>
       </div>
+    </div>
+
+    <h3>${icon('brain')} ${t('sys.embeddingService')}</h3>
+    <div id="embedding-status" hx-get="/system/embedding/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
+      <span style="color:var(--mc-text-dim)">Loading...</span>
     </div>
 
     <h3>${icon('hard-drive')} ${t('sys.storage')}</h3>
@@ -450,6 +472,111 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc, stats: Recor
     </div>
   `
 }
+
+// --- Embedding service routes ---
+
+app.get('/system/embedding/status', async (c) => {
+  const t: TFunc = c.get('t')
+  const pidPath = getEmbeddingPidPath()
+  const pid = readPidFile(pidPath)
+  const running = pid !== null && isPidAlive(pid)
+
+  let model = ''
+  let uptime = 0
+  let ready = false
+
+  if (running) {
+    try {
+      const { getHealth } = await import('../../embeddings.js')
+      const health = await getHealth()
+      if (health) {
+        ready = health.ready === true
+        model = health.model ?? ''
+        uptime = health.uptime ?? 0
+      }
+    } catch {}
+  }
+
+  const uptimeStr = uptime > 0
+    ? (uptime > 3600 ? `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m` : `${Math.floor(uptime / 60)}m ${uptime % 60}s`)
+    : '—'
+
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${t('sys.embeddingStatus')}</div>
+        <div class="stat-number" style="font-size:1.1rem">
+          ${running && ready
+            ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.embeddingOnline')}</span>`
+            : running
+              ? html`<span class="badge" style="background:var(--mc-warning);color:#000">${icon('loader', 11)} Loading...</span>`
+              : html`<span class="badge badge-missing">${icon('x', 11)} ${t('sys.embeddingOffline')}</span>`
+          }
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${t('sys.embeddingModel')}</div>
+        <div class="stat-number" style="font-size:0.85rem">${model || '—'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('timer', 12)} Uptime</div>
+        <div class="stat-number" style="font-size:1.1rem">${uptimeStr}</div>
+      </div>
+    </div>
+    <div style="margin-top:0.5rem;display:flex;gap:0.5rem">
+      ${running
+        ? html`<button hx-post="/system/embedding/stop" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm secondary outline">${icon('square', 11)} ${t('sys.embeddingStop')}</button>`
+        : html`<button hx-post="/system/embedding/start" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} ${t('sys.embeddingStart')}</button>`
+      }
+    </div>
+  `)
+})
+
+app.post('/system/embedding/start', (c) => {
+  const root = getProjectRoot()
+  const logPath = '/tmp/botva-embedding.log'
+  const logFd = openSync(logPath, 'a')
+  const child = spawn('node', ['dist/scripts/embedding-server.js'], {
+    cwd: root,
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+  })
+  child.unref()
+  // Return a loading state, htmx will poll for actual status
+  const t: TFunc = c.get('t')
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${t('sys.embeddingStatus')}</div>
+        <div class="stat-number" style="font-size:1.1rem">
+          <span class="badge" style="background:var(--mc-warning);color:#000">${icon('loader', 11)} Starting...</span>
+        </div>
+      </div>
+    </div>
+    <div hx-get="/system/embedding/status" hx-trigger="load delay:3s" hx-target="#embedding-status" hx-swap="innerHTML"></div>
+  `)
+})
+
+app.post('/system/embedding/stop', (c) => {
+  const pid = readPidFile(getEmbeddingPidPath())
+  if (pid && isPidAlive(pid)) {
+    try { process.kill(pid, 'SIGTERM') } catch {}
+  }
+  const t: TFunc = c.get('t')
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${t('sys.embeddingStatus')}</div>
+        <div class="stat-number" style="font-size:1.1rem">
+          <span class="badge badge-missing">${icon('x', 11)} ${t('sys.embeddingOffline')}</span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:0.5rem">
+      <button hx-post="/system/embedding/start" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} ${t('sys.embeddingStart')}</button>
+    </div>
+  `)
+})
 
 // Save system settings
 app.post('/system/settings', async (c) => {

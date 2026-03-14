@@ -10,6 +10,8 @@ set -eo pipefail
 #   ./scripts/deploy.sh status   — show bot status
 #   ./scripts/deploy.sh build    — rebuild TypeScript + MCP servers
 #   ./scripts/deploy.sh launchd  — install macOS launchd services
+#   ./scripts/deploy.sh embedding-start — start embedding service (semantic search)
+#   ./scripts/deploy.sh embedding-stop  — stop embedding service
 #   ./scripts/deploy.sh backup   — create backup (bot or full system)
 #   ./scripts/deploy.sh restore  — restore from backup
 #   ./scripts/deploy.sh backups  — list available backups
@@ -308,6 +310,15 @@ do_status() {
     fi
   done
 
+  # Embedding service
+  local emb_pid=""
+  [ -f "store/embedding.pid" ] && emb_pid=$(cat "store/embedding.pid")
+  if [ -n "$emb_pid" ] && kill -0 "$emb_pid" 2>/dev/null; then
+    echo -e "\nEmbedding service: ${GREEN}running${NC} (PID $emb_pid)"
+  else
+    echo -e "\nEmbedding service: ${RED}stopped${NC} (use: $0 embedding-start)"
+  fi
+
   # Admin panel
   if [ -f "workspace/admin.lock" ]; then
     admin_port=$(python3 -c "import json; print(json.load(open('workspace/admin.lock'))['port'])" 2>/dev/null || echo "?")
@@ -377,6 +388,39 @@ PLIST
 
 # ---- Main ----
 
+do_embedding_start() {
+  local pidfile="store/embedding.pid"
+  local pid=""
+  [ -f "$pidfile" ] && pid=$(cat "$pidfile")
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    warn "Embedding service already running (PID $pid)"
+    return
+  fi
+  echo "Starting embedding service..."
+  mkdir -p store
+  node dist/scripts/embedding-server.js > /tmp/botva-embedding.log 2>&1 &
+  sleep 2
+  [ -f "$pidfile" ] && pid=$(cat "$pidfile")
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    info "Embedding service started (PID $pid)"
+    echo "  Log: /tmp/botva-embedding.log"
+  else
+    err "Embedding service failed to start — check /tmp/botva-embedding.log"
+  fi
+}
+
+do_embedding_stop() {
+  local pidfile="store/embedding.pid"
+  local pid=""
+  [ -f "$pidfile" ] && pid=$(cat "$pidfile")
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null
+    info "Embedding service stopped (PID $pid)"
+  else
+    warn "Embedding service not running"
+  fi
+}
+
 do_backup() {
   local bot_name="${1:-}"
   if [ -n "$bot_name" ]; then
@@ -411,22 +455,26 @@ case "${1:-}" in
   status)   do_status ;;
   admin)    do_admin ;;
   launchd)  do_launchd ;;
+  embedding-start)  do_embedding_start ;;
+  embedding-stop)   do_embedding_stop ;;
   backup)   do_backup "${2:-}" ;;
   restore)  shift; do_restore "$@" ;;
   backups)  do_list_backups ;;
   *)
-    echo "Usage: $0 {setup|build|start|stop|restart|status|admin|launchd|backup|restore|backups}"
+    echo "Usage: $0 {setup|build|start|stop|restart|status|admin|launchd|embedding-start|embedding-stop|backup|restore|backups}"
     echo ""
-    echo "  setup    — first-time install (deps, build, check config)"
-    echo "  build    — rebuild TypeScript"
-    echo "  start    — start all bots (or admin panel if no bots)"
-    echo "  stop     — stop all bots"
-    echo "  restart  — stop + start all bots"
-    echo "  status   — show running bots"
-    echo "  admin    — start admin panel with one-time token"
-    echo "  launchd  — install macOS auto-start services"
-    echo "  backup   — create backup [bot-name] (or full system)"
-    echo "  restore  — restore from backup file"
-    echo "  backups  — list available backups"
+    echo "  setup            — first-time install (deps, build, check config)"
+    echo "  build            — rebuild TypeScript"
+    echo "  start            — start all bots (or admin panel if no bots)"
+    echo "  stop             — stop all bots"
+    echo "  restart          — stop + start all bots"
+    echo "  status           — show running bots"
+    echo "  admin            — start admin panel with one-time token"
+    echo "  launchd          — install macOS auto-start services"
+    echo "  embedding-start  — start embedding service (semantic search)"
+    echo "  embedding-stop   — stop embedding service"
+    echo "  backup           — create backup [bot-name] (or full system)"
+    echo "  restore          — restore from backup file"
+    echo "  backups          — list available backups"
     ;;
 esac
