@@ -164,9 +164,8 @@ app.get('/', (c) => {
           </div>
           <div class="card-links">
             <a href="/bot/${b.name}/config">${icon('settings', 11)} ${t('dash.config')}</a>
-            <a href="/bot/${b.name}/memories">${icon('brain', 11)} ${t('dash.memories')}</a>
-            <a href="/bot/${b.name}/usage">${icon('bar-chart-3', 11)} ${t('dash.usage')}</a>
-            <a href="/bot/${b.name}/audit">${icon('scroll-text', 11)} ${t('dash.audit')}</a>
+            <a href="/bot/${b.name}/facts">${icon('database', 11)} ${t('dash.facts')}</a>
+            <a href="/bot/${b.name}/tasks">${icon('calendar', 11)} ${t('dash.tasks')}</a>
             <a href="/bot/${b.name}/logs">${icon('file-text', 11)} ${t('dash.logs')}</a>
           </div>
         </div>
