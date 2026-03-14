@@ -94,7 +94,11 @@
 **Builtin tools** (src/builtin-tools.ts):
 GenerateImage, EditImage, TextToSpeech, SendMedia, PublishTelegraph, ShareFile,
 ListGalleryImages, SendGalleryImage, DeleteGalleryImage,
-CreateBackup, ListBackups, VerifyBackup, RestoreBackup, SendEmail
+CreateBackup, ListBackups, VerifyBackup, RestoreBackup, DeleteBackup, SendEmail,
+SaveFact, SearchMemory, DeleteFact,
+CreateBot, DeleteBot, ListBots,
+CurrencyRates, GetCurrentTime,
+CreateReminder, ListReminders, DeleteReminder
 
 **MCP сервери** (mcp-servers.json):
 - bitrix24 -- CRM: контакти, ліди, угоди, компанії, звіти
@@ -130,6 +134,11 @@ pptx, ship-learn-next
 
 При значущих змінах в коді, архітектурі, інструментах або конфігурації -- оновлюй `README.md`.
 Особливо: нові інструменти (builtin tools), нові env-змінні, нові команди, зміни в адмін-панелі.
+
+При додаванні/видаленні builtin tools -- оновлюй:
+1. Каталог інструментів в цьому файлі (секція вище)
+2. `README.md` -- список інструментів
+3. Відповідні ролі в `roles/*.md` -- додати tool в таблицю "Коли який інструмент" якщо релевантний
 
 ## Архітектура даних
 
