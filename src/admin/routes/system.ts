@@ -205,8 +205,8 @@ app.get('/system', (c) => {
             <th>${t('sys.bot')}</th>
             <th>${t('sys.telegram')}</th>
             <th>${t('sys.chatId')}</th>
-            <th>${t('sys.groq')}</th>
-            <th>${t('sys.google')}</th>
+            <th class="hide-mobile">${t('sys.groq')}</th>
+            <th class="hide-mobile">${t('sys.google')}</th>
           </tr>
         </thead>
         <tbody>
@@ -215,8 +215,8 @@ app.get('/system', (c) => {
               <td><span class="badge badge-${b.name}">${b.name}</span></td>
               <td>${b.hasToken ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-missing">${icon('x', 11)} ${t('sys.missing')}</span>`}</td>
               <td>${b.hasChatId ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-missing">${icon('x', 11)} ${t('sys.missing')}</span>`}</td>
-              <td>${b.hasGroq ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-optional">${t('sys.optional')}</span>`}</td>
-              <td>${b.hasGoogle ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-optional">${t('sys.optional')}</span>`}</td>
+              <td class="hide-mobile">${b.hasGroq ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-optional">${t('sys.optional')}</span>`}</td>
+              <td class="hide-mobile">${b.hasGoogle ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-optional">${t('sys.optional')}</span>`}</td>
             </tr>
           `)}
         </tbody>
@@ -291,13 +291,13 @@ function renderSkillsTable(skills: SkillInfo[], t: TFunc) {
   return html`
     <div class="table-wrap" id="skills-table">
       <table>
-        <thead><tr><th>${t('sys.skill')}</th><th>${t('sys.skillDesc')}</th><th style="width:70px">${t('sys.skillTokens')}</th><th style="width:80px">${t('sys.skillStatus')}</th><th style="width:50px"></th></tr></thead>
+        <thead><tr><th>${t('sys.skill')}</th><th class="hide-mobile">${t('sys.skillDesc')}</th><th style="width:70px" class="hide-mobile">${t('sys.skillTokens')}</th><th style="width:80px">${t('sys.skillStatus')}</th><th style="width:50px"></th></tr></thead>
         <tbody>
           ${skills.map(s => html`
             <tr>
               <td><code>/${s.name}</code></td>
-              <td style="font-size:0.78rem;color:var(--mc-text-secondary)">${s.description}</td>
-              <td style="font-size:0.78rem;color:var(--mc-text-dim);font-variant-numeric:tabular-nums">${formatTokens(s.tokens)}</td>
+              <td class="hide-mobile" style="font-size:0.78rem;color:var(--mc-text-secondary)">${s.description}</td>
+              <td class="hide-mobile" style="font-size:0.78rem;color:var(--mc-text-dim);font-variant-numeric:tabular-nums">${formatTokens(s.tokens)}</td>
               <td>
                 <button
                   hx-post="/system/skill-toggle/${s.name}"
@@ -349,7 +349,7 @@ function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, str
   return html`
     <div class="table-wrap" id="mcp-table">
       <table>
-        <thead><tr><th>${t('sys.server')}</th><th>${t('sys.command')}</th><th>${t('sys.env')}</th><th style="width:80px">${t('sys.mcpStatus')}</th><th style="width:80px"></th></tr></thead>
+        <thead><tr><th>${t('sys.server')}</th><th class="hide-mobile">${t('sys.command')}</th><th class="hide-mobile">${t('sys.env')}</th><th style="width:80px">${t('sys.mcpStatus')}</th><th style="width:80px"></th></tr></thead>
         <tbody>
           ${servers.map(s => {
             const active = s.enabled && s.userEnabled
@@ -357,8 +357,8 @@ function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, str
             return html`
               <tr${!s.userEnabled ? ' style="opacity:0.55"' : ''}>
                 <td><strong>${s.name}</strong></td>
-                <td><code style="font-size:0.72rem">${s.command} ${s.args.join(' ').replace(new RegExp(getProjectRoot().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.').slice(0, 80)}${s.args.join(' ').length > 80 ? '…' : ''}</code></td>
-                <td>${s.condition === 'always'
+                <td class="hide-mobile"><code style="font-size:0.72rem">${s.command} ${s.args.join(' ').replace(new RegExp(getProjectRoot().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.').slice(0, 80)}${s.args.join(' ').length > 80 ? '…' : ''}</code></td>
+                <td class="hide-mobile">${s.condition === 'always'
                   ? html`<span class="badge badge-set" style="font-size:0.7rem">${icon('check', 11)} always</span>`
                   : envVars.map(v => {
                       const bots = envBotMap[v] ?? []
@@ -426,11 +426,11 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc, stats: Recor
     <div class="table-wrap" id="builtin-tools-table">
       <table>
         <thead><tr>
-          <th style="width:40px"></th>
+          <th style="width:40px" class="hide-mobile"></th>
           <th>${t('sys.tool')}</th>
-          <th>${t('sys.toolDesc')}</th>
-          <th style="width:180px">${t('sys.tool') === 'Tool' ? 'Usage' : 'Використання'}</th>
-          <th style="width:120px">${t('sys.toolCondition')}</th>
+          <th class="hide-mobile">${t('sys.toolDesc')}</th>
+          <th style="width:180px" class="hide-mobile">${t('sys.tool') === 'Tool' ? 'Usage' : 'Використання'}</th>
+          <th style="width:120px" class="hide-mobile">${t('sys.toolCondition')}</th>
           <th style="width:80px">${t('sys.skillStatus')}</th>
         </tr></thead>
         <tbody>
@@ -442,11 +442,11 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc, stats: Recor
               <tr><td colspan="6" style="background:var(--mc-bg-alt);font-weight:600;font-size:0.78rem;padding:0.4rem 0.75rem;color:var(--mc-text-secondary)">${catLabel}</td></tr>
               ${catTools.map(tool => html`
                 <tr${!tool.available ? ' style="opacity:0.45"' : ''}>
-                  <td style="text-align:center;color:var(--mc-text-dim)">${icon(tool.icon, 15)}</td>
+                  <td class="hide-mobile" style="text-align:center;color:var(--mc-text-dim)">${icon(tool.icon, 15)}</td>
                   <td><code style="font-size:0.78rem">${tool.name}</code></td>
-                  <td style="font-size:0.78rem;color:var(--mc-text-secondary)">${tool.description}</td>
-                  <td>${fmtStat(stats[tool.name])}</td>
-                  <td style="font-size:0.72rem">${tool.condition
+                  <td class="hide-mobile" style="font-size:0.78rem;color:var(--mc-text-secondary)">${tool.description}</td>
+                  <td class="hide-mobile">${fmtStat(stats[tool.name])}</td>
+                  <td class="hide-mobile" style="font-size:0.72rem">${tool.condition
                     ? (tool.available
                       ? html`<span class="badge badge-set" style="font-size:0.65rem">${icon('check', 9)} ${tool.condition}</span>`
                       : html`<span class="badge badge-missing" style="font-size:0.65rem">${icon('x', 9)} ${tool.condition}</span>`)

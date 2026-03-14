@@ -75,8 +75,8 @@ app.get('/backup', (c) => {
             <thead>
               <tr>
                 <th>${t('bak.date')}</th>
-                <th>${t('bak.type')}</th>
-                <th>${t('bak.bots')}</th>
+                <th class="hide-mobile">${t('bak.type')}</th>
+                <th class="hide-mobile">${t('bak.bots')}</th>
                 <th>${t('bak.size')}</th>
                 <th>${t('bak.actions')}</th>
               </tr>
@@ -85,8 +85,8 @@ app.get('/backup', (c) => {
               ${backups.map(b => html`
                 <tr>
                   <td class="ts-cell">${fmtDate(b.manifest.createdAt)}</td>
-                  <td><span class="badge badge-active">${t(`bak.${b.manifest.type}`)}</span></td>
-                  <td>${b.manifest.bots.join(', ')}</td>
+                  <td class="hide-mobile"><span class="badge badge-active">${t(`bak.${b.manifest.type}`)}</span></td>
+                  <td class="hide-mobile">${b.manifest.bots.join(', ')}</td>
                   <td>${formatSize(b.sizeBytes)}</td>
                   <td>
                     <div class="btn-group">

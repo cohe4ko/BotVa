@@ -61,14 +61,14 @@ app.get('/bot/:name/images', validateBot, (c) => {
       <h4>${t('img.recentGen')}</h4>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>${t('img.time')}</th><th>${t('img.type')}</th><th>${t('img.prompt')}</th><th>${t('img.tokens')}</th><th>${t('img.size')}</th><th>${t('img.estCost')}</th></tr></thead>
+          <thead><tr><th>${t('img.time')}</th><th>${t('img.type')}</th><th>${t('img.prompt')}</th><th class="hide-mobile">${t('img.tokens')}</th><th class="hide-mobile">${t('img.size')}</th><th>${t('img.estCost')}</th></tr></thead>
           <tbody>
             ${imgRecent.map(r => html`<tr>
               <td class="ts-cell">${formatTs(r.created_at)}</td>
               <td><span class="badge badge-${r.type === 'generate' ? 'set' : 'optional'}">${r.type}</span></td>
               <td class="detail-cell">${truncate(r.prompt, 60)}</td>
-              <td>${r.input_tokens.toLocaleString()} / ${r.output_tokens.toLocaleString()}</td>
-              <td>${formatBytes(r.image_bytes)}</td>
+              <td class="hide-mobile">${r.input_tokens.toLocaleString()} / ${r.output_tokens.toLocaleString()}</td>
+              <td class="hide-mobile">${formatBytes(r.image_bytes)}</td>
               <td>${formatCost(imageTokenCost(r.output_tokens))}</td>
             </tr>`)}
           </tbody>

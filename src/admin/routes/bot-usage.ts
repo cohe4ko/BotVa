@@ -54,14 +54,14 @@ app.get('/bot/:name/usage', validateBot, (c) => {
     <h4>${t('usage.recentRequests')}</h4>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>${t('usage.time')}</th><th>${t('usage.chat')}</th><th>${t('usage.input')}</th><th>${t('usage.output')}</th><th>${t('usage.cache')}</th><th>${t('usage.cost')}</th></tr></thead>
+        <thead><tr><th>${t('usage.time')}</th><th class="hide-mobile">${t('usage.chat')}</th><th>${t('usage.input')}</th><th>${t('usage.output')}</th><th class="hide-mobile">${t('usage.cache')}</th><th>${t('usage.cost')}</th></tr></thead>
         <tbody>
           ${recent.map(r => html`<tr>
             <td class="ts-cell">${formatTs(r.created_at)}</td>
-            <td><small>${r.chat_id}</small></td>
+            <td class="hide-mobile"><small>${r.chat_id}</small></td>
             <td>${r.input_tokens.toLocaleString()}</td>
             <td>${r.output_tokens.toLocaleString()}</td>
-            <td>${r.cache_read_tokens.toLocaleString()}</td>
+            <td class="hide-mobile">${r.cache_read_tokens.toLocaleString()}</td>
             <td>${formatCost(r.cost_usd)}</td>
           </tr>`)}
         </tbody>

@@ -41,14 +41,14 @@ app.get('/bot/:name/tasks', validateBot, (c) => {
       : html`
         <div class="table-wrap" style="margin-bottom:2rem">
           <table>
-            <thead><tr><th style="width:50px">ID</th><th>Text</th><th style="width:140px">When</th><th style="width:140px">Created</th><th style="width:60px"></th></tr></thead>
+            <thead><tr><th style="width:50px">ID</th><th>Text</th><th style="width:140px">When</th><th style="width:140px" class="hide-mobile">Created</th><th style="width:60px"></th></tr></thead>
             <tbody>
               ${reminders.map(r => html`
                 <tr id="reminder-${r.id}">
                   <td><small>#${r.id}</small></td>
                   <td style="font-size:0.78rem">${truncate(r.text, 80)}</td>
                   <td class="ts-cell">${formatTs(r.remind_at)}</td>
-                  <td class="ts-cell">${formatTs(r.created_at)}</td>
+                  <td class="ts-cell hide-mobile">${formatTs(r.created_at)}</td>
                   <td><button hx-delete="/bot/${name}/reminders/${r.id}" hx-target="#reminder-${r.id}" hx-swap="outerHTML" hx-confirm="Delete this reminder?" class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button></td>
                 </tr>
               `)}
@@ -78,16 +78,16 @@ app.get('/bot/:name/tasks', validateBot, (c) => {
       : html`
         <div class="table-wrap">
           <table>
-            <thead><tr><th style="width:60px">${t('mem.id')}</th><th>${t('tasks.prompt')}</th><th style="width:100px">${t('tasks.schedule')}</th><th style="width:70px">${t('tasks.status')}</th><th style="width:140px">${t('tasks.nextRun')}</th><th style="width:140px">${t('tasks.lastRun')}</th><th style="width:100px"></th></tr></thead>
+            <thead><tr><th style="width:60px" class="hide-mobile">${t('mem.id')}</th><th>${t('tasks.prompt')}</th><th style="width:100px">${t('tasks.schedule')}</th><th style="width:70px">${t('tasks.status')}</th><th style="width:140px">${t('tasks.nextRun')}</th><th style="width:140px" class="hide-mobile">${t('tasks.lastRun')}</th><th style="width:100px"></th></tr></thead>
             <tbody>
               ${tasks.map(task => html`
                 <tr id="task-${task.id}">
-                  <td><small>${task.id.slice(0, 8)}</small></td>
+                  <td class="hide-mobile"><small>${task.id.slice(0, 8)}</small></td>
                   <td title="${task.prompt}" style="font-size:0.78rem">${truncate(task.prompt, 60)}</td>
                   <td><code>${task.schedule}</code></td>
                   <td>${taskStatusBadge(task.status)}</td>
                   <td class="ts-cell">${formatTs(task.next_run)}</td>
-                  <td class="ts-cell">${task.last_run ? formatTs(task.last_run) : '\u2014'}</td>
+                  <td class="ts-cell hide-mobile">${task.last_run ? formatTs(task.last_run) : '\u2014'}</td>
                   <td><div class="btn-group">
                     ${task.status === 'active'
                       ? html`<button hx-post="/bot/${name}/tasks/${task.id}/pause" hx-target="#task-${task.id}" hx-swap="outerHTML" class="contrast outline btn-sm"><i data-lucide="pause" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button>`

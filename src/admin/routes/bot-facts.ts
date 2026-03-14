@@ -105,10 +105,10 @@ app.get('/bot/:name/facts', validateBot, (c) => {
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th style="width:30px"></th>
+              <th style="width:30px" class="hide-mobile"></th>
               <th style="width:80px">${t('facts.topic')}</th>
               <th>${t('facts.content')}</th>
-              <th style="width:80px">${t('facts.date')}</th>
+              <th style="width:80px" class="hide-mobile">${t('facts.date')}</th>
               <th style="width:40px"></th>
             </tr></thead>
             <tbody>
@@ -119,7 +119,7 @@ app.get('/bot/:name/facts', validateBot, (c) => {
                 const tags = f.tags ? f.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
                 return html`
                 <tr id="fact-${f.id}">
-                  <td title="${sectorTitle}">${icon(sectorIcon, 14)}</td>
+                  <td class="hide-mobile" title="${sectorTitle}">${icon(sectorIcon, 14)}</td>
                   <td><span style="font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:10px;background:${topicColor(f.topic)};color:#1a1a2e">${f.topic}</span></td>
                   <td>
                     <div id="fact-view-${f.id}">
@@ -142,7 +142,7 @@ app.get('/bot/:name/facts', validateBot, (c) => {
                       </div>
                     </form>
                   </td>
-                  <td><small style="color:var(--mc-text-dim)">${dateStr}</small>${f.source && f.source !== 'conversation' ? html`<br><small style="font-size:0.55rem;color:var(--mc-text-dim)" title="${f.source}">${truncate(f.source, 15)}</small>` : ''}</td>
+                  <td class="hide-mobile"><small style="color:var(--mc-text-dim)">${dateStr}</small>${f.source && f.source !== 'conversation' ? html`<br><small style="font-size:0.55rem;color:var(--mc-text-dim)" title="${f.source}">${truncate(f.source, 15)}</small>` : ''}</td>
                   <td>
                     <button hx-post="/bot/${name}/facts/${f.id}/delete" hx-target="#fact-${f.id}" hx-swap="outerHTML"
                       hx-confirm="${t('facts.deleteConfirm')}" class="danger btn-sm">${icon('trash-2', 12)}</button>

@@ -47,7 +47,7 @@ app.get('/bot/:name/memories', validateBot, (c) => {
       : html`
         <div class="table-wrap">
           <table>
-            <thead><tr><th>${t('mem.content')}</th><th style="width:130px">${t('mem.salience')}</th><th style="width:100px">${t('mem.created')}</th><th style="width:40px"></th></tr></thead>
+            <thead><tr><th>${t('mem.content')}</th><th style="width:130px">${t('mem.salience')}</th><th style="width:100px" class="hide-mobile">${t('mem.created')}</th><th style="width:40px"></th></tr></thead>
             <tbody>
               ${memories.map(m => html`
                 <tr id="mem-${m.id}">
@@ -61,7 +61,7 @@ app.get('/bot/:name/memories', validateBot, (c) => {
                         hx-include="this" name="salience">
                     </div>
                   </td>
-                  <td class="ts-cell">${formatTs(m.created_at)}</td>
+                  <td class="ts-cell hide-mobile">${formatTs(m.created_at)}</td>
                   <td><button hx-post="/bot/${name}/memories/${m.id}/delete" hx-target="#mem-${m.id}" hx-swap="outerHTML"
                     hx-confirm="${t('mem.deleteConfirm')}" class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button></td>
                 </tr>
