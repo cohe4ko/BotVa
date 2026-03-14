@@ -240,6 +240,17 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 
+  // Catch unhandled rejections from SDK internals (e.g. ProcessTransport race conditions)
+  // so they don't crash the entire bot process
+  process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason)
+    if (msg.includes('not ready for writing') || msg.includes('terminated process') || msg.includes('Cannot write to')) {
+      logger.warn({ err: reason }, 'SDK transport error (suppressed)')
+    } else {
+      logger.error({ err: reason }, 'Unhandled rejection')
+    }
+  })
+
   // Wait for runner to finish (keeps process alive)
   await runner.task()
 }

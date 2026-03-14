@@ -128,7 +128,7 @@ node dist/imagen-cli.js edit /path/to/image.jpg "що змінити"
 ```bash
 scripts/publish.sh /path/to/file.html [subfolder]
 ```
-Завантажить файл на share.devever.com і виведе URL.
+Завантажить файл на сервер публікації (PUBLISH_BASE_URL) і виведе URL.
 
 ## Available Skills
 

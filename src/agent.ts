@@ -156,8 +156,8 @@ async function runAgentOnce(
       if (event.type === 'assistant') {
         if (event.message?.content) {
           const textParts = event.message.content
-            .filter((b: { type: string }) => b.type === 'text')
-            .map((b: { text: string }) => b.text)
+            .filter((b: any) => b.type === 'text')
+            .map((b: any) => b.text as string)
           if (textParts.length > 0) {
             recentAssistantTexts.push(textParts.join('\n'))
           }
@@ -214,7 +214,7 @@ async function runAgentOnce(
     } else {
       logger.error({ err }, 'Agent error')
 
-      if (errMsg.includes('exited with code') && sessionId) {
+      if ((errMsg.includes('exited with code') || errMsg.includes('not ready for writing') || errMsg.includes('terminated process')) && sessionId) {
         sessionFailed = true
       } else {
         resultText = `Помилка агента: ${errMsg}`

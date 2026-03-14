@@ -11,7 +11,7 @@
 - `mcp-servers/` -- MCP сервери (тільки вихідний код, без `build/`, `venv/`, `node_modules/`)
 - `.claude/skills/` -- скіли Claude Code
 - `package.json`, `tsconfig.json`, `.gitignore`, `.env.example`
-- `CLAUDE.md`, `DEPLOY.md`
+- `CLAUDE.md`, `DEPLOY.md`, `README.md`
 - `mcp-servers.json.example`, `.mcp.json.example`
 
 **НЕ комітити (дані та секрети):**
@@ -125,6 +125,11 @@ pptx, ship-learn-next
 - [ ] Є "Ресурси" з інструкцією "прочитай ПЕРЕД відповіддю"
 - [ ] Немає дублювання з _base.md
 - [ ] Розмір: 40-100 рядків (без _base.md)
+
+## Документація
+
+При значущих змінах в коді, архітектурі, інструментах або конфігурації -- оновлюй `README.md`.
+Особливо: нові інструменти (builtin tools), нові env-змінні, нові команди, зміни в адмін-панелі.
 
 ## Архітектура даних
 

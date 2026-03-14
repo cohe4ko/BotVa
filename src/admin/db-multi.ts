@@ -230,6 +230,87 @@ export function deleteSetting(bot: BotName, chatId: string, key: string): boolea
   return r.changes > 0
 }
 
+// Facts (long-term memory)
+export interface FactRow {
+  id: number
+  chat_id: string
+  topic: string
+  content: string
+  tags: string
+  sector: 'semantic' | 'episodic'
+  created_at: number
+  updated_at: number
+}
+
+function ensureFactsTable(bot: BotName): boolean {
+  const db = getBotDb(bot)
+  const check = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='facts'").get()
+  return !!check
+}
+
+export function getFacts(bot: BotName, limit = 50, offset = 0, query?: string, topic?: string): FactRow[] {
+  if (!ensureFactsTable(bot)) return []
+  const db = getBotDb(bot)
+  if (query) {
+    const sanitized = query.replace(/[^\w\s\u0400-\u04FF]/g, '').trim()
+    if (!sanitized) return []
+    const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' OR ')
+    try {
+      let sql = `SELECT f.* FROM facts f JOIN facts_fts ff ON ff.rowid = f.id WHERE facts_fts MATCH ?`
+      const params: (string | number)[] = [ftsQuery]
+      if (topic) { sql += ' AND f.topic = ?'; params.push(topic) }
+      sql += ' ORDER BY rank LIMIT ? OFFSET ?'
+      params.push(limit, offset)
+      return db.prepare(sql).all(...params) as unknown as FactRow[]
+    } catch { return [] }
+  }
+  let sql = 'SELECT * FROM facts WHERE 1=1'
+  const params: (string | number)[] = []
+  if (topic) { sql += ' AND topic = ?'; params.push(topic) }
+  sql += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+  params.push(limit, offset)
+  return db.prepare(sql).all(...params) as unknown as FactRow[]
+}
+
+export function countFacts(bot: BotName, query?: string, topic?: string): number {
+  if (!ensureFactsTable(bot)) return 0
+  const db = getBotDb(bot)
+  if (query) {
+    const sanitized = query.replace(/[^\w\s\u0400-\u04FF]/g, '').trim()
+    if (!sanitized) return 0
+    const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' OR ')
+    try {
+      let sql = `SELECT COUNT(*) as cnt FROM facts f JOIN facts_fts ff ON ff.rowid = f.id WHERE facts_fts MATCH ?`
+      const params: (string | number)[] = [ftsQuery]
+      if (topic) { sql += ' AND f.topic = ?'; params.push(topic) }
+      return (db.prepare(sql).get(...params) as unknown as { cnt: number }).cnt
+    } catch { return 0 }
+  }
+  let sql = 'SELECT COUNT(*) as cnt FROM facts WHERE 1=1'
+  const params: string[] = []
+  if (topic) { sql += ' AND topic = ?'; params.push(topic) }
+  return (db.prepare(sql).get(...params) as unknown as { cnt: number }).cnt
+}
+
+export function getFactTopics(bot: BotName): { topic: string; count: number }[] {
+  if (!ensureFactsTable(bot)) return []
+  return getBotDb(bot).prepare('SELECT topic, COUNT(*) as count FROM facts GROUP BY topic ORDER BY count DESC')
+    .all() as unknown as { topic: string; count: number }[]
+}
+
+export function updateFactContent(bot: BotName, id: number, content: string, tags: string): boolean {
+  if (!ensureFactsTable(bot)) return false
+  const now = Math.floor(Date.now() / 1000)
+  const r = getBotDb(bot).prepare('UPDATE facts SET content = ?, tags = ?, updated_at = ? WHERE id = ?').run(content, tags, now, id)
+  return r.changes > 0
+}
+
+export function deleteFact(bot: BotName, id: number): boolean {
+  if (!ensureFactsTable(bot)) return false
+  const r = getBotDb(bot).prepare('DELETE FROM facts WHERE id = ?').run(id)
+  return r.changes > 0
+}
+
 // Audit log
 export interface AuditRow {
   id: number

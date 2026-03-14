@@ -20,6 +20,7 @@ const PAGE_ICONS: Record<string, string> = {
   '/system': 'server',
   '/diagnostics': 'stethoscope',
   '/create-bot': 'plus-circle',
+  '/docs': 'book-open',
 }
 
 export function layout(title: string, content: HtmlContent, activePath = '/', t?: TFunc, lang?: Lang, pageIcon?: string): HtmlContent {
@@ -87,6 +88,9 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:14px;height:14px"></i> ${_t('nav.diagnostics')}</a>
       <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:14px;height:14px"></i> ${_t('nav.system')}</a>
       <div class="nav-actions">
+        <a href="/docs" class="theme-toggle" title="${_t('nav.docs')}">
+          <i data-lucide="book-open" style="width:16px;height:16px"></i>
+        </a>
         <button class="theme-toggle" onclick="switchLang()" title="Switch language" style="font-size:0.75rem;font-weight:600;min-width:28px">
           ${langLabel}
         </button>
@@ -135,13 +139,12 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
 const NAV_SECTIONS = [
   { id: 'config', key: 'botnav.config', icon: 'settings' },
   { id: 'knowledge', key: 'botnav.knowledge', icon: 'book-open' },
+  { id: 'facts', key: 'botnav.facts', icon: 'database' },
   { id: 'memories', key: 'botnav.memories', icon: 'brain' },
   { id: 'tasks', key: 'botnav.tasks', icon: 'clock' },
-  { id: 'sessions', key: 'botnav.sessions', icon: 'link' },
   { id: 'settings', key: 'botnav.settings', icon: 'sliders-horizontal' },
   { id: 'usage', key: 'botnav.usage', icon: 'bar-chart-3' },
   { id: 'images', key: 'botnav.images', icon: 'image' },
-  { id: 'audit', key: 'botnav.audit', icon: 'scroll-text' },
   { id: 'logs', key: 'botnav.logs', icon: 'file-text' },
   { id: 'diagnostics', key: 'botnav.diagnostics', icon: 'radar' },
 ]
