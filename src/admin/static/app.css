@@ -1073,7 +1073,7 @@ details.inline > :last-child { padding-bottom: 0; }
     border-radius: 0;
   }
 
-  .nav-actions { margin-left: 0; padding: 0.4rem 1rem; }
+  .nav-actions { margin-left: 0; padding: 0.4rem 1rem; background: var(--mc-white); border-top: 1px solid var(--mc-border); }
 
   .mc-main { padding: 1rem; }
   .bot-grid { grid-template-columns: 1fr; }
