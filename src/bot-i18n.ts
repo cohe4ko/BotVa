@@ -180,7 +180,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.desc.stats': 'Show token count and cost after each reply',
     'settings.desc.lang': 'Bot interface language',
     'settings.desc.style': 'Progress indicator style: brunette (technical) or blonde (cute emoji)',
-    'settings.desc.delay': 'Delay before showing progress updates (0 = instant, ∞ = never)',
+    'settings.desc.delay': 'How long progress stays visible after the final reply (0 = remove immediately, ∞ = keep forever)',
     'settings.desc.team': 'Show teammate work: all steps, result only, or hidden',
 
     // Bot commands menu
@@ -370,7 +370,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.desc.stats': 'Показувати кількість токенів та вартість після кожної відповіді',
     'settings.desc.lang': 'Мова інтерфейсу бота',
     'settings.desc.style': 'Стиль індикатора прогресу: brunette (технічний) або blonde (милі емодзі)',
-    'settings.desc.delay': 'Затримка перед показом прогресу (0 = миттєво, ∞ = ніколи)',
+    'settings.desc.delay': 'Скільки прогрес видно після фінальної відповіді (0 = прибрати одразу, ∞ = залишити)',
     'settings.desc.team': 'Показ роботи команди: всі кроки, тільки результат або приховано',
 
     // Bot commands menu
