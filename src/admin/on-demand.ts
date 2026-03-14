@@ -179,16 +179,13 @@ export function stopAdmin(): void {
   if (state.server) {
     state.server.close()
     state.server = null
-  } else {
-    // Admin was started by another bot — kill via lock file PID
-    const lock = readLock()
-    if (lock && lock.pid !== process.pid && isProcessAlive(lock.pid)) {
-      try {
-        // Send shutdown request to the other bot's admin server
-        fetch(`http://127.0.0.1:${lock.port}/api/shutdown?token=${lock.token}`, { method: 'POST' }).catch(() => {})
-      } catch { /* ignore */ }
-    }
   }
+
+  // Kill any process on the admin port (covers deploy.sh, other bots, etc.)
+  const lock = readLock()
+  const port = lock?.port ?? parseInt(process.env.ADMIN_PORT || '3000', 10)
+  killPortOccupant(port)
+
   setSessionToken(null)
   state.token = null
   removeLock()

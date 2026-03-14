@@ -35,6 +35,7 @@ const translations: Record<Lang, Record<string, string>> = {
 
     // Auth
     'auth.title': 'BotVa Admin',
+    'auth.subtitle': 'Enter your token to continue',
     'auth.token': 'Token',
     'auth.placeholder': 'Enter admin token',
     'auth.login': 'Login',
@@ -564,6 +565,7 @@ const translations: Record<Lang, Record<string, string>> = {
 
     // Auth
     'auth.title': 'BotVa Адмін',
+    'auth.subtitle': 'Введіть токен для доступу',
     'auth.token': 'Токен',
     'auth.placeholder': 'Введіть токен адміністратора',
     'auth.login': 'Увійти',

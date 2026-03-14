@@ -18,24 +18,135 @@ export function setSessionToken(token: string | null): void {
 export function loginPage(error?: string, t?: TFunc): HtmlEscapedString {
   const _t = t ?? createT('uk')
   return html`<!DOCTYPE html>
-<html lang="uk" data-theme="light">
+<html lang="uk">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Login — ${_t('auth.title')}</title>
-  <link rel="stylesheet" href="/static/pico.min.css">
+  <link rel="stylesheet" href="/static/app.css">
+  <style>
+    .login-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--mc-bg);
+      padding: 1rem;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--mc-white);
+      border: 1px solid var(--mc-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      padding: 2rem;
+    }
+    .login-header {
+      text-align: center;
+      margin-bottom: 1.75rem;
+    }
+    .login-logo {
+      width: 48px;
+      height: 48px;
+      background: var(--mc-accent);
+      border-radius: 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      color: #fff;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+    .login-header h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--mc-text);
+      margin: 0 0 0.25rem;
+    }
+    .login-header p {
+      color: var(--mc-text-dim);
+      font-size: 0.82rem;
+      margin: 0;
+    }
+    .login-form label {
+      display: block;
+      color: var(--mc-text-secondary);
+      font-size: 0.8rem;
+      font-weight: 500;
+      margin-bottom: 0.35rem;
+    }
+    .login-form input[type="password"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.9rem;
+      border: 1px solid var(--mc-border);
+      border-radius: var(--radius-sm);
+      background: var(--mc-white);
+      color: var(--mc-text);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .login-form input[type="password"]:focus {
+      border-color: var(--mc-accent);
+      box-shadow: 0 0 0 3px var(--mc-accent-light);
+      outline: none;
+    }
+    .login-form button[type="submit"] {
+      width: 100%;
+      margin-top: 1rem;
+      padding: 0.6rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: var(--mc-accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .login-form button[type="submit"]:hover {
+      background: var(--mc-accent-hover);
+    }
+    .login-error {
+      background: var(--mc-red-light);
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      padding: 0.5rem 0.75rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    @media (prefers-color-scheme: dark) {
+      .login-error { background: rgba(248,113,113,0.1); color: #fca5a5; border-color: rgba(248,113,113,0.2); }
+    }
+  </style>
+  <script>
+    (function() {
+      var saved = localStorage.getItem('theme');
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
+    })();
+  </script>
 </head>
 <body>
-  <main class="container" style="max-width:400px;margin-top:10vh">
-    <h2>${_t('auth.title')}</h2>
-    ${error ? html`<p style="color:red">${error}</p>` : ''}
-    <form method="POST" action="/login">
-      <label>${_t('auth.token')}
-        <input type="password" name="token" placeholder="${_t('auth.placeholder')}" autofocus required>
-      </label>
-      <button type="submit">${_t('auth.login')}</button>
-    </form>
-  </main>
+  <div class="login-page">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-logo">B</div>
+        <h2>${_t('auth.title')}</h2>
+        <p>${_t('auth.subtitle')}</p>
+      </div>
+      ${error ? html`<div class="login-error">${error}</div>` : ''}
+      <form method="POST" action="/login" class="login-form">
+        <label for="token">${_t('auth.token')}</label>
+        <input type="password" id="token" name="token" placeholder="${_t('auth.placeholder')}" autofocus required>
+        <button type="submit">${_t('auth.login')}</button>
+      </form>
+    </div>
+  </div>
 </body>
 </html>` as HtmlEscapedString
 }
