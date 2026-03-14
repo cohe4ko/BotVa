@@ -519,7 +519,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
   if (isOn('SaveFact')) tools.push(
     tool(
       'SaveFact',
-      'Save facts to your permanent long-term memory. Use PROACTIVELY whenever the user shares personal information, preferences, dates, decisions, or anything worth remembering. These facts NEVER decay. Supports batch — save multiple facts in one call. Each fact needs tags for search (synonyms, translations, related terms).',
+      'Save facts to PERMANENT memory (never decays). ALWAYS SearchMemory first to avoid duplicates — if fact exists and changed, DeleteFact old + SaveFact new. Use PROACTIVELY when user shares: dates, names, preferences, health info, decisions, contacts. Also save important results from tool calls (WebSearch, CRM, stagehand) if they answer a specific question and will be useful in future conversations. Batch supported. Tags must include synonyms and translations for better search.',
       {
         facts: z.array(z.object({
           content: z.string().describe('Clean, concise statement. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin"'),
@@ -555,7 +555,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number): Prom
   if (isOn('SearchMemory')) tools.push(
     tool(
       'SearchMemory',
-      'Search your long-term memory for facts and events. Use when the user asks about something discussed before, or when you need to recall specific details. Search by keywords, filter by topic, or both.',
+      'Search permanent memory (facts & events). Use: (1) BEFORE SaveFact to check for duplicates, (2) when user asks about past conversations/people/projects/preferences, (3) when you need context before answering. Supports semantic search — natural language queries work well.',
       {
         query: z.string().optional().describe('Keywords to search for (e.g. "birthday", "project deadline"). Omit to browse by topic only'),
         topic: z.string().optional().describe('Filter by topic (e.g. "health", "work"). Omit to search all topics'),

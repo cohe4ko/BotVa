@@ -302,7 +302,9 @@ async function handleMessage(
     while (true) {
       // Build memory context
       const memoryCtx = await buildMemoryContext(chatIdStr, currentMessage)
-      const fullMessage = memoryCtx ? `${memoryCtx}\n\n${currentMessage}` : currentMessage
+      const fullMessage = memoryCtx
+        ? `[Short-term context — fades over time. Use SaveFact for permanent storage.]\n${memoryCtx}\n\n${currentMessage}`
+        : currentMessage
 
       // Get session
       const sessionId = getSession(chatIdStr)
