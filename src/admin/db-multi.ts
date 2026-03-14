@@ -634,6 +634,78 @@ export function deleteGalleryImage(id: number): GalleryRow | null {
   return row as GalleryRow
 }
 
+// === Diagnostics history ===
+
+let diagDb: DatabaseSync | null = null
+
+function getDiagDb(): DatabaseSync {
+  if (diagDb) return diagDb
+  const wsDir = resolve(PROJECT_ROOT, 'workspace')
+  if (!existsSync(wsDir)) mkdirSync(wsDir, { recursive: true })
+  const dbPath = resolve(wsDir, 'diagnostics.db')
+  diagDb = new DatabaseSync(dbPath)
+  diagDb.exec('PRAGMA journal_mode = WAL')
+  diagDb.exec(`
+    CREATE TABLE IF NOT EXISTS diagnostics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      bot_name TEXT,
+      result_json TEXT NOT NULL,
+      snapshot TEXT,
+      score INTEGER,
+      summary TEXT,
+      cost_usd REAL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )
+  `)
+  diagDb.exec('CREATE INDEX IF NOT EXISTS idx_diag_type ON diagnostics(type, created_at DESC)')
+  diagDb.exec('CREATE INDEX IF NOT EXISTS idx_diag_bot ON diagnostics(bot_name, created_at DESC)')
+  return diagDb
+}
+
+export interface DiagnosticRunRow {
+  id: number
+  type: string
+  bot_name: string | null
+  result_json: string
+  snapshot: string | null
+  score: number | null
+  summary: string | null
+  cost_usd: number
+  created_at: number
+}
+
+export function saveDiagnosticRun(type: string, botName: string | null, resultJson: string, snapshot: string | null, score: number, summary: string, costUsd: number): number {
+  const db = getDiagDb()
+  const now = Math.floor(Date.now() / 1000)
+  const result = db.prepare(
+    'INSERT INTO diagnostics (type, bot_name, result_json, snapshot, score, summary, cost_usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(type, botName, resultJson, snapshot, score, summary, costUsd, now)
+  return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+}
+
+export function getDiagnosticRuns(type: string, botName?: string | null, limit = 20): DiagnosticRunRow[] {
+  const db = getDiagDb()
+  if (botName) {
+    return db.prepare('SELECT id, type, bot_name, score, summary, cost_usd, created_at FROM diagnostics WHERE type = ? AND bot_name = ? ORDER BY created_at DESC LIMIT ?')
+      .all(type, botName, limit) as unknown as DiagnosticRunRow[]
+  }
+  return db.prepare('SELECT id, type, bot_name, score, summary, cost_usd, created_at FROM diagnostics WHERE type = ? ORDER BY created_at DESC LIMIT ?')
+    .all(type, limit) as unknown as DiagnosticRunRow[]
+}
+
+export function getDiagnosticRun(id: number): DiagnosticRunRow | null {
+  const db = getDiagDb()
+  const row = db.prepare('SELECT * FROM diagnostics WHERE id = ?').get(id) as unknown as DiagnosticRunRow | undefined
+  return row ?? null
+}
+
+export function deleteDiagnosticRun(id: number): boolean {
+  const db = getDiagDb()
+  const r = db.prepare('DELETE FROM diagnostics WHERE id = ?').run(id)
+  return r.changes > 0
+}
+
 // === Tool usage stats (aggregated across all bots) ===
 
 export interface ToolUsageStat {

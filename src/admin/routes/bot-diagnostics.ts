@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
-import { getBotDir, getProjectRoot } from '../db-multi.js'
+import { getBotDir, getProjectRoot, saveDiagnosticRun, getDiagnosticRuns, getDiagnosticRun, deleteDiagnosticRun } from '../db-multi.js'
 import { readEnv } from '../env-parser.js'
 import { getBuiltinToolDefs } from '../../builtin-tools.js'
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
@@ -452,6 +452,9 @@ app.get('/bot/:name/diagnostics', (c) => {
     ` : ''}
 
     <div id="diagnostics-results"></div>
+
+    <h3 style="margin-top:2rem">${icon('clock')} ${t('diag.history')}</h3>
+    <div id="diag-history" hx-get="/bot/${name}/diagnostics/history" hx-trigger="load, refreshHistory from:body" hx-swap="innerHTML"></div>
   `
 
   return c.html(layout(t('diag.title'), content, `/bot/${name}/diagnostics`, t, lang))
@@ -479,7 +482,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
   }
 
   const a = result.analysis
-
   if (!a) {
     return c.html(html`
       <div class="alert alert-warning" style="margin-top:1rem">
@@ -493,6 +495,20 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
     `)
   }
 
+  // Save to history
+  const totalCost = (result.echoUsage?.costUSD ?? 0) + (result.analysisUsage?.costUSD ?? 0)
+  saveDiagnosticRun('bot', name, JSON.stringify(result), result.echoText,
+    a.stats?.totalTools ?? 0, a.role?.slice(0, 200) ?? '', totalCost)
+
+  c.header('HX-Trigger', 'refreshHistory')
+  return c.html(renderBotDiagResult(result, lang, t))
+})
+
+// --- Render bot diagnostic result ---
+
+function renderBotDiagResult(result: DiagnosticResult, lang: Lang, t: TFunc) {
+  const a = result.analysis!
+
   const stats = a.stats ?? {
     totalTools: a.tools?.length ?? 0,
     toolsBySource: {},
@@ -500,20 +516,16 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
     toolsByImportance: {},
   }
 
-  // Category bar color
   const catColors: Record<string, string> = {
     filesystem: '#3b82f6', search: '#8b5cf6', execution: '#f97316', web: '#06b6d4',
     media: '#ec4899', data: '#10b981', communication: '#6366f1', automation: '#f59e0b',
     system: '#64748b', other: '#9ca3af',
   }
 
-  // Token usage from echo call
   const eu = result.echoUsage
   const contextInputTokens = eu ? (eu.inputTokens + eu.cacheReadTokens + eu.cacheCreationTokens) : 0
   const totalTokens = eu ? (contextInputTokens + eu.outputTokens) : 0
 
-  // Build context segments for storage bar (approximate distribution)
-  // We estimate proportions based on tool counts per source
   const toolsBySource = stats.toolsBySource ?? {}
   const totalToolCount = Object.values(toolsBySource).reduce((a: number, b: number) => a + b, 0) || 1
   const segmentColors: Record<string, string> = {
@@ -521,13 +533,11 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
   }
   const defaultMcpColor = '#f97316'
 
-  // Segments: tools per source (proportional), system instructions, knowledge, output
   interface Segment { label: string; tokens: number; color: string }
   const segments: Segment[] = []
 
   if (eu) {
-    // Approximate: input tokens split proportionally by source tool count + fixed chunks for instructions/knowledge
-    const instructionTokensEst = Math.round(contextInputTokens * 0.15) // ~15% for CLAUDE.md/system
+    const instructionTokensEst = Math.round(contextInputTokens * 0.15)
     const knowledgeTokensEst = Math.round(contextInputTokens * 0.10 * Math.min(1, (a.knowledge?.length ?? 0) / 3))
     const toolTokensPool = contextInputTokens - instructionTokensEst - knowledgeTokensEst
 
@@ -550,7 +560,7 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
 
   const formatTokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 
-  return c.html(html`
+  return html`
     <!-- Token usage & storage bar -->
     ${eu ? html`
       <div class="table-wrap" style="padding:0.85rem;margin-top:1rem;margin-bottom:1rem">
@@ -569,14 +579,12 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
             <span style="color:var(--mc-accent);font-weight:600">$${eu.costUSD.toFixed(4)}</span>
           </div>
         </div>
-        <!-- iPhone-style storage bar -->
         <div style="height:28px;border-radius:6px;overflow:hidden;display:flex;background:var(--mc-surface2);margin-bottom:0.5rem">
           ${segments.filter(s => s.tokens > 0).map(s => {
             const pct = Math.max(1, Math.round((s.tokens / Math.max(totalTokens, 1)) * 100))
             return html`<div style="width:${pct}%;background:${s.color};min-width:3px;position:relative" title="${s.label}: ${formatTokens(s.tokens)}"></div>`
           })}
         </div>
-        <!-- Legend -->
         <div style="display:flex;flex-wrap:wrap;gap:0.6rem;font-size:0.68rem;color:var(--mc-text-secondary)">
           ${segments.filter(s => s.tokens > 0).map(s => html`
             <span style="display:inline-flex;align-items:center;gap:0.25rem">
@@ -588,7 +596,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Stats overview -->
     <div class="stats-grid" style="margin-top:1rem">
       <div class="stat-card">
         <div class="stat-label">${icon('wrench', 12)} ${lang === 'uk' ? 'Всього інструментів' : 'Total Tools'}</div>
@@ -608,7 +615,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     </div>
 
-    <!-- Charts row -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem">
       <div class="table-wrap" style="padding:0.85rem">
         <div style="font-size:0.72rem;font-weight:600;color:var(--mc-text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.25rem">
@@ -627,7 +633,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     </div>
 
-    <!-- Importance legend -->
     <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem;font-size:0.72rem;color:var(--mc-text-dim)">
       <span style="font-weight:500">${lang === 'uk' ? 'Пріоритет:' : 'Importance:'}</span>
       ${Object.entries(IMPORTANCE_STYLE).map(([key, style]) => html`
@@ -638,14 +643,12 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       `)}
     </div>
 
-    <!-- Tools grouped by source -->
     <h3>${icon('wrench')} ${t('diag.tools')} (${a.tools?.length ?? 0})</h3>
     ${a.tools && a.tools.length > 0
       ? renderToolsGrouped(a.tools, lang, eu?.inputTokens)
       : html`<p style="color:var(--mc-text-dim)">${t('diag.noResult')}</p>`
     }
 
-    <!-- MCP Servers -->
     ${a.mcpServers && a.mcpServers.length > 0 ? html`
       <h3>${icon('plug')} ${t('diag.mcpServers')} (${a.mcpServers.length})</h3>
       <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1rem">
@@ -660,7 +663,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Role & Instructions -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
       ${a.role ? html`
         <div class="table-wrap" style="padding:0.85rem">
@@ -682,7 +684,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       ` : ''}
     </div>
 
-    <!-- Knowledge -->
     ${a.knowledge && a.knowledge.length > 0 ? html`
       <h3>${icon('book-open')} ${t('diag.knowledge')} (${a.knowledge.length})</h3>
       <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:1rem">
@@ -694,7 +695,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Skills -->
     ${a.skills && a.skills.length > 0 ? html`
       <h3>${icon('puzzle')} ${lang === 'uk' ? 'Скіли' : 'Skills'} (${a.skills.length})</h3>
       <div class="table-wrap" style="margin-bottom:1rem">
@@ -715,7 +715,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Recommendations -->
     ${a.recommendations && a.recommendations.length > 0 ? html`
       <h3>${icon('lightbulb')} ${lang === 'uk' ? 'Рекомендації' : 'Recommendations'}</h3>
       <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem">
@@ -740,7 +739,6 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Can Disable -->
     ${a.canDisable && a.canDisable.length > 0 ? html`
       <h3>${icon('toggle-left')} ${lang === 'uk' ? 'Можна вимкнути' : 'Can be disabled'}</h3>
       <div class="table-wrap" style="margin-bottom:1rem">
@@ -755,9 +753,7 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
               const isServer = d.type === 'mcp-server'
               return html`
                 <tr>
-                  <td>
-                    <code style="font-size:0.78rem">${d.name}</code>
-                  </td>
+                  <td><code style="font-size:0.78rem">${d.name}</code></td>
                   <td>
                     <span style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.68rem;padding:0.1rem 0.4rem;border-radius:3px;background:${isServer ? 'var(--mc-orange-light)' : 'var(--mc-surface2)'};color:${isServer ? 'var(--mc-orange)' : 'var(--mc-text-dim)'};font-weight:500">
                       ${icon(isServer ? 'plug' : 'wrench', 10)} ${d.type}
@@ -772,21 +768,98 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Model -->
     ${a.model ? html`
       <div style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.3rem 0.7rem;background:var(--mc-purple-light);color:var(--mc-purple);border-radius:5px;font-size:0.78rem;font-weight:600;margin-bottom:1rem">
         ${icon('cpu', 13)} ${t('diag.detectedModel')}: ${a.model}
       </div>
     ` : ''}
 
-    <!-- Raw echo -->
     <details class="inline" style="margin-top:1rem">
-      <summary>
-        ${icon('code', 13)} ${t('diag.rawEcho')}
-      </summary>
+      <summary>${icon('code', 13)} ${t('diag.rawEcho')}</summary>
       <pre style="white-space:pre-wrap;font-size:0.75rem;margin-top:0.5rem;padding:1rem;background:var(--mc-surface2);border-radius:6px;max-height:500px;overflow:auto;line-height:1.55">${result.echoText}</pre>
     </details>
-  `)
+  `
+}
+
+// --- History helpers ---
+
+function formatDate(ts: number): string {
+  const d = new Date(ts * 1000)
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function renderBotHistoryList(name: string, lang: Lang, t: TFunc) {
+  const runs = getDiagnosticRuns('bot', name)
+  if (runs.length === 0) {
+    return html`<p style="color:var(--mc-text-dim);font-size:0.82rem">${t('diag.noHistory')}</p>`
+  }
+  return html`
+    <div class="table-wrap" style="margin-top:0.5rem">
+      <table>
+        <thead><tr>
+          <th style="width:110px">${lang === 'uk' ? 'Дата' : 'Date'}</th>
+          <th style="width:60px">Tools</th>
+          <th>${lang === 'uk' ? 'Роль' : 'Role'}</th>
+          <th style="width:70px">${lang === 'uk' ? 'Вартість' : 'Cost'}</th>
+          <th style="width:120px"></th>
+        </tr></thead>
+        <tbody>
+          ${runs.map(r => html`
+            <tr>
+              <td style="font-size:0.78rem;font-variant-numeric:tabular-nums">${formatDate(r.created_at)}</td>
+              <td style="font-size:0.78rem;font-weight:600">${r.score ?? '—'}</td>
+              <td style="font-size:0.78rem;color:var(--mc-text-secondary);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.summary ?? ''}</td>
+              <td style="font-size:0.78rem;font-variant-numeric:tabular-nums">$${(r.cost_usd ?? 0).toFixed(3)}</td>
+              <td style="display:flex;gap:0.35rem">
+                <button class="btn-sm" hx-get="/bot/${name}/diagnostics/view/${r.id}" hx-target="#diagnostics-results" hx-swap="innerHTML"
+                  style="font-size:0.7rem;padding:0.2rem 0.45rem">${t('diag.viewRun')}</button>
+                <button class="btn-sm" hx-delete="/bot/${name}/diagnostics/${r.id}" hx-target="#diag-history" hx-swap="innerHTML"
+                  hx-confirm="${lang === 'uk' ? 'Видалити цей запуск?' : 'Delete this run?'}"
+                  style="font-size:0.7rem;padding:0.2rem 0.45rem;color:var(--mc-red);border-color:var(--mc-red)">${t('diag.deleteRun')}</button>
+              </td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
+// --- History routes ---
+
+app.get('/bot/:name/diagnostics/history', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
+  const name = c.req.param('name')
+  return c.html(renderBotHistoryList(name, lang, t))
+})
+
+app.get('/bot/:name/diagnostics/view/:id', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
+  const id = parseInt(c.req.param('id'))
+  const run = getDiagnosticRun(id)
+  if (!run) {
+    return c.html(html`<div class="alert alert-error">${icon('alert-circle', 14)} Not found</div>`)
+  }
+  try {
+    const result: DiagnosticResult = JSON.parse(run.result_json)
+    if (!result.analysis) {
+      return c.html(html`<div class="alert alert-warning">${icon('alert-triangle', 14)} ${t('diag.jsonParseFailed')}</div>`)
+    }
+    return c.html(renderBotDiagResult(result, lang, t))
+  } catch {
+    return c.html(html`<div class="alert alert-error">${icon('alert-circle', 14)} Failed to parse saved result</div>`)
+  }
+})
+
+app.delete('/bot/:name/diagnostics/:id', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
+  const name = c.req.param('name')
+  const id = parseInt(c.req.param('id'))
+  deleteDiagnosticRun(id)
+  return c.html(renderBotHistoryList(name, lang, t))
 })
 
 export default app

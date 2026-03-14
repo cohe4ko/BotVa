@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
-import { getBotNames, getHealthMetrics, getUsageSummary, getBotDir, getProjectRoot } from '../db-multi.js'
+import { getBotNames, getHealthMetrics, getUsageSummary, getBotDir, getProjectRoot, saveDiagnosticRun, getDiagnosticRuns, getDiagnosticRun, deleteDiagnosticRun } from '../db-multi.js'
 import { getBotStatus, getBotUptime } from '../bot-control.js'
 import { readEnv } from '../env-parser.js'
 import { getMcpServersConfig } from '../../mcp-config.js'
@@ -860,6 +860,9 @@ app.get('/diagnostics', (c) => {
     </div>
 
     <div id="sdiag-results"></div>
+
+    <h3 style="margin-top:2rem">${icon('clock')} ${t('sdiag.history')}</h3>
+    <div id="sdiag-history" hx-get="/diagnostics/history" hx-trigger="load, refreshHistory from:body" hx-swap="innerHTML"></div>
   `
 
   return c.html(layout(t('sdiag.title'), content, '/diagnostics', t, lang))
@@ -903,6 +906,16 @@ app.post('/diagnostics/run', async (c) => {
     `)
   }
 
+  // Save to history
+  saveDiagnosticRun('system', null, analysisRaw, snapshot, a.score ?? 0, a.summary?.slice(0, 200) ?? '', 0)
+
+  c.header('HX-Trigger', 'refreshHistory')
+  return c.html(renderSystemDiagResult(a, snapshot, lang, t))
+})
+
+// --- Render system diagnostic result ---
+
+function renderSystemDiagResult(a: any, snapshot: string, lang: Lang, t: TFunc) {
   const issues: any[] = a.issues ?? []
   const botReports: any[] = a.botReports ?? []
   const mcpReport: any[] = a.mcpReport ?? []
@@ -910,7 +923,7 @@ app.post('/diagnostics/run', async (c) => {
   const security: any[] = a.security ?? []
   const score: number = a.score ?? 0
 
-  return c.html(html`
+  return html`
     <!-- Health score -->
     <div style="display:flex;align-items:center;gap:1.5rem;margin-top:1rem;margin-bottom:1.5rem">
       <div style="width:90px;height:90px;border-radius:50%;border:4px solid ${scoreColor(score)};display:flex;align-items:center;justify-content:center;flex-shrink:0">
@@ -924,7 +937,6 @@ app.post('/diagnostics/run', async (c) => {
       </div>
     </div>
 
-    <!-- Security alerts (if any) -->
     ${security.length > 0 ? html`
       <h3>${icon('shield-alert')} ${t('sdiag.security')} (${security.length})</h3>
       <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.5rem">
@@ -940,7 +952,6 @@ app.post('/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Issues -->
     ${issues.length > 0 ? html`
       <h3>${icon('alert-circle')} ${t('sdiag.issues')} (${issues.length})</h3>
       <div class="table-wrap" style="margin-bottom:1.5rem">
@@ -952,7 +963,7 @@ app.post('/diagnostics/run', async (c) => {
             <th>${lang === 'uk' ? 'Як виправити' : 'Fix'}</th>
           </tr></thead>
           <tbody>
-            ${issues.map((iss: any, i: number) => {
+            ${issues.map((iss: any) => {
               const sev = SEVERITY_STYLE[iss.severity] ?? SEVERITY_STYLE.info
               return html`
                 <tr>
@@ -975,7 +986,6 @@ app.post('/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Bot reports -->
     ${botReports.length > 0 ? html`
       <h3>${icon('bot')} ${t('sdiag.bots')} (${botReports.length})</h3>
       <div class="stats-grid" style="margin-bottom:1.5rem">
@@ -994,7 +1004,6 @@ app.post('/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- MCP report -->
     ${mcpReport.length > 0 ? html`
       <h3>${icon('plug')} ${t('sdiag.mcp')} (${mcpReport.length})</h3>
       <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1.5rem">
@@ -1009,7 +1018,6 @@ app.post('/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Recommendations -->
     ${recommendations.length > 0 ? html`
       <h3>${icon('lightbulb')} ${t('sdiag.recommendations')} (${recommendations.length})</h3>
       <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.5rem">
@@ -1028,12 +1036,85 @@ app.post('/diagnostics/run', async (c) => {
       </div>
     ` : ''}
 
-    <!-- Raw snapshot -->
     <details class="inline" style="margin-top:1rem">
       <summary>${icon('code', 13)} ${lang === 'uk' ? 'Сирий snapshot' : 'Raw snapshot'}</summary>
       <pre style="white-space:pre-wrap;font-size:0.72rem;margin-top:0.5rem;padding:1rem;background:var(--mc-surface2);border-radius:6px;max-height:500px;overflow:auto;line-height:1.5">${snapshot}</pre>
     </details>
-  `)
+  `
+}
+
+// --- History helpers ---
+
+function formatDate(ts: number): string {
+  const d = new Date(ts * 1000)
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function renderSystemHistoryList(lang: Lang, t: TFunc) {
+  const runs = getDiagnosticRuns('system')
+  if (runs.length === 0) {
+    return html`<p style="color:var(--mc-text-dim);font-size:0.82rem">${t('sdiag.noHistory')}</p>`
+  }
+  return html`
+    <div class="table-wrap" style="margin-top:0.5rem">
+      <table>
+        <thead><tr>
+          <th style="width:110px">${lang === 'uk' ? 'Дата' : 'Date'}</th>
+          <th style="width:60px">Score</th>
+          <th>${lang === 'uk' ? 'Резюме' : 'Summary'}</th>
+          <th style="width:120px"></th>
+        </tr></thead>
+        <tbody>
+          ${runs.map(r => html`
+            <tr>
+              <td style="font-size:0.78rem;font-variant-numeric:tabular-nums">${formatDate(r.created_at)}</td>
+              <td style="font-size:0.78rem;font-weight:600;color:${scoreColor(r.score ?? 0)}">${r.score ?? '—'}</td>
+              <td style="font-size:0.78rem;color:var(--mc-text-secondary);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.summary ?? ''}</td>
+              <td style="display:flex;gap:0.35rem">
+                <button class="btn-sm" hx-get="/diagnostics/view/${r.id}" hx-target="#sdiag-results" hx-swap="innerHTML"
+                  style="font-size:0.7rem;padding:0.2rem 0.45rem">${t('diag.viewRun')}</button>
+                <button class="btn-sm" hx-delete="/diagnostics/${r.id}" hx-target="#sdiag-history" hx-swap="innerHTML"
+                  hx-confirm="${lang === 'uk' ? 'Видалити цей запуск?' : 'Delete this run?'}"
+                  style="font-size:0.7rem;padding:0.2rem 0.45rem;color:var(--mc-red);border-color:var(--mc-red)">${t('diag.deleteRun')}</button>
+              </td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
+// --- History routes ---
+
+app.get('/diagnostics/history', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
+  return c.html(renderSystemHistoryList(lang, t))
+})
+
+app.get('/diagnostics/view/:id', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
+  const id = parseInt(c.req.param('id'))
+  const run = getDiagnosticRun(id)
+  if (!run) {
+    return c.html(html`<div class="alert alert-error">${icon('alert-circle', 14)} Not found</div>`)
+  }
+  try {
+    const a = JSON.parse(run.result_json)
+    return c.html(renderSystemDiagResult(a, run.snapshot ?? '', lang, t))
+  } catch {
+    return c.html(html`<div class="alert alert-error">${icon('alert-circle', 14)} Failed to parse saved result</div>`)
+  }
+})
+
+app.delete('/diagnostics/:id', (c) => {
+  const t: TFunc = c.get('t')
+  const lang: Lang = c.get('lang')
+  const id = parseInt(c.req.param('id'))
+  deleteDiagnosticRun(id)
+  return c.html(renderSystemHistoryList(lang, t))
 })
 
 export default app

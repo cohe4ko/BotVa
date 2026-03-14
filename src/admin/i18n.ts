@@ -32,6 +32,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'sdiag.mcp': 'MCP Servers',
     'sdiag.recommendations': 'Recommendations',
     'sdiag.security': 'Security',
+    'sdiag.history': 'History',
+    'sdiag.noHistory': 'No past runs',
 
     // Auth
     'auth.title': 'BotVa Admin',
@@ -549,6 +551,10 @@ const translations: Record<Lang, Record<string, string>> = {
     'diag.recommendations': 'Recommendations',
     'diag.canDisable': 'Can be disabled',
     'diag.skills': 'Skills',
+    'diag.history': 'History',
+    'diag.noHistory': 'No past runs',
+    'diag.viewRun': 'View',
+    'diag.deleteRun': 'Delete',
 
     // Docs
     'docs.title': 'Documentation',
@@ -591,6 +597,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'sdiag.mcp': 'MCP сервери',
     'sdiag.recommendations': 'Рекомендації',
     'sdiag.security': 'Безпека',
+    'sdiag.history': 'Історія',
+    'sdiag.noHistory': 'Немає минулих запусків',
 
     // Auth
     'auth.title': 'BotVa Адмін',
@@ -1108,6 +1116,10 @@ const translations: Record<Lang, Record<string, string>> = {
     'diag.recommendations': 'Рекомендації',
     'diag.canDisable': 'Можна вимкнути',
     'diag.skills': 'Скіли',
+    'diag.history': 'Історія',
+    'diag.noHistory': 'Немає минулих запусків',
+    'diag.viewRun': 'Переглянути',
+    'diag.deleteRun': 'Видалити',
 
     // Docs
     'docs.title': 'Документація',
