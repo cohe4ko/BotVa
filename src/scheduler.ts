@@ -1,5 +1,5 @@
 import cronParser from 'cron-parser'
-import { getDueTasks, updateTaskAfterRun } from './db.js'
+import { getDueTasks, updateTaskAfterRun, getDueReminders, markReminderSent } from './db.js'
 import { runAgent } from './agent.js'
 import { logger } from './logger.js'
 
@@ -13,7 +13,23 @@ export function computeNextRun(cronExpression: string): number {
   return Math.floor(interval.next().getTime() / 1000)
 }
 
+async function sendDueReminders(): Promise<void> {
+  const reminders = getDueReminders()
+  for (const r of reminders) {
+    try {
+      if (sender) await sender(r.chat_id, `🔔 ${r.text}`)
+      markReminderSent(r.id)
+      logger.info({ reminderId: r.id }, 'Reminder sent')
+    } catch (err) {
+      logger.error({ err, reminderId: r.id }, 'Failed to send reminder')
+    }
+  }
+}
+
 export async function runDueTasks(): Promise<void> {
+  // Send one-shot reminders first (lightweight, no agent execution)
+  await sendDueReminders()
+
   const tasks = getDueTasks()
   if (tasks.length === 0) return
 

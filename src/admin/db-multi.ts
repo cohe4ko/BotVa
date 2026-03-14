@@ -202,6 +202,41 @@ export function resumeTask(bot: BotName, id: string): boolean {
   return r.changes > 0
 }
 
+// Reminders
+export interface AdminReminder {
+  id: number
+  chat_id: string
+  text: string
+  remind_at: number
+  created_at: number
+  status: 'pending' | 'sent'
+}
+
+export function getReminders(bot: BotName, status?: 'pending' | 'sent'): AdminReminder[] {
+  const db = getBotDb(bot)
+  try {
+    if (status) {
+      return db.prepare('SELECT * FROM reminders WHERE status = ? ORDER BY remind_at ASC')
+        .all(status) as unknown as AdminReminder[]
+    }
+    return db.prepare('SELECT * FROM reminders ORDER BY remind_at DESC')
+      .all() as unknown as AdminReminder[]
+  } catch { return [] }
+}
+
+export function createReminder(bot: BotName, chatId: string, text: string, remindAt: number): number {
+  const now = Math.floor(Date.now() / 1000)
+  const result = getBotDb(bot).prepare(
+    'INSERT INTO reminders (chat_id, text, remind_at, created_at) VALUES (?, ?, ?, ?)'
+  ).run(chatId, text, remindAt, now)
+  return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+}
+
+export function deleteReminder(bot: BotName, id: number): boolean {
+  const r = getBotDb(bot).prepare('DELETE FROM reminders WHERE id = ?').run(id)
+  return r.changes > 0
+}
+
 // Sessions
 export function getSessions(bot: BotName): Session[] {
   return getBotDb(bot).prepare('SELECT * FROM sessions ORDER BY updated_at DESC')

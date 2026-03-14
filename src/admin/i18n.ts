@@ -212,7 +212,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'facts.noFiles': 'No .md or .txt files found in context/ or knowledge/',
 
     // Tasks
-    'tasks.title': 'Scheduled Tasks',
+    'tasks.title': 'Cron Tasks',
     'tasks.createNew': 'Create new task',
     'tasks.chatId': 'Chat ID',
     'tasks.chatIdPlaceholder': 'e.g. 123456789',
@@ -742,7 +742,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'facts.noFiles': 'Не знайдено .md або .txt файлів в context/ або knowledge/',
 
     // Tasks
-    'tasks.title': 'Заплановані задачі',
+    'tasks.title': 'Cron-задачі',
     'tasks.createNew': 'Створити нову задачу',
     'tasks.chatId': 'Chat ID',
     'tasks.chatIdPlaceholder': 'напр. 123456789',

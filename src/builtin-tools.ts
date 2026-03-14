@@ -94,6 +94,14 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
     { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video to chat', available: true },
+    // Bot management
+    { name: 'CreateBot', icon: 'plus-circle', category: 'management', description: 'Create a new bot', available: true },
+    { name: 'DeleteBot', icon: 'trash-2', category: 'management', description: 'Delete a bot (with backup)', available: true },
+    { name: 'ListBots', icon: 'users', category: 'management', description: 'List all bots and their status', available: true },
+    // Reminders
+    { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a one-shot reminder', available: true },
+    { name: 'ListReminders', icon: 'bell-ring', category: 'reminders', description: 'List pending reminders', available: true },
+    { name: 'DeleteReminder', icon: 'bell-off', category: 'reminders', description: 'Cancel a reminder', available: true },
   ]
 
   return defs.map(d => ({ ...d, enabled: config[d.name] !== false }))
@@ -104,7 +112,7 @@ export interface BuiltinToolsResult {
   usedTools: Set<string>
 }
 
-export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToolsResult | null {
+export async function createBuiltinMcpServer(ctx: Context, chatId: number): Promise<BuiltinToolsResult | null> {
   const env = readEnvFile()
   const usedTools = new Set<string>()
   const tools: SdkMcpToolDefinition<any>[] = []
@@ -687,6 +695,198 @@ export function createBuiltinMcpServer(ctx: Context, chatId: number): BuiltinToo
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'SendMedia tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Bot management tools ---
+
+  if (isOn('ListBots')) tools.push(
+    tool(
+      'ListBots',
+      'List all bots in the system with their running status and uptime. Use to see what bots exist before creating or deleting.',
+      {},
+      async () => {
+        usedTools.add('ListBots')
+        try {
+          const { listBots } = await import('./bot-manager.js')
+          const bots = listBots()
+          if (bots.length === 0) {
+            return { content: [{ type: 'text' as const, text: 'No bots found' }] }
+          }
+          const lines = bots.map(b => {
+            const status = b.running ? `running (pid ${b.pid}, uptime ${b.uptime})` : 'stopped'
+            return `${b.name}: ${status}`
+          })
+          return { content: [{ type: 'text' as const, text: `${bots.length} bots:\n${lines.join('\n')}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  if (isOn('CreateBot')) {
+    // Build dynamic role list for description
+    let roleList = ''
+    try {
+      const { getAvailableRoles } = await import('./bot-manager.js')
+      const roles = getAvailableRoles()
+      if (roles.length > 0) roleList = ` Available roles: ${roles.map(r => r.slug).join(', ')}.`
+    } catch { /* ignore */ }
+
+    tools.push(
+      tool(
+        'CreateBot',
+        `Create a new Telegram bot. Requires name (lowercase slug) and token from @BotFather.${roleList}`,
+        {
+          name: z.string().describe('Bot slug (lowercase, e.g. "sales-bot")'),
+          token: z.string().describe('Telegram bot token from @BotFather'),
+          role: z.string().optional().describe('Role template slug (e.g. "personal-assistant", "researcher")'),
+          displayName: z.string().optional().describe('Display name for the bot'),
+          emoji: z.string().optional().describe('Bot emoji (default 🤖)'),
+          chatId: z.string().optional().describe('Allowed Telegram chat ID'),
+          personality: z.string().optional().describe('Personality description (only used when no role template)'),
+          autoStart: z.boolean().optional().describe('Start bot after creation (default false)'),
+        },
+        async (args) => {
+          usedTools.add('CreateBot')
+          try {
+            const { createBot } = await import('./bot-manager.js')
+            const result = createBot({
+              name: args.name,
+              token: args.token,
+              role: args.role,
+              displayName: args.displayName,
+              emoji: args.emoji,
+              chatId: args.chatId,
+              personality: args.personality,
+            })
+            let msg = `Bot "${result.name}" created`
+            if (result.role) msg += ` with role "${result.role}"`
+            if (args.autoStart) {
+              const { startBot } = await import('./admin/bot-control.js')
+              startBot(result.name)
+              msg += '. Bot started.'
+            }
+            return { content: [{ type: 'text' as const, text: msg }] }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            logger.error({ err }, 'CreateBot tool failed')
+            return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+          }
+        }
+      )
+    )
+  }
+
+  if (isOn('DeleteBot')) tools.push(
+    tool(
+      'DeleteBot',
+      'Delete a bot by name. Creates a backup first, then removes the bot directory and team.json entry. Cannot delete self.',
+      {
+        name: z.string().describe('Bot slug to delete'),
+      },
+      async (args) => {
+        usedTools.add('DeleteBot')
+        try {
+          const { BOT_NAME } = await import('./env.js')
+          if (args.name === BOT_NAME) {
+            return { content: [{ type: 'text' as const, text: 'Cannot delete self' }], isError: true }
+          }
+          const { deleteBot } = await import('./bot-manager.js')
+          const result = await deleteBot(args.name)
+          return { content: [{ type: 'text' as const, text: `Bot "${result.name}" deleted. Backup: ${result.backupFilename}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'DeleteBot tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Reminder tools ---
+
+  if (isOn('CreateReminder')) tools.push(
+    tool(
+      'CreateReminder',
+      'Set a one-shot reminder. The bot will send a message to the chat at the specified time. Use for "remind me at...", "нагадай о...", "через 2 години..." requests.',
+      {
+        text: z.string().describe('Reminder text (what to remind about)'),
+        remindAt: z.string().describe('When to remind, ISO 8601 datetime (e.g. "2025-03-15T15:00:00")'),
+      },
+      async (args) => {
+        usedTools.add('CreateReminder')
+        try {
+          const { insertReminder } = await import('./db.js')
+          const remindAtTs = Math.floor(new Date(args.remindAt).getTime() / 1000)
+          if (isNaN(remindAtTs) || remindAtTs <= 0) {
+            return { content: [{ type: 'text' as const, text: `Invalid date: ${args.remindAt}` }], isError: true }
+          }
+          const now = Math.floor(Date.now() / 1000)
+          if (remindAtTs <= now) {
+            return { content: [{ type: 'text' as const, text: 'Reminder time must be in the future' }], isError: true }
+          }
+          const id = insertReminder(chatIdStr, args.text, remindAtTs)
+          const dateStr = new Date(remindAtTs * 1000).toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' })
+          return { content: [{ type: 'text' as const, text: `Reminder #${id} set for ${dateStr}: "${args.text}"` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'CreateReminder tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  if (isOn('ListReminders')) tools.push(
+    tool(
+      'ListReminders',
+      'List all pending reminders for the current chat.',
+      {},
+      async () => {
+        usedTools.add('ListReminders')
+        try {
+          const { listReminders } = await import('./db.js')
+          const reminders = listReminders(chatIdStr)
+          if (reminders.length === 0) {
+            return { content: [{ type: 'text' as const, text: 'No pending reminders' }] }
+          }
+          const lines = reminders.map(r => {
+            const date = new Date(r.remind_at * 1000).toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' })
+            return `#${r.id} | ${date} | ${r.text}`
+          })
+          return { content: [{ type: 'text' as const, text: `${reminders.length} pending reminders:\n${lines.join('\n')}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  if (isOn('DeleteReminder')) tools.push(
+    tool(
+      'DeleteReminder',
+      'Cancel a pending reminder by its ID.',
+      {
+        id: z.number().describe('Reminder ID to cancel (from ListReminders)'),
+      },
+      async (args) => {
+        usedTools.add('DeleteReminder')
+        try {
+          const { deleteReminder } = await import('./db.js')
+          const deleted = deleteReminder(args.id, chatIdStr)
+          if (deleted) {
+            return { content: [{ type: 'text' as const, text: `Reminder #${args.id} cancelled` }] }
+          }
+          return { content: [{ type: 'text' as const, text: `Reminder #${args.id} not found` }], isError: true }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }

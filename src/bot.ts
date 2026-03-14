@@ -312,7 +312,7 @@ async function handleMessage(
       await sendTyping()
 
       // Create builtin MCP server (image gen, voice, telegraph, media sending)
-      const builtin = createBuiltinMcpServer(ctx, chatId)
+      const builtin = await createBuiltinMcpServer(ctx, chatId)
 
       // Run agent
       let text: string | null

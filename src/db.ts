@@ -199,6 +199,22 @@ export function initDatabase(): void {
   d.exec('DROP TRIGGER IF EXISTS facts_ad')
   d.exec('DROP TRIGGER IF EXISTS facts_au')
 
+  // Reminders (one-shot notifications)
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      remind_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent'))
+    )
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, remind_at)
+  `)
+
   // Saved sessions — multiple sessions per chat for switching
   d.exec(`
     CREATE TABLE IF NOT EXISTS saved_sessions (
@@ -656,4 +672,53 @@ export function getUsageSince(sinceTs: number, chatId?: string): UsageSummary {
   const args = chatId ? [sinceTs, chatId] : [sinceTs]
   const row = getDb().prepare(sql).get(...args) as unknown as UsageSummary
   return row
+}
+
+// --- Reminders (one-shot notifications) ---
+
+export interface Reminder {
+  id: number
+  chat_id: string
+  text: string
+  remind_at: number
+  created_at: number
+  status: 'pending' | 'sent'
+}
+
+export function insertReminder(chatId: string, text: string, remindAt: number): number {
+  const now = Math.floor(Date.now() / 1000)
+  const result = getDb().prepare(
+    'INSERT INTO reminders (chat_id, text, remind_at, created_at) VALUES (?, ?, ?, ?)'
+  ).run(chatId, text, remindAt, now)
+  return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+}
+
+export function getDueReminders(): Reminder[] {
+  const now = Math.floor(Date.now() / 1000)
+  return getDb().prepare(
+    "SELECT * FROM reminders WHERE status = 'pending' AND remind_at <= ?"
+  ).all(now) as unknown as Reminder[]
+}
+
+export function markReminderSent(id: number): void {
+  getDb().prepare("UPDATE reminders SET status = 'sent' WHERE id = ?").run(id)
+}
+
+export function listReminders(chatId: string): Reminder[] {
+  return getDb().prepare(
+    "SELECT * FROM reminders WHERE chat_id = ? AND status = 'pending' ORDER BY remind_at ASC"
+  ).all(chatId) as unknown as Reminder[]
+}
+
+export function deleteReminder(id: number, chatId: string): boolean {
+  const result = getDb().prepare(
+    'DELETE FROM reminders WHERE id = ? AND chat_id = ?'
+  ).run(id, chatId)
+  return (result as unknown as { changes: number }).changes > 0
+}
+
+export function listAllReminders(): Reminder[] {
+  return getDb().prepare(
+    "SELECT * FROM reminders WHERE status = 'pending' ORDER BY remind_at ASC"
+  ).all() as unknown as Reminder[]
 }

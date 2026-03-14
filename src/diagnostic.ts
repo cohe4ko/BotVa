@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   const mcpServers: Record<string, any> = buildMcpServers(env)
 
   // Add builtin tools with real Telegram context
-  const builtin = createBuiltinMcpServer(ctx, 0)
+  const builtin = await createBuiltinMcpServer(ctx, 0)
   if (builtin) {
     mcpServers['builtin'] = builtin.server
   }

@@ -8,10 +8,10 @@ import { validateBot, botName } from '../bot-middleware.js'
 import { getSettings, upsertSetting, getBotDir, getProjectRoot } from '../db-multi.js'
 import { validateEnv, verifyTelegramToken } from '../env-validator.js'
 import { execSync } from 'child_process'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, renameSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
-import { createBackup } from '../../backup/engine.js'
+import { deleteBot, removeFromTeamJson } from '../../bot-manager.js'
 
 function getModelLabels(t: TFunc) {
   return [
@@ -248,43 +248,20 @@ app.post('/bot/:name/delete', validateBot, async (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
   const name = botName(c)
-  const root = getProjectRoot()
-  const botDir = getBotDir(name)
 
-  // Stop bot if running
-  stopBot(name)
-  await new Promise(r => setTimeout(r, 500))
-
-  // Backup before delete
-  let backupFilename: string
   try {
-    const info = createBackup({ type: 'bot', botName: name })
-    backupFilename = info.filename
+    const result = await deleteBot(name)
+    const content = html`
+      ${alert('success', t('config.botDeleted', { name }))}
+      <p>${t('config.backupPath', { filename: result.backupFilename })}</p>
+      <p>${t('config.restoreHint2')}</p>
+      <a href="/" role="button">${t('nav.dashboard')}</a>
+    `
+    return c.html(layout(t('config.delete'), content, '/', t, lang))
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return c.html(layout(t('config.delete'), html`${alert('error', `Backup failed: ${msg}`)} <a href="/bot/${name}/config">${t('common.back')}</a>`, `/bot/${name}`, t, lang))
+    return c.html(layout(t('config.delete'), html`${alert('error', msg)} <a href="/bot/${name}/config">${t('common.back')}</a>`, `/bot/${name}`, t, lang))
   }
-
-  // Remove bot directory
-  rmSync(botDir, { recursive: true, force: true })
-
-  // Remove from team.json
-  const teamPath = resolve(root, 'workspace', 'team.json')
-  if (existsSync(teamPath)) {
-    try {
-      const team = JSON.parse(readFileSync(teamPath, 'utf-8'))
-      delete team.bots[name]
-      writeFileSync(teamPath, JSON.stringify(team, null, 2) + '\n')
-    } catch { /* ignore */ }
-  }
-
-  const content = html`
-    ${alert('success', t('config.botDeleted', { name }))}
-    <p>${t('config.backupPath', { filename: backupFilename })}</p>
-    <p>${t('config.restoreHint2')}</p>
-    <a href="/" role="button">${t('nav.dashboard')}</a>
-  `
-  return c.html(layout(t('config.delete'), content, '/', t, lang))
 })
 
 export default app
