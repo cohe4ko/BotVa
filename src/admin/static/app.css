@@ -205,8 +205,6 @@ li { margin-bottom: 0.2rem; color: var(--mc-text-secondary); }
   margin: 0 auto;
   flex: 1;
   padding: 1.5rem;
-  position: relative;
-  z-index: 1;
 }
 
 /* === Page background icon (watermark) === */

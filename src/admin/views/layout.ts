@@ -100,19 +100,19 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       </div>
     </div>
   </nav>
+  ${(() => {
+    if (pageIcon) return html`<div class="page-bg-icon"><i data-lucide="${pageIcon}"></i></div>`
+    // Bot pages: extract section from path like /bot/name/section
+    const botMatch = activePath.match(/^\/bot\/[^/]+\/(\w+)/)
+    if (botMatch) {
+      const sectionIcon = NAV_SECTIONS.find(s => s.id === botMatch[1])?.icon
+      if (sectionIcon) return html`<div class="page-bg-icon"><i data-lucide="${sectionIcon}"></i></div>`
+    }
+    // Top-level pages
+    const topIcon = PAGE_ICONS[activePath]
+    return topIcon ? html`<div class="page-bg-icon"><i data-lucide="${topIcon}"></i></div>` : ''
+  })()}
   <main class="mc-main">
-    ${(() => {
-      if (pageIcon) return html`<div class="page-bg-icon"><i data-lucide="${pageIcon}"></i></div>`
-      // Bot pages: extract section from path like /bot/name/section
-      const botMatch = activePath.match(/^\/bot\/[^/]+\/(\w+)/)
-      if (botMatch) {
-        const sectionIcon = NAV_SECTIONS.find(s => s.id === botMatch[1])?.icon
-        if (sectionIcon) return html`<div class="page-bg-icon"><i data-lucide="${sectionIcon}"></i></div>`
-      }
-      // Top-level pages
-      const topIcon = PAGE_ICONS[activePath]
-      return topIcon ? html`<div class="page-bg-icon"><i data-lucide="${topIcon}"></i></div>` : ''
-    })()}
     ${content}
   </main>
   <footer class="mc-footer">${_t('nav.footer')}</footer>
