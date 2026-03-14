@@ -669,7 +669,7 @@ export function createBot(): Bot {
       if (!status.running) {
         await ctx.answerCallbackQuery({ text: _t('admin.notRunning') })
       } else {
-        stopAdmin()
+        stopAdmin(true)
         await ctx.answerCallbackQuery({ text: _t('admin.stoppedShort') })
       }
       try {

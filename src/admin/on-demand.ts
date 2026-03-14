@@ -164,7 +164,7 @@ function killPortOccupant(port: number): void {
   }
 }
 
-export function stopAdmin(): void {
+export function stopAdmin(manual = false): void {
   if (state.timer) { clearTimeout(state.timer); state.timer = null }
   if (state.server) {
     state.server.close()
@@ -180,5 +180,6 @@ export function stopAdmin(): void {
   state.token = null
   removeLock()
   logger.info('Admin panel зупинено')
-  if (state.onShutdown) { state.onShutdown(); state.onShutdown = null }
+  if (!manual && state.onShutdown) { state.onShutdown(); state.onShutdown = null }
+  if (manual) state.onShutdown = null
 }
