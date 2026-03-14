@@ -907,7 +907,7 @@ app.post('/diagnostics/run', async (c) => {
   }
 
   // Save to history
-  saveDiagnosticRun('system', null, analysisRaw, snapshot, a.score ?? 0, a.summary?.slice(0, 200) ?? '', 0)
+  saveDiagnosticRun('system', null, JSON.stringify(a), snapshot, a.score ?? 0, a.summary?.slice(0, 200) ?? '', 0)
 
   c.header('HX-Trigger', 'refreshHistory')
   return c.html(renderSystemDiagResult(a, snapshot, lang, t))
