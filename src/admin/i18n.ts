@@ -68,6 +68,11 @@ const translations: Record<Lang, Record<string, string>> = {
     'dash.usage': 'Usage',
     'dash.audit': 'Audit',
     'dash.logs': 'Logs',
+    'dash.embeddingService': 'Embedding Service',
+    'dash.embeddingOnline': 'Online',
+    'dash.embeddingOffline': 'Offline',
+    'dash.embeddingRequests': 'Requests',
+    'dash.embeddingTexts': 'Texts embedded',
 
     // Status badges
     'status.running': 'running',
@@ -423,6 +428,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'sys.embeddingOffline': 'Offline',
     'sys.embeddingStart': 'Start',
     'sys.embeddingStop': 'Stop',
+    'sys.embeddingRequests': 'Requests',
+    'sys.embeddingTexts': 'Texts embedded',
     'sys.noMcp': 'No MCP servers configured',
     'sys.mcpName': 'Name',
     'sys.mcpNameHint': 'unique identifier (e.g. my-server)',
@@ -605,6 +612,11 @@ const translations: Record<Lang, Record<string, string>> = {
     'dash.usage': 'Витрати',
     'dash.audit': 'Аудит',
     'dash.logs': 'Логи',
+    'dash.embeddingService': 'Embedding-сервіс',
+    'dash.embeddingOnline': 'Онлайн',
+    'dash.embeddingOffline': 'Офлайн',
+    'dash.embeddingRequests': 'Запити',
+    'dash.embeddingTexts': 'Текстів оброблено',
 
     // Status badges
     'status.running': 'працює',
@@ -960,6 +972,8 @@ const translations: Record<Lang, Record<string, string>> = {
     'sys.embeddingOffline': 'Офлайн',
     'sys.embeddingStart': 'Запустити',
     'sys.embeddingStop': 'Зупинити',
+    'sys.embeddingRequests': 'Запити',
+    'sys.embeddingTexts': 'Текстів оброблено',
     'sys.noMcp': 'MCP серверів не налаштовано',
     'sys.mcpName': 'Назва',
     'sys.mcpNameHint': 'унікальний ідентифікатор (напр. my-server)',

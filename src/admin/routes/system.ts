@@ -485,6 +485,8 @@ app.get('/system/embedding/status', async (c) => {
   let uptime = 0
   let ready = false
 
+  let requestCount = 0, textsEmbedded = 0
+
   if (running) {
     try {
       const { getHealth } = await import('../../embeddings.js')
@@ -493,6 +495,8 @@ app.get('/system/embedding/status', async (c) => {
         ready = health.ready === true
         model = health.model ?? ''
         uptime = health.uptime ?? 0
+        requestCount = health.requestCount ?? 0
+        textsEmbedded = health.textsEmbedded ?? 0
       }
     } catch {}
   }
@@ -517,6 +521,14 @@ app.get('/system/embedding/status', async (c) => {
       <div class="stat-card">
         <div class="stat-label">${t('sys.embeddingModel')}</div>
         <div class="stat-number" style="font-size:0.85rem">${model || '—'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('send', 12)} ${t('sys.embeddingRequests')}</div>
+        <div class="stat-number">${requestCount}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('file-text', 12)} ${t('sys.embeddingTexts')}</div>
+        <div class="stat-number">${textsEmbedded}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">${icon('timer', 12)} Uptime</div>

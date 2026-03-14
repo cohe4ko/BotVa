@@ -2,9 +2,11 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { statusBadge, formatCost, formatTs } from '../views/components.js'
-import { getBotNames, getUsageSummary, getHealthMetrics } from '../db-multi.js'
+import { getBotNames, getUsageSummary, getHealthMetrics, getProjectRoot } from '../db-multi.js'
 import { getBotStatus, startBot, stopBot, restartBot, getBotUptime, isSelf as isSelfBot } from '../bot-control.js'
 import { validateBot, botName } from '../bot-middleware.js'
+import { existsSync, readFileSync } from 'fs'
+import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const app = new Hono<I18nEnv>()
@@ -50,6 +52,8 @@ app.get('/', (c) => {
         <div class="stat-number">${formatCost(totalCost)}</div>
       </div>
     </div>
+
+    <div id="dash-embedding" hx-get="/embedding/status" hx-trigger="load, every 30s" hx-swap="innerHTML" style="margin-bottom:1rem"></div>
 
     ${bots.length > 0 ? html`
     <div class="btn-group" style="margin-bottom:1rem" id="bulk-controls">
@@ -189,6 +193,76 @@ app.post('/bots/start-all', async (c) => {
   getBotNames().forEach(name => { if (!getBotStatus(name).running) startBot(name) })
   await new Promise(r => setTimeout(r, 1500))
   return refreshResponse(c)
+})
+
+// Embedding service status fragment (shared between dashboard and system page)
+app.get('/embedding/status', async (c) => {
+  const t: TFunc = c.get('t')
+  const pidPath = resolve(getProjectRoot(), 'store', 'embedding.pid')
+  let pid: number | null = null
+  if (existsSync(pidPath)) {
+    const raw = readFileSync(pidPath, 'utf-8').trim()
+    pid = parseInt(raw, 10)
+    if (isNaN(pid)) pid = null
+  }
+  let running = false
+  if (pid) { try { process.kill(pid, 0); running = true } catch {} }
+
+  if (!running) {
+    return c.html(html`
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">${icon('brain', 12)} ${t('dash.embeddingService')}</div>
+          <div class="stat-number" style="font-size:1rem"><span class="badge badge-missing">${icon('x', 11)} ${t('dash.embeddingOffline')}</span></div>
+        </div>
+      </div>
+    `)
+  }
+
+  let model = '', uptime = 0, ready = false, requestCount = 0, textsEmbedded = 0
+  try {
+    const { getHealth } = await import('../../embeddings.js')
+    const health = await getHealth()
+    if (health) {
+      ready = health.ready === true
+      model = health.model ?? ''
+      uptime = health.uptime ?? 0
+      requestCount = health.requestCount ?? 0
+      textsEmbedded = health.textsEmbedded ?? 0
+    }
+  } catch {}
+
+  const uptimeStr = uptime > 3600
+    ? `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`
+    : uptime > 0
+      ? `${Math.floor(uptime / 60)}m`
+      : '—'
+
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${icon('brain', 12)} ${t('dash.embeddingService')}</div>
+        <div class="stat-number" style="font-size:1rem">
+          ${ready
+            ? html`<span class="badge badge-set">${icon('check', 11)} ${t('dash.embeddingOnline')}</span>`
+            : html`<span class="badge" style="background:var(--mc-warning);color:#000">${icon('loader', 11)} Loading...</span>`
+          }
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('send', 12)} ${t('dash.embeddingRequests')}</div>
+        <div class="stat-number">${requestCount}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('file-text', 12)} ${t('dash.embeddingTexts')}</div>
+        <div class="stat-number">${textsEmbedded}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('timer', 12)} Uptime</div>
+        <div class="stat-number">${uptimeStr}</div>
+      </div>
+    </div>
+  `)
 })
 
 export default app

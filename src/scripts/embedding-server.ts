@@ -26,6 +26,8 @@ const startTime = Date.now()
 
 let pipeline: any = null
 let ready = false
+let requestCount = 0
+let textsEmbedded = 0
 
 async function loadModel(): Promise<void> {
   console.log(`Loading model: ${MODEL_NAME}...`)
@@ -81,6 +83,8 @@ function startServer(): void {
             ready,
             model: MODEL_NAME,
             uptime: Math.floor((Date.now() - startTime) / 1000),
+            requestCount,
+            textsEmbedded,
           }) + '\n')
           conn.end()
           return
@@ -99,6 +103,8 @@ function startServer(): void {
             conn.end()
             return
           }
+          requestCount++
+          textsEmbedded += texts.length
           embed(texts, type)
             .then(embeddings => {
               conn.write(JSON.stringify({ embeddings }) + '\n')

@@ -40,6 +40,8 @@ interface HealthResponse {
   ready?: boolean
   model?: string
   uptime?: number
+  requestCount?: number
+  textsEmbedded?: number
   error?: string
 }
 
