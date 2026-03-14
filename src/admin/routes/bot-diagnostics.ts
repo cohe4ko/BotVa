@@ -509,8 +509,8 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
 
   // Token usage from echo call
   const eu = result.echoUsage
-  const totalTokens = eu ? (eu.inputTokens + eu.outputTokens) : 0
-  const contextTokens = eu ? (eu.inputTokens + eu.cacheReadTokens + eu.cacheCreationTokens) : 0
+  const contextInputTokens = eu ? (eu.inputTokens + eu.cacheReadTokens + eu.cacheCreationTokens) : 0
+  const totalTokens = eu ? (contextInputTokens + eu.outputTokens) : 0
 
   // Build context segments for storage bar (approximate distribution)
   // We estimate proportions based on tool counts per source
@@ -527,9 +527,9 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
 
   if (eu) {
     // Approximate: input tokens split proportionally by source tool count + fixed chunks for instructions/knowledge
-    const instructionTokensEst = Math.round(eu.inputTokens * 0.15) // ~15% for CLAUDE.md/system
-    const knowledgeTokensEst = Math.round(eu.inputTokens * 0.10 * Math.min(1, (a.knowledge?.length ?? 0) / 3))
-    const toolTokensPool = eu.inputTokens - instructionTokensEst - knowledgeTokensEst
+    const instructionTokensEst = Math.round(contextInputTokens * 0.15) // ~15% for CLAUDE.md/system
+    const knowledgeTokensEst = Math.round(contextInputTokens * 0.10 * Math.min(1, (a.knowledge?.length ?? 0) / 3))
+    const toolTokensPool = contextInputTokens - instructionTokensEst - knowledgeTokensEst
 
     for (const [src, count] of Object.entries(toolsBySource)) {
       const pct = (count as number) / totalToolCount
@@ -562,9 +562,9 @@ app.post('/bot/:name/diagnostics/run', async (c) => {
             </span>
           </div>
           <div style="display:flex;gap:1rem;font-size:0.72rem;color:var(--mc-text-dim)">
-            <span>${lang === 'uk' ? 'Вхід' : 'Input'}: <strong style="color:var(--mc-text)">${formatTokens(eu.inputTokens)}</strong></span>
+            <span>${lang === 'uk' ? 'Контекст' : 'Context'}: <strong style="color:var(--mc-text)">${formatTokens(contextInputTokens)}</strong></span>
             <span>${lang === 'uk' ? 'Вихід' : 'Output'}: <strong style="color:var(--mc-text)">${formatTokens(eu.outputTokens)}</strong></span>
-            ${eu.cacheReadTokens > 0 ? html`<span>Cache: <strong style="color:var(--mc-text)">${formatTokens(eu.cacheReadTokens)}</strong></span>` : ''}
+            ${eu.cacheReadTokens > 0 ? html`<span>${lang === 'uk' ? 'З кешу' : 'Cached'}: <strong style="color:var(--mc-text)">${formatTokens(eu.cacheReadTokens)}</strong></span>` : ''}
             <span>${lang === 'uk' ? 'Всього' : 'Total'}: <strong style="color:var(--mc-text)">${formatTokens(totalTokens)}</strong></span>
             <span style="color:var(--mc-accent);font-weight:600">$${eu.costUSD.toFixed(4)}</span>
           </div>
