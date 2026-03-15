@@ -43,6 +43,7 @@ app.get('/terminal', (c) => {
         overflow: hidden; background: #1e1e1e;
         height: calc(100vh - 210px); /* fallback */
       }
+      #terminal-container .xterm-screen { left: 5px; top: 5px; }
       #reconnect-bar {
         display: none; padding: 0.5rem 1rem; background: var(--mc-yellow-light);
         border: 1px solid var(--mc-border); border-radius: var(--radius);
