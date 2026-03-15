@@ -1,6 +1,6 @@
 import { serve } from '@hono/node-server'
 import { createAdminApp } from './server.js'
-import { setSessionToken } from './auth.js'
+import { setSessionToken, setCookiePort } from './auth.js'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
 import { execSync } from 'child_process'
 import { resolve } from 'path'
@@ -18,6 +18,18 @@ function getLocalIP(): string {
     }
   }
   return '127.0.0.1'
+}
+
+/** Build admin base URL. ADMIN_HOST can be full URL (https://admin.example.com) or hostname/IP */
+function buildBaseUrl(port: number): string {
+  const host = process.env.ADMIN_HOST
+  if (host) {
+    // Full URL — use as-is (port already handled by reverse proxy)
+    if (host.startsWith('http://') || host.startsWith('https://')) return host
+    // Just hostname — add http + port
+    return `http://${host}:${port}`
+  }
+  return `http://${getLocalIP()}:${port}`
 }
 const INACTIVITY_MS = 20 * 60 * 1000 // 20 minutes
 
@@ -74,13 +86,13 @@ export function isAdminRunning(): { running: boolean; url?: string; token?: stri
   // Check if we started it ourselves
   if (state.server && state.token) {
     const lock = readLock()
-    return { running: true, url: `http://${getLocalIP()}:${lock?.port}`, token: state.token, port: lock?.port }
+    return { running: true, url: buildBaseUrl(lock?.port ?? parseInt(process.env.ADMIN_PORT || '3000', 10)), token: state.token, port: lock?.port }
   }
 
   // Check lock file (another bot may have started it)
   const lock = readLock()
   if (lock && isProcessAlive(lock.pid)) {
-    return { running: true, url: `http://${getLocalIP()}:${lock.port}`, token: lock.token, port: lock.port }
+    return { running: true, url: buildBaseUrl(lock.port), token: lock.token, port: lock.port }
   }
 
   // Stale lock
@@ -100,6 +112,7 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
 
   // Generate token
   const token = crypto.randomBytes(16).toString('hex')
+  setCookiePort(port)
   setSessionToken(token)
   state.token = token
   state.onShutdown = onShutdown
@@ -142,7 +155,7 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
   // Start inactivity timer
   resetTimer()
 
-  const url = `http://${getLocalIP()}:${port}/?token=${token}`
+  const url = `${buildBaseUrl(port)}/?token=${token}`
   logger.info({ port, botName }, `Admin panel запущено: ${url}`)
   return { url, token }
 }

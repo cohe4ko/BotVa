@@ -8,6 +8,17 @@ import { createT, getLang } from './i18n.js'
 const TOKEN = process.env.ADMIN_TOKEN ?? ''
 if (!TOKEN) console.warn('[admin] WARNING: ADMIN_TOKEN is not set — admin panel has no auth protection')
 
+// Port-scoped cookie names to avoid conflicts when multiple instances run on same host
+const PORT = process.env.ADMIN_PORT || '3000'
+let COOKIE_TOKEN = `admin_token_${PORT}`
+let COOKIE_SESSION = `admin_session_${PORT}`
+
+/** Call once when actual listening port is known (e.g. on-demand mode) */
+export function setCookiePort(port: number): void {
+  COOKIE_TOKEN = `admin_token_${port}`
+  COOKIE_SESSION = `admin_session_${port}`
+}
+
 // Dynamic session token for on-demand mode
 let sessionToken: string | null = null
 
@@ -159,13 +170,13 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
 
   // 1. On-demand mode: check session cookie
   if (sessionToken) {
-    const sessionCookie = getCookie(c, 'admin_session')
+    const sessionCookie = getCookie(c, COOKIE_SESSION)
     if (sessionCookie === sessionToken) return next()
 
     // 2. Check ?token= in URL (first visit)
     const urlToken = c.req.query('token')
     if (urlToken === sessionToken) {
-      setCookie(c, 'admin_session', sessionToken, {
+      setCookie(c, COOKIE_SESSION, sessionToken, {
         path: '/',
         httpOnly: true,
         sameSite: 'Lax',
@@ -176,14 +187,14 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
   }
 
   // 3. Static token cookie (standalone mode / backward compat)
-  const token = getCookie(c, 'admin_token')
+  const token = getCookie(c, COOKIE_TOKEN)
   if (TOKEN && token === TOKEN) return next()
 
   // 4. Standalone mode — accept ?token= in URL and set cookie
   if (TOKEN) {
     const urlToken = c.req.query('token')
     if (urlToken === TOKEN) {
-      setCookie(c, 'admin_token', TOKEN, {
+      setCookie(c, COOKIE_TOKEN, TOKEN, {
         path: '/',
         httpOnly: true,
         sameSite: 'Lax',
@@ -209,7 +220,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
 
 export function setAuthCookie(c: Context, token: string): boolean {
   if (token !== TOKEN) return false
-  setCookie(c, 'admin_token', token, {
+  setCookie(c, COOKIE_TOKEN, token, {
     path: '/',
     httpOnly: true,
     sameSite: 'Lax',

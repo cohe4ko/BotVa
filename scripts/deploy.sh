@@ -21,6 +21,11 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 mkdir -p "$DIR/workspace/logs"
 
+# Load root .env (ADMIN_HOST, ADMIN_PORT, etc.)
+if [ -f "$DIR/.env" ]; then
+  set -a; source "$DIR/.env"; set +a
+fi
+
 # Source node version manager if node not in PATH
 if ! command -v node &>/dev/null; then
   # Try nvm
@@ -244,7 +249,34 @@ is_alive() {
 }
 
 do_admin() {
-  local port="${ADMIN_PORT:-3000}"
+  # Ask for admin settings if not configured
+  if [ -z "${ADMIN_PORT:-}" ]; then
+    echo -n "Admin port [3000]: "
+    read -r input_port
+    ADMIN_PORT="${input_port:-3000}"
+  fi
+  if [ -z "${ADMIN_HOST:-}" ]; then
+    echo -n "Admin host URL (e.g. https://admin.example.com) [http://localhost:${ADMIN_PORT}]: "
+    read -r input_host
+    ADMIN_HOST="${input_host:-http://localhost:${ADMIN_PORT}}"
+  fi
+
+  # Offer to save to root .env
+  if [ -z "${_admin_env_saved:-}" ]; then
+    local save_env=""
+    echo -n "Save ADMIN_PORT/ADMIN_HOST to .env? [Y/n]: "
+    read -r save_env
+    if [ "${save_env,,}" != "n" ]; then
+      # Remove old values if present
+      [ -f "$DIR/.env" ] && sed -i.bak '/^ADMIN_PORT=/d; /^ADMIN_HOST=/d' "$DIR/.env" && rm -f "$DIR/.env.bak"
+      echo "ADMIN_PORT=${ADMIN_PORT}" >> "$DIR/.env"
+      [ -n "${ADMIN_HOST:-}" ] && echo "ADMIN_HOST=${ADMIN_HOST}" >> "$DIR/.env"
+      info "Saved to .env"
+    fi
+    _admin_env_saved=1
+  fi
+
+  local port="${ADMIN_PORT}"
 
   # Kill everything on this port
   local pids
@@ -258,12 +290,18 @@ do_admin() {
   local token
   token=$(head -c 16 /dev/urandom | xxd -p)
 
-  ADMIN_TOKEN="$token" ADMIN_PORT="$port" node dist/admin/server.js > $DIR/workspace/logs/botva-admin.log 2>&1 &
+  ADMIN_TOKEN="$token" ADMIN_PORT="$port" ADMIN_HOST="${ADMIN_HOST:-}" node dist/admin/server.js > $DIR/workspace/logs/botva-admin.log 2>&1 &
   local admin_pid=$!
   sleep 1
 
   if kill -0 "$admin_pid" 2>/dev/null; then
-    local url="http://localhost:${port}/?token=${token}"
+    local base_url
+    if [ -n "${ADMIN_HOST:-}" ]; then
+      base_url="${ADMIN_HOST}"
+    else
+      base_url="http://localhost:${port}"
+    fi
+    local url="${base_url}/?token=${token}"
     info "Admin panel started (PID $admin_pid)"
     echo ""
     echo -e "  ${BOLD}Open in browser:${NC}"

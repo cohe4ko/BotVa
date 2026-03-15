@@ -106,6 +106,7 @@ if (isDirectRun) {
   })
 
   resetIdleTimer()
-  console.log(`\n  BotVa Admin Panel\n  http://localhost:${port}\n  Auto-shutdown after 20 min inactivity\n`)
+  const host = process.env.ADMIN_HOST || `http://localhost:${port}`
+  console.log(`\n  BotVa Admin Panel\n  ${host}\n  Auto-shutdown after 20 min inactivity\n`)
   serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
 }
