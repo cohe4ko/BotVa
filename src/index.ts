@@ -244,6 +244,10 @@ async function main(): Promise<void> {
       const { stopAdmin } = await import('./admin/on-demand.js')
       stopAdmin()
     } catch {}
+    try {
+      const { persistentMcp } = await import('./persistent-mcp.js')
+      persistentMcp.stopAll()
+    } catch {}
     stopSocketListener()
     stopScheduler()
     stopDeduplication()

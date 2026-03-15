@@ -1,4 +1,12 @@
 {
+  "playwright-remote": {
+    "command": "npx",
+    "args": [
+      "@playwright/mcp"
+    ],
+    "enabled": true,
+    "persistent": true
+  },
   "stagehand": {
     "command": "/bin/sh",
     "args": [
@@ -11,7 +19,8 @@
     "envPassthrough": [
       "GOOGLE_API_KEY"
     ],
-    "enabled": true
+    "enabled": true,
+    "persistent": true
   },
   "bitrix24": {
     "command": "node",

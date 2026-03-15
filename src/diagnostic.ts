@@ -98,7 +98,7 @@ async function main(): Promise<void> {
 
   // Build MCP servers
   const env = readEnvFile()
-  const mcpServers: Record<string, any> = buildMcpServers(env)
+  const mcpServers: Record<string, any> = await buildMcpServers(env)
 
   // Add builtin tools with real Telegram context
   const builtin = await createBuiltinMcpServer(ctx, 0)

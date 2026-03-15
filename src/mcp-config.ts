@@ -15,6 +15,7 @@ export interface McpServerConfig {
   envVars?: string[]       // env var names required (checked at runtime)
   envPassthrough?: string[] // env var names to pass to the process
   enabled: boolean          // user toggle
+  persistent?: boolean      // keep subprocess alive between agent queries (for stateful servers like browsers)
 }
 
 export interface McpServerEntry {
@@ -52,8 +53,9 @@ export function ensureMcpConfig(): void {
   const defaults: Record<string, McpServerConfig> = {
     'playwright-remote': {
       command: 'npx',
-      args: ['@playwright/mcp', '--cdp-endpoint', 'http://127.0.0.1:9222'],
+      args: ['@playwright/mcp'],
       enabled: true,
+      persistent: true,
     },
     'stagehand': {
       command: '/bin/sh',
@@ -61,6 +63,7 @@ export function ensureMcpConfig(): void {
       envVars: ['GOOGLE_API_KEY'],
       envPassthrough: ['GOOGLE_API_KEY'],
       enabled: true,
+      persistent: true,
     },
     'bitrix24': {
       command: 'node',
@@ -166,10 +169,10 @@ export function updateMcpServer(name: string, server: Partial<McpServerConfig>):
 }
 
 /** Build mcpServers object for Claude Agent SDK (only enabled servers) */
-export function buildMcpServers(env: Record<string, string> = process.env as Record<string, string>): Record<string, McpServerRuntime> {
+export async function buildMcpServers(env: Record<string, string> = process.env as Record<string, string>): Promise<Record<string, any>> {
   ensureMcpConfig()
   const config = readConfig()
-  const servers: Record<string, McpServerRuntime> = {}
+  const servers: Record<string, any> = {}
 
   for (const [name, s] of Object.entries(config)) {
     if (!s.enabled) continue
@@ -178,14 +181,44 @@ export function buildMcpServers(env: Record<string, string> = process.env as Rec
     const envVars = s.envVars ?? []
     if (envVars.length > 0 && !envVars.every(v => !!env[v])) continue
 
+    // Build env for passthrough
+    let passEnv: Record<string, string> | undefined
+    if (s.envPassthrough && s.envPassthrough.length > 0) {
+      passEnv = {}
+      for (const key of s.envPassthrough) {
+        if (env[key]) passEnv[key] = env[key]
+      }
+    }
+
+    // Persistent servers: in-process proxy to persistent subprocess
+    if (s.persistent) {
+      try {
+        const { persistentMcp } = await import('./persistent-mcp.js')
+        let args = [...s.args]
+
+        // Special case: stagehand needs API key in args
+        if (name === 'stagehand' && env['GOOGLE_API_KEY']) {
+          const stagehandModel = readEnvFile()['STAGEHAND_MODEL'] ?? 'google/gemini-2.5-flash'
+          args = ['-c', `STAGEHAND_ENV=LOCAL npx stagehand-mcp-local --modelName ${stagehandModel} --modelApiKey ${env['GOOGLE_API_KEY']}`]
+        }
+
+        servers[name] = await persistentMcp.getServer(name, s.command, args, passEnv)
+      } catch (err) {
+        const { logger } = await import('./logger.js')
+        logger.error({ err, name }, 'Failed to start persistent MCP server, falling back to stdio')
+        // Fall through to stdio below
+        const entry: McpServerRuntime = { command: s.command, args: [...s.args] }
+        if (passEnv) entry.env = { ...env, ...passEnv }
+        servers[name] = entry
+      }
+      continue
+    }
+
+    // Standard stdio servers
     const entry: McpServerRuntime = { command: s.command, args: [...s.args] }
 
-    // Pass through env vars if specified
-    if (s.envPassthrough && s.envPassthrough.length > 0) {
-      entry.env = { ...env }
-      for (const key of s.envPassthrough) {
-        if (env[key]) entry.env[key] = env[key]
-      }
+    if (passEnv) {
+      entry.env = { ...env, ...passEnv }
     }
 
     // Special case: stagehand needs API key in args

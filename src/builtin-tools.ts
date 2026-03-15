@@ -120,7 +120,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
 export type AskUserCallback = (
   question: string,
   options: { label: string; description?: string }[],
-  keyboard: 'inline' | 'reply'
+  keyboard: 'inline' | 'reply',
+  text?: string
 ) => Promise<string>
 
 export interface BuiltinToolsResult {
@@ -1016,11 +1017,14 @@ EXAMPLES:
         keyboard: z.enum(['inline', 'reply']).default('inline').describe(
           'inline = buttons under message (short labels, has "Other"), reply = buttons replace keyboard (long labels OK, answer as text in chat)'
         ),
+        text: z.string().optional().describe(
+          'Custom message text (plain text, no markdown/HTML). If provided, replaces the auto-generated message above the buttons.'
+        ),
       },
-      async ({ question, options, keyboard }) => {
+      async ({ question, options, keyboard, text }) => {
         usedTools.add('AskUser')
         try {
-          const answer = await askUser(question, options, keyboard)
+          const answer = await askUser(question, options, keyboard, text)
           if (answer === '__skip__') {
             return { content: [{ type: 'text' as const, text: 'User wants a different option (clicked "Other"). Ask them in text what they prefer.' }] }
           }

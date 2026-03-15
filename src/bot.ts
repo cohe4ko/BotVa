@@ -320,16 +320,24 @@ async function handleMessage(
       await sendTyping()
 
       // Create askUser callback for AskUser builtin tool
-      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply') => {
-        const descriptions = options.filter(o => o.description).map(o => `• <b>${escapeHtml(o.label)}</b> — ${escapeHtml(o.description!)}`)
-        const msgText = descriptions.length > 0
-          ? `❓ <b>${escapeHtml(question)}</b>\n\n${descriptions.join('\n')}`
-          : `❓ <b>${escapeHtml(question)}</b>`
+      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply', customText?: string) => {
+        let msgText: string
+        let parseMode: 'HTML' | undefined = 'HTML'
+
+        if (customText) {
+          msgText = customText
+          parseMode = undefined // plain text, no parsing
+        } else {
+          const descriptions = options.filter(o => o.description).map(o => `• <b>${escapeHtml(o.label)}</b> — ${escapeHtml(o.description!)}`)
+          msgText = descriptions.length > 0
+            ? `❓ <b>${escapeHtml(question)}</b>\n\n${descriptions.join('\n')}`
+            : `❓ <b>${escapeHtml(question)}</b>`
+        }
 
         if (keyboardMode === 'reply') {
           const replyKeyboard = options.map(o => [{ text: o.label }])
           await ctx.api.sendMessage(chatId, msgText, {
-            parse_mode: 'HTML',
+            ...(parseMode ? { parse_mode: parseMode } : {}),
             reply_markup: { keyboard: replyKeyboard, one_time_keyboard: true, resize_keyboard: true },
           })
 
@@ -350,7 +358,7 @@ async function handleMessage(
         inlineKeyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
 
         await ctx.api.sendMessage(chatId, msgText, {
-          parse_mode: 'HTML',
+          ...(parseMode ? { parse_mode: parseMode } : {}),
           reply_markup: { inline_keyboard: inlineKeyboard },
         })
 

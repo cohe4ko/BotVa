@@ -47,7 +47,7 @@ async function runAgentOnce(
   const abortController = createAbortController(chatId)
 
   try {
-    const mcpServers: Record<string, any> = buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() })
+    const mcpServers: Record<string, any> = await buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() })
 
     // Built-in tools MCP (image generation, voice, telegraph, etc.)
     if (builtinMcpServer) {
