@@ -18,6 +18,7 @@ set -eo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
+mkdir -p "$DIR/workspace/logs"
 
 # Source node version manager if node not in PATH
 if ! command -v node &>/dev/null; then
@@ -256,7 +257,7 @@ do_admin() {
   local token
   token=$(head -c 16 /dev/urandom | xxd -p)
 
-  ADMIN_TOKEN="$token" ADMIN_PORT="$port" node dist/admin/server.js > /tmp/botva-admin.log 2>&1 &
+  ADMIN_TOKEN="$token" ADMIN_PORT="$port" node dist/admin/server.js > $DIR/workspace/logs/botva-admin.log 2>&1 &
   local admin_pid=$!
   sleep 1
 
@@ -267,7 +268,7 @@ do_admin() {
     echo -e "  ${BOLD}Open in browser:${NC}"
     echo -e "  ${GREEN}${url}${NC}"
     echo ""
-    echo "  Log: /tmp/botva-admin.log"
+    echo "  Log: $DIR/workspace/logs/botva-admin.log"
     echo "  Stop: kill $admin_pid"
 
     # Auto-open in browser
@@ -277,7 +278,7 @@ do_admin() {
       xdg-open "$url"
     fi
   else
-    err "Admin panel failed to start — check /tmp/botva-admin.log"
+    err "Admin panel failed to start — check $DIR/workspace/logs/botva-admin.log"
   fi
 }
 
@@ -298,17 +299,17 @@ do_start() {
       warn "$bot already running (PID $pid)"
       continue
     fi
-    BOT_NAME="$bot" node dist/index.js > "/tmp/botva-$bot.log" 2>&1 &
+    BOT_NAME="$bot" node dist/index.js > "$DIR/workspace/logs/botva-$bot.log" 2>&1 &
     sleep 1
     new_pid=$(get_pid "$bot")
     if is_alive "$new_pid"; then
       info "$bot started (PID $new_pid)"
     else
-      err "$bot failed to start — check /tmp/botva-$bot.log"
+      err "$bot failed to start — check $DIR/workspace/logs/botva-$bot.log"
     fi
   done
 
-  echo -e "\nLogs: tail -f /tmp/botva-{$(IFS=,; echo "${BOTS[*]}")}.log"
+  echo -e "\nLogs: tail -f $DIR/workspace/logs/botva-{$(IFS=,; echo "${BOTS[*]}")}.log"
 }
 
 do_stop() {
@@ -417,9 +418,9 @@ do_launchd() {
   <key>ThrottleInterval</key>
   <integer>5</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/botva-$bot.log</string>
+  <string>$DIR/workspace/logs/botva-$bot.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/botva-$bot.log</string>
+  <string>$DIR/workspace/logs/botva-$bot.log</string>
 </dict>
 </plist>
 PLIST
@@ -448,14 +449,14 @@ do_embedding_start() {
   fi
   echo "Starting embedding service..."
   mkdir -p store
-  node dist/scripts/embedding-server.js > /tmp/botva-embedding.log 2>&1 &
+  node dist/scripts/embedding-server.js > $DIR/workspace/logs/botva-embedding.log 2>&1 &
   sleep 2
   [ -f "$pidfile" ] && pid=$(cat "$pidfile")
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
     info "Embedding service started (PID $pid)"
-    echo "  Log: /tmp/botva-embedding.log"
+    echo "  Log: $DIR/workspace/logs/botva-embedding.log"
   else
-    err "Embedding service failed to start — check /tmp/botva-embedding.log"
+    err "Embedding service failed to start — check $DIR/workspace/logs/botva-embedding.log"
   fi
 }
 
