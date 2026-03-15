@@ -249,31 +249,33 @@ is_alive() {
 }
 
 do_admin() {
-  # Ask for admin settings if not configured
+  # Check if .env already has admin settings (loaded at script start)
+  local needs_save=false
+
   if [ -z "${ADMIN_PORT:-}" ]; then
     echo -n "Admin port [3000]: "
     read -r input_port
     ADMIN_PORT="${input_port:-3000}"
+    needs_save=true
   fi
   if [ -z "${ADMIN_HOST:-}" ]; then
     echo -n "Admin host URL (e.g. https://admin.example.com) [http://localhost:${ADMIN_PORT}]: "
     read -r input_host
     ADMIN_HOST="${input_host:-http://localhost:${ADMIN_PORT}}"
+    needs_save=true
   fi
 
-  # Offer to save to root .env
-  if [ -z "${_admin_env_saved:-}" ]; then
+  # Save to root .env only if we asked the user for new values
+  if [ "$needs_save" = true ]; then
     local save_env=""
     echo -n "Save ADMIN_PORT/ADMIN_HOST to .env? [Y/n]: "
     read -r save_env
     if [ "${save_env,,}" != "n" ]; then
-      # Remove old values if present
       [ -f "$DIR/.env" ] && sed -i.bak '/^ADMIN_PORT=/d; /^ADMIN_HOST=/d' "$DIR/.env" && rm -f "$DIR/.env.bak"
       echo "ADMIN_PORT=${ADMIN_PORT}" >> "$DIR/.env"
       [ -n "${ADMIN_HOST:-}" ] && echo "ADMIN_HOST=${ADMIN_HOST}" >> "$DIR/.env"
       info "Saved to .env"
     fi
-    _admin_env_saved=1
   fi
 
   local port="${ADMIN_PORT}"
