@@ -318,16 +318,13 @@ app.get('/terminal', (c) => {
         // --- Dynamic height (iOS keyboard support) ---
         var container = document.getElementById('terminal-container');
         function updateHeight() {
+          // Use container's position to calculate available space
           var vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-          var toolbar = document.querySelector('.term-toolbar');
-          var keybar = document.getElementById('term-keybar');
-          var usedH = (toolbar ? toolbar.offsetHeight : 0) + (keybar && keybar.offsetHeight > 0 ? keybar.offsetHeight : 0);
-          if (!document.body.classList.contains('term-fullscreen')) {
-            var nav = document.querySelector('.top-nav');
-            if (nav) usedH += nav.offsetHeight;
-            usedH += 16;
-          }
-          container.style.height = (vh - usedH) + 'px';
+          var top = container.getBoundingClientRect().top;
+          // On iOS with keyboard, getBoundingClientRect is relative to viewport
+          var available = vh - top - 4; // 4px breathing room
+          if (available < 100) available = 100;
+          container.style.height = available + 'px';
           fitAddon.fit();
         }
         updateHeight();
