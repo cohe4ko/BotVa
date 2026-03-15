@@ -1100,10 +1100,8 @@ export function createBot(): Bot {
     if (pendingReply) {
       clearTimeout(pendingReply.timeout)
       pendingReplyKeyboard.delete(chatIdStr)
-      // Remove reply keyboard silently
-      await ctx.reply('✓', { reply_markup: { remove_keyboard: true } })
-        .then(msg => ctx.api.deleteMessage(ctx.chat.id, msg.message_id).catch(() => {}))
-        .catch(() => {})
+      // Remove reply keyboard — must NOT delete this message, otherwise keyboard stays
+      await ctx.reply(`→ ${text}`, { reply_markup: { remove_keyboard: true } }).catch(() => {})
       pendingReply.resolve(text)
       return
     }
