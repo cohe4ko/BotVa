@@ -24,6 +24,7 @@ import diagnostics from './routes/diagnostics.js'
 import docs from './routes/docs.js'
 import templates from './routes/templates.js'
 import terminal from './routes/terminal.js'
+import { attachTerminalWS } from './terminal-ws.js'
 
 export function createAdminApp(): Hono<I18nEnv> {
   const app = new Hono<I18nEnv>()
@@ -113,5 +114,5 @@ if (isDirectRun) {
   const httpServer = serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
 
   // Attach WebSocket for terminal
-  import('./terminal-ws.js').then(({ attachTerminalWS }) => attachTerminalWS(httpServer))
+  attachTerminalWS(httpServer)
 }

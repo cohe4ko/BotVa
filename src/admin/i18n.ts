@@ -25,6 +25,11 @@ const translations: Record<Lang, Record<string, string>> = {
     // Terminal
     'terminal.title': 'Terminal',
     'terminal.desc': 'Interactive Claude Code CLI session',
+    'terminal.sessions': 'Sessions',
+    'terminal.new': 'New',
+    'terminal.disconnected': 'Disconnected. Session is still running.',
+    'terminal.reconnect': 'Reconnect',
+    'terminal.fullscreen': 'Fullscreen',
 
     // System Diagnostics
     'sdiag.title': 'System Diagnostics',
@@ -646,6 +651,11 @@ const translations: Record<Lang, Record<string, string>> = {
     // Terminal
     'terminal.title': 'Термінал',
     'terminal.desc': 'Інтерактивна сесія Claude Code CLI',
+    'terminal.sessions': 'Сесії',
+    'terminal.new': 'Нова',
+    'terminal.disconnected': 'З\'єднання розірвано. Сесія продовжує працювати.',
+    'terminal.reconnect': 'Відновити',
+    'terminal.fullscreen': 'На весь екран',
 
     // System Diagnostics
     'sdiag.title': 'Діагностика системи',
