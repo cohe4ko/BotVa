@@ -172,7 +172,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
     if (isOn('EditImage')) tools.push(
       tool(
         'EditImage',
-        'Edit an existing image based on a text instruction and send the result to the chat. Use this when the user wants to modify, change, or edit an existing image.',
+        'Edit an existing image based on a text instruction and send the result to the chat. Use when user says "зміни фон", "прибери текст", "додай рамку", "зроби яскравіше" or wants to modify an existing photo/image. NOT for creating new images from scratch — use GenerateImage for that.',
         {
           imagePath: z.string().describe('Absolute path to the image file to edit'),
           prompt: z.string().describe('Text instruction for how to edit the image'),
@@ -205,7 +205,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('TextToSpeech')) tools.push(
     tool(
       'TextToSpeech',
-      'Convert text to speech and send as a voice message in the chat. Use this when the user asks to read text aloud or send a voice message.',
+      'Convert text to speech and send as a voice message. Use when user says "озвуч", "прочитай вголос", "надішли голосовим", "зроби аудіо", or when a voice response would be more convenient (e.g. long text user will listen to while driving). NOT for transcribing voice — that is VoiceSTT (automatic).',
       { text: z.string().describe('Text to synthesize into speech') },
       async (args) => {
         usedTools.add('TextToSpeech')
@@ -230,7 +230,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
     tools.push(
       tool(
         'PublishTelegraph',
-        'Publish a long text as a Telegraph page and return the URL. Use this for long-form content that would be too long for a chat message.',
+        'Publish text as a Telegraph page and return a shareable URL. Use PROACTIVELY when your response is longer than ~2000 chars — publish the full version to Telegraph and send the link with a short summary. Also use when user asks "зроби статтю", "опублікуй", or wants a clean readable page. Accepts markdown. NOT for short answers that fit in a chat message.',
         {
           title: z.string().describe('Title for the Telegraph page'),
           content: z.string().describe('Markdown content to publish'),
@@ -325,7 +325,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('SendGalleryImage')) tools.push(
     tool(
       'SendGalleryImage',
-      'Send a gallery image to the chat by its ID. Sends the full-resolution image with prompt as caption.',
+      'Send a previously generated image from gallery to the chat. Use when user says "покажи ту картинку", "надішли фото що ти робив", or wants to see a past generation. First call ListGalleryImages to find the ID, then SendGalleryImage.',
       { id: z.number().describe('Gallery image ID') },
       async (args) => {
         usedTools.add('SendGalleryImage')
@@ -355,7 +355,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('DeleteGalleryImage')) tools.push(
     tool(
       'DeleteGalleryImage',
-      'Delete an image from the gallery by its ID. Removes the database entry and both the full image and thumbnail files.',
+      'Delete an image from gallery by ID. Use when user says "видали цю картинку", "прибери з галереї". First ListGalleryImages to find the ID.',
       { id: z.number().describe('Gallery image ID to delete') },
       async (args) => {
         usedTools.add('DeleteGalleryImage')
@@ -390,7 +390,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('CreateBackup')) tools.push(
     tool(
       'CreateBackup',
-      'Create a backup of a specific bot or the entire system. Returns backup filename and size. Use "bot" type with botName for a single bot, or "system" for full system backup including all bots, configs, and workspace.',
+      'Create a backup of a bot or the entire system. Use when user says "зроби бекап", "збережи стан", or BEFORE risky operations (deleting bot, major config changes). Type "bot" + botName for a single bot, "system" for everything.',
       {
         type: z.enum(['bot', 'system']).describe('Backup type: "bot" for single bot, "system" for everything'),
         botName: z.string().optional().describe('Bot name (required when type is "bot")'),
@@ -537,7 +537,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (hasSmtp && isOn('SendEmail')) tools.push(
     tool(
       'SendEmail',
-      'Send a beautifully formatted email via SMTP. Write the body in markdown — it will be automatically converted to a styled HTML email with proper typography. Use this when the user asks to send an email, notify someone by email, or forward information via email.',
+      'Send a styled HTML email via SMTP. Body in markdown — auto-converted to beautiful HTML. Use when user says "надішли email", "напиши листа", "відправ на пошту", or wants to share results/reports/summaries by email. Also use proactively when a task result would be useful to send (e.g. research summary, report). NOT for Telegram messages — those go through regular chat.',
       {
         to: z.string().describe('Recipient email address (or comma-separated for multiple)'),
         subject: z.string().describe('Email subject line'),
@@ -584,7 +584,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('SendMedia')) tools.push(
     tool(
       'SendMedia',
-      'Send a file to the chat as photo, document, voice, or video. Choose the appropriate type based on the file content.',
+      'Send a file to the chat as photo, document, voice, or video. Use AFTER creating/downloading/finding a file that the user needs — e.g. after RunPython generates a chart, after downloading a document, after writing a file user asked for. Also use when user says "надішли", "покажи фото", "відправ файл". Choose type: photo for images, document for PDF/CSV/etc, voice for audio, video for video.',
       {
         filePath: z.string().describe('Absolute path to the file to send'),
         type: z.enum(['photo', 'document', 'voice', 'video']).describe('Media type: photo, document, voice, or video'),
@@ -628,7 +628,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('CurrencyRates')) tools.push(
     tool(
       'CurrencyRates',
-      'Get current cash exchange rates from Ukrainian exchange offices (обмінники). Returns average buy/sell rates and number of exchangers reporting. Use when user asks about dollar/euro rate, "курс долара", "скільки коштує євро", etc.',
+      'Get current cash exchange rates from Ukrainian exchangers. Use when user asks "курс долара", "скільки коштує євро", "курс валют", or needs to convert UAH/USD/EUR. Also use PROACTIVELY when discussing prices in foreign currency — show the equivalent. Available: usd, eur, pln, gbp, chf. NOT for crypto or historical rates — use WebSearch for those.',
       {
         currencies: z.array(z.string()).optional().describe('Currency codes to fetch (default: ["usd", "eur"]). Available: usd, eur, pln, gbp, chf'),
         city: z.number().optional().describe('City ID (default: 3 = Lviv). 1 = Kyiv'),
@@ -689,7 +689,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('GetCurrentTime')) tools.push(
     tool(
       'GetCurrentTime',
-      'Get current date and time in any timezone. Use when the user asks "what time is it", "котра година", "який зараз час", or needs current time for scheduling.',
+      'Get current date and time. Use when user asks "котра година", "який сьогодні день", "яке число". Also use BEFORE CreateReminder to calculate the right datetime. Use when you need to know current date for any reason (age calculation, days until event, etc.).',
       {
         timezone: z.string().optional().describe('IANA timezone (default: "Europe/Kyiv"). Examples: "America/New_York", "Asia/Tokyo", "UTC"'),
       },
@@ -830,7 +830,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('CreateReminder')) tools.push(
     tool(
       'CreateReminder',
-      'Set a one-shot reminder. The bot will send a message to the chat at the specified time. Use for "remind me at...", "нагадай о...", "через 2 години..." requests.',
+      'Set a one-shot reminder — bot will message the chat at the specified time. Use when user says "нагадай", "remind me", "через годину", "завтра о 9", "не забути". Also use PROACTIVELY when user mentions a deadline or event they should remember. Use GetCurrentTime first to calculate the correct ISO datetime. NOT for recurring events — use Google Calendar for those.',
       {
         text: z.string().describe('Reminder text (what to remind about)'),
         remindAt: z.string().describe('When to remind, ISO 8601 datetime (e.g. "2025-03-15T15:00:00")'),
@@ -916,7 +916,11 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('RunPython')) tools.push(
     tool(
       'RunPython',
-      'Execute Python code in a persistent sandbox. Use for:\n- Calculations, math, statistics\n- Data analysis with pandas/numpy\n- Charts and plots with matplotlib (auto-sent to chat)\n- Symbolic math with sympy\n\nVariables and imports persist between calls. Generated images are automatically sent to the chat.',
+      `Execute Python code in a persistent sandbox. Use when user asks to calculate, analyze data, or build a chart. Triggers: "порахуй", "побудуй графік", "проаналізуй дані", "скільки буде", any math/statistics task.
+
+Available: pandas, numpy, matplotlib, sympy. Charts auto-sent to chat (use plt.savefig). Variables persist between calls.
+
+Use RunPython instead of manual calculation when: percentages, currency conversion, date math, statistics, or anything with >2 numbers. NOT for simple single-number answers you can compute in your head.`,
       { code: z.string().describe('Python code to execute') },
       async (args) => {
         usedTools.add('RunPython')
