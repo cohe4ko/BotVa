@@ -33,8 +33,9 @@ if ! command -v node &>/dev/null; then
   done
 fi
 
-if ! command -v node &>/dev/null; then
-  echo "ERROR: node not found. Install Node.js first: https://nodejs.org" >&2
+# For non-setup commands, node must already be installed
+if ! command -v node &>/dev/null && [ "${1:-}" != "setup" ]; then
+  echo "ERROR: node not found. Run './scripts/deploy.sh setup' first or install Node.js: https://nodejs.org" >&2
   exit 1
 fi
 
