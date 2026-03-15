@@ -320,14 +320,15 @@ async function handleMessage(
       await sendTyping()
 
       // Create askUser callback for AskUser builtin tool
-      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply', customText?: string) => {
+      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply', customText?: string, customParseMode?: 'HTML' | 'MarkdownV2' | 'Markdown') => {
         let msgText: string
-        let parseMode: 'HTML' | undefined = 'HTML'
+        let parseMode: 'HTML' | 'MarkdownV2' | 'Markdown' | undefined
 
         if (customText) {
           msgText = customText
-          parseMode = undefined // plain text, no parsing
+          parseMode = customParseMode // use provided or none
         } else {
+          parseMode = customParseMode ?? 'HTML'
           const descriptions = options.filter(o => o.description).map(o => `• <b>${escapeHtml(o.label)}</b> — ${escapeHtml(o.description!)}`)
           msgText = descriptions.length > 0
             ? `❓ <b>${escapeHtml(question)}</b>\n\n${descriptions.join('\n')}`

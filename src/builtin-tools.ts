@@ -121,7 +121,8 @@ export type AskUserCallback = (
   question: string,
   options: { label: string; description?: string }[],
   keyboard: 'inline' | 'reply',
-  text?: string
+  text?: string,
+  parseMode?: 'HTML' | 'MarkdownV2' | 'Markdown'
 ) => Promise<string>
 
 export interface BuiltinToolsResult {
@@ -1018,13 +1019,16 @@ EXAMPLES:
           'inline = buttons under message (short labels, has "Other"), reply = buttons replace keyboard (long labels OK, answer as text in chat)'
         ),
         text: z.string().optional().describe(
-          'Custom message text (plain text, no markdown/HTML). If provided, replaces the auto-generated message above the buttons.'
+          'Custom message text. If provided, replaces the auto-generated message above the buttons.'
+        ),
+        parse_mode: z.enum(['HTML', 'MarkdownV2', 'Markdown']).optional().describe(
+          'Telegram parse mode for the text. Default: HTML for auto-generated, none for custom text. Use MarkdownV2 for bold/italic/code in custom text.'
         ),
       },
-      async ({ question, options, keyboard, text }) => {
+      async ({ question, options, keyboard, text, parse_mode: pm }) => {
         usedTools.add('AskUser')
         try {
-          const answer = await askUser(question, options, keyboard, text)
+          const answer = await askUser(question, options, keyboard, text, pm)
           if (answer === '__skip__') {
             return { content: [{ type: 'text' as const, text: 'User wants a different option (clicked "Other"). Ask them in text what they prefer.' }] }
           }
