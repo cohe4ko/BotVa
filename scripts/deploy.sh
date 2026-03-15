@@ -270,7 +270,7 @@ do_admin() {
     local save_env=""
     echo -n "Save ADMIN_PORT/ADMIN_HOST to .env? [Y/n]: "
     read -r save_env
-    if [ "${save_env,,}" != "n" ]; then
+    if [ "$save_env" != "n" ] && [ "$save_env" != "N" ]; then
       [ -f "$DIR/.env" ] && sed -i.bak '/^ADMIN_PORT=/d; /^ADMIN_HOST=/d' "$DIR/.env" && rm -f "$DIR/.env.bak"
       echo "ADMIN_PORT=${ADMIN_PORT}" >> "$DIR/.env"
       [ -n "${ADMIN_HOST:-}" ] && echo "ADMIN_HOST=${ADMIN_HOST}" >> "$DIR/.env"
