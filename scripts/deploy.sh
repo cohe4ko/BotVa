@@ -21,10 +21,21 @@ cd "$DIR"
 
 # Source node version manager if node not in PATH
 if ! command -v node &>/dev/null; then
+  # Try nvm
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-  [ -s "$HOME/.fnm/fnm" ] && eval "$(~/.fnm/fnm env)"
-  export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+  # Try fnm
+  command -v fnm &>/dev/null && eval "$(fnm env)"
+  [ -s "$HOME/.fnm/fnm" ] && eval "$($HOME/.fnm/fnm env)"
+  # Try common paths
+  for p in /usr/local/bin /usr/bin "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/.volta/bin"; do
+    [ -x "$p/node" ] && export PATH="$p:$PATH" && break
+  done
+fi
+
+if ! command -v node &>/dev/null; then
+  echo "ERROR: node not found. Install Node.js first: https://nodejs.org" >&2
+  exit 1
 fi
 
 # Prevent OOM on Node 25+ (use half of system RAM for V8 heap)
