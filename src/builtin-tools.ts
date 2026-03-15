@@ -55,7 +55,7 @@ export function setToolEnabled(name: string, enabled: boolean): void {
 export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinToolDef[] {
   const env = mergedEnv ?? readEnvFile()
   const hasGoogleApi = !!env['GOOGLE_API_KEY']
-  const hasPublishSsh = !!env['PUBLISH_SSH_HOST']
+  const hasPublish = !!env['PUBLISH_BASE_URL']
   const config = readConfig()
 
   const hasGroq = !!env['GROQ_API_KEY']
@@ -75,7 +75,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'TextToSpeech', icon: 'volume-2', category: 'voice', description: 'Text to voice message (Edge-TTS)', available: true },
     // Publishing
     { name: 'PublishTelegraph', icon: 'newspaper', category: 'publish', description: 'Publish long text to Telegraph', condition: 'TELEGRAPH_ENABLED', available: TELEGRAPH_ENABLED },
-    { name: 'ShareFile', icon: 'upload', category: 'publish', description: 'Upload file to public server', condition: 'PUBLISH_SSH_HOST', available: hasPublishSsh },
+    { name: 'ShareFile', icon: 'upload', category: 'publish', description: 'Upload file to public server (SSH or local)', condition: 'PUBLISH_BASE_URL', available: hasPublish },
     // Gallery
     { name: 'ListGalleryImages', icon: 'grid', category: 'gallery', description: 'List gallery images with metadata', available: true },
     { name: 'SendGalleryImage', icon: 'send', category: 'gallery', description: 'Send gallery image to chat', available: true },
@@ -140,7 +140,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   const config = readConfig()
 
   const hasGoogleApi = !!env['GOOGLE_API_KEY']
-  const hasPublishSsh = !!env['PUBLISH_SSH_HOST']
+  const hasPublish = !!env['PUBLISH_BASE_URL']
 
   // Helper: only register tool if enabled in config
   const isOn = (name: string) => config[name] !== false
@@ -262,7 +262,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
 
   // --- ShareFile (when SSH publishing is configured) ---
 
-  if (hasPublishSsh && isOn('ShareFile')) {
+  if (hasPublish && isOn('ShareFile')) {
     tools.push(
       tool(
         'ShareFile',

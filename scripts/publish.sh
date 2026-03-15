@@ -31,7 +31,7 @@ EXT="${BASENAME##*.}"
 NAME="${BASENAME%.*}"
 FILENAME="${NAME}-${HASH}.${EXT}"
 
-SSH_HOST="${PUBLISH_SSH_HOST:?PUBLISH_SSH_HOST not set in .env}"
+SSH_HOST="${PUBLISH_SSH_HOST:-}"
 REMOTE_DIR="${PUBLISH_REMOTE_DIR:?PUBLISH_REMOTE_DIR not set in .env}"
 BASE_URL="${PUBLISH_BASE_URL:?PUBLISH_BASE_URL not set in .env}"
 
@@ -42,7 +42,14 @@ if [ ! -f "$LOCAL_FILE" ]; then
     exit 1
 fi
 
-ssh "$SSH_HOST" "mkdir -p $REMOTE_PATH"
-scp "$LOCAL_FILE" "$SSH_HOST:$REMOTE_PATH/$FILENAME"
+if [ -n "$SSH_HOST" ]; then
+    # Remote: upload via SSH
+    ssh "$SSH_HOST" "mkdir -p $REMOTE_PATH"
+    scp "$LOCAL_FILE" "$SSH_HOST:$REMOTE_PATH/$FILENAME"
+else
+    # Local: copy to directory on this machine
+    mkdir -p "$REMOTE_PATH"
+    cp "$LOCAL_FILE" "$REMOTE_PATH/$FILENAME"
+fi
 
 echo "$BASE_URL/$SUBFOLDER/$FILENAME"
