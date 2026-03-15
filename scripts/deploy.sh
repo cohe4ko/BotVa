@@ -65,6 +65,15 @@ do_setup() {
   if [ "$NODE_VER" = "none" ]; then
     warn "Node.js not found. Installing Node.js 22 LTS via fnm..."
     if ! command -v fnm &>/dev/null; then
+      # Install unzip if missing (required by fnm)
+      if ! command -v unzip &>/dev/null; then
+        echo "  Installing unzip..."
+        if command -v apt-get &>/dev/null; then
+          sudo apt-get update -qq && sudo apt-get install -y -qq unzip
+        elif command -v yum &>/dev/null; then
+          sudo yum install -y unzip
+        fi
+      fi
       curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
       export PATH="$HOME/.local/share/fnm:$HOME/.fnm:$PATH"
       eval "$(fnm env)"
