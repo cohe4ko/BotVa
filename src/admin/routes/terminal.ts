@@ -29,7 +29,7 @@ app.get('/terminal', (c) => {
         overflow-x: auto; -webkit-overflow-scrolling: touch;
       }
       body.has-touch .term-sessions { flex-wrap: nowrap; }
-      .term-sessions .session-btn { position: relative; font-size: 0.75rem; padding: 0.2rem 0.5rem; }
+      .term-sessions .session-btn { position: relative; font-size: 0.75rem; padding: 0.2rem 0.5rem; margin-top: 5px; }
       .term-sessions .session-btn.dead { text-decoration: line-through; opacity: 0.5; }
       .session-action { position: absolute; width: 16px; height: 16px;
         border-radius: 50%; color: #fff; border: none;
