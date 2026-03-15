@@ -9,15 +9,10 @@ const PROJECT_ROOT = resolve(__dirname, '..')
 export const BOT_NAME = process.env.BOT_NAME ?? 'default'
 export const BOT_DIR = resolve(PROJECT_ROOT, 'bots', BOT_NAME)
 
-export function readEnvFile(keys?: string[]): Record<string, string> {
-  // First try bot-specific .env, fallback to project root
-  let envPath = resolve(BOT_DIR, '.env')
-  if (!existsSync(envPath)) {
-    envPath = resolve(PROJECT_ROOT, '.env')
-  }
+function parseEnv(filePath: string, keys?: string[]): Record<string, string> {
   let content: string
   try {
-    content = readFileSync(envPath, 'utf-8')
+    content = readFileSync(filePath, 'utf-8')
   } catch {
     return {}
   }
@@ -47,4 +42,15 @@ export function readEnvFile(keys?: string[]): Record<string, string> {
   }
 
   return result
+}
+
+export function readEnvFile(keys?: string[]): Record<string, string> {
+  // Root .env as base (ADMIN_HOST, ADMIN_PORT, etc.), bot .env overrides
+  const rootPath = resolve(PROJECT_ROOT, '.env')
+  const botPath = resolve(BOT_DIR, '.env')
+
+  const root = existsSync(rootPath) ? parseEnv(rootPath, keys) : {}
+  const bot = existsSync(botPath) ? parseEnv(botPath, keys) : {}
+
+  return { ...root, ...bot }
 }

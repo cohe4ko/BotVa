@@ -411,12 +411,35 @@ do_status() {
     echo -e "\nEmbedding service: ${RED}stopped${NC} (use: $0 embedding-start)"
   fi
 
-  # Admin panel
+  # Admin panel (this instance)
   if [ -f "workspace/admin.lock" ]; then
-    admin_port=$(python3 -c "import json; print(json.load(open('workspace/admin.lock'))['port'])" 2>/dev/null || echo "?")
-    echo -e "\nAdmin panel: ${GREEN}running${NC} on port $admin_port"
+    local lock_pid lock_port lock_by
+    lock_pid=$(python3 -c "import json; d=json.load(open('workspace/admin.lock')); print(d.get('pid','?'))" 2>/dev/null || echo "?")
+    lock_port=$(python3 -c "import json; d=json.load(open('workspace/admin.lock')); print(d.get('port','?'))" 2>/dev/null || echo "?")
+    lock_by=$(python3 -c "import json; d=json.load(open('workspace/admin.lock')); print(d.get('startedBy','?'))" 2>/dev/null || echo "?")
+    if kill -0 "$lock_pid" 2>/dev/null; then
+      echo -e "\nAdmin panel: ${GREEN}running${NC} on port $lock_port (PID $lock_pid, started by $lock_by)"
+    else
+      echo -e "\nAdmin panel: ${RED}stale lock${NC} (PID $lock_pid dead). Remove: rm workspace/admin.lock"
+    fi
   else
     echo -e "\nAdmin panel: ${RED}stopped${NC} (use /admin in Telegram)"
+  fi
+
+  # All admin/server.js processes on this machine
+  local admin_procs
+  admin_procs=$(ps aux 2>/dev/null | grep '[a]dmin/server.js' || true)
+  if [ -n "$admin_procs" ]; then
+    echo -e "\n${BOLD}All admin processes on this machine:${NC}"
+    printf "  %-8s %-6s %s\n" "USER" "PID" "PORT"
+    echo "$admin_procs" | while read -r line; do
+      local auser apid aport
+      auser=$(echo "$line" | awk '{print $1}')
+      apid=$(echo "$line" | awk '{print $2}')
+      aport=$(echo "$line" | sed -n 's/.*ADMIN_PORT=\([0-9]*\).*/\1/p')
+      [ -z "$aport" ] && aport="?"
+      printf "  %-8s %-6s %s\n" "$auser" "$apid" "$aport"
+    done
   fi
 }
 

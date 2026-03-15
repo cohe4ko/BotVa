@@ -6,6 +6,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const env = readEnvFile()
 
+// Propagate admin settings from .env to process.env (used by admin/auth.ts, admin/on-demand.ts)
+for (const key of ['ADMIN_PORT', 'ADMIN_HOST', 'ADMIN_TOKEN']) {
+  if (env[key] && !process.env[key]) process.env[key] = env[key]
+}
+
 export const PROJECT_ROOT = resolve(__dirname, '..')
 // Store is bot-specific: bots/<name>/store
 export const STORE_DIR = resolve(BOT_DIR, 'store')
