@@ -633,7 +633,7 @@ export function createBot(): Bot {
         const date = formatSessionDate(s.updatedAt)
         const ago = timeAgo(s.updatedAt, t)
         lines.push(`<code>${s.sessionId.slice(0, 8)}</code>${active}`)
-        lines.push(`  ${escapeHtml(s.preview)}`)
+        lines.push(`  ${escapeHtml(s.title || s.preview)}`)
         lines.push(`  <i>${date} (${ago})</i>`)
         lines.push('')
       }
@@ -648,7 +648,7 @@ export function createBot(): Bot {
 
     for (const s of pageSessions) {
       const active = currentSessionId === s.sessionId ? '✓ ' : ''
-      const label = s.preview.slice(0, 35) || s.sessionId.slice(0, 8)
+      const label = s.title || s.preview.slice(0, 35) || s.sessionId.slice(0, 8)
       keyboard.push([
         { text: `${active}${label}`, callback_data: `ses:load:${s.sessionId}` },
       ])

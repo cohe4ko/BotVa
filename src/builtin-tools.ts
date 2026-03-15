@@ -110,6 +110,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a one-shot reminder', available: true },
     { name: 'ListReminders', icon: 'bell-ring', category: 'reminders', description: 'List pending reminders', available: true },
     { name: 'DeleteReminder', icon: 'bell-off', category: 'reminders', description: 'Cancel a reminder', available: true },
+    // Session
+    { name: 'NameSession', icon: 'tag', category: 'utility', description: 'Name the current session', available: true },
   ]
 
   return defs.map(d => ({ ...d, enabled: config[d.name] !== false }))
@@ -1030,6 +1032,10 @@ EXAMPLES:
     )
   )
 
+  // --- Session naming ---
+
+  if (isOn('NameSession')) tools.push(makeNameSessionTool(chatIdStr, usedTools))
+
   if (tools.length === 0) return null
 
   const server = createSdkMcpServer({
@@ -1150,6 +1156,33 @@ function makeDeleteFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpTo
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error({ err }, 'DeleteFact tool failed')
+        return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+      }
+    }
+  )
+}
+
+// --- Session naming tool factory ---
+
+function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>): SdkMcpToolDefinition<any> {
+  return tool(
+    'NameSession',
+    'Give this session a short descriptive title (3-5 words). Call after 2nd user message when you understand the session topic. Title appears in session list (Claude Code /resume and Telegram /session).',
+    { title: z.string().describe('Short session title, 3-5 words, in the language of the conversation') },
+    async (args) => {
+      usedTools.add('NameSession')
+      try {
+        const { getSession } = await import('./db.js')
+        const sessionId = getSession(chatIdStr)
+        if (!sessionId) {
+          return { content: [{ type: 'text' as const, text: 'No active session' }], isError: true }
+        }
+        const { writeSessionTitle } = await import('./session-titles.js')
+        writeSessionTitle(sessionId, args.title)
+        return { content: [{ type: 'text' as const, text: `Session named: ${args.title}` }] }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.error({ err }, 'NameSession tool failed')
         return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
       }
     }

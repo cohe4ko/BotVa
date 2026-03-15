@@ -6,6 +6,7 @@ export interface DiskSession {
   sessionId: string
   preview: string
   slug: string
+  title: string
   updatedAt: number // unix seconds
 }
 
@@ -186,7 +187,8 @@ function listDiskSessionsFromDir(projectDir: string): DiskSession[] {
         let preview = ''
         let slug = ''
         const content = readFileSync(filePath, 'utf-8')
-        for (const line of content.split('\n').slice(0, 30)) {
+        const allLines = content.split('\n')
+        for (const line of allLines.slice(0, 30)) {
           if (!line.trim()) continue
           try {
             const entry = JSON.parse(line)
@@ -206,10 +208,20 @@ function listDiskSessionsFromDir(projectDir: string): DiskSession[] {
             if (preview && slug) break
           } catch { /* skip malformed lines */ }
         }
+        // Read custom-title from last lines (Claude Code /rename format)
+        let title = ''
+        for (const line of allLines.slice(-15)) {
+          if (!line.trim()) continue
+          try {
+            const entry = JSON.parse(line)
+            if (entry.type === 'custom-title' && entry.customTitle) title = entry.customTitle
+          } catch { /* skip */ }
+        }
         sessions.push({
           sessionId,
           preview: preview || '(empty)',
           slug: slug || '',
+          title,
           updatedAt: Math.floor(stat.mtimeMs / 1000),
         })
       } catch { /* skip unreadable files */ }
