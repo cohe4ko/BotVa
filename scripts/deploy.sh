@@ -19,9 +19,19 @@ set -eo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
+# Source node version manager if node not in PATH
+if ! command -v node &>/dev/null; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  [ -s "$HOME/.fnm/fnm" ] && eval "$(~/.fnm/fnm env)"
+  export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+fi
+
 # Prevent OOM on Node 25+ (use half of system RAM for V8 heap)
-MEM_MB=$(node -e "console.log(Math.floor(require('os').totalmem()/1024/1024/2))")
-export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=$MEM_MB"
+if command -v node &>/dev/null; then
+  MEM_MB=$(node -e "console.log(Math.floor(require('os').totalmem()/1024/1024/2))")
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=$MEM_MB"
+fi
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 info() { echo -e "${GREEN}✓${NC} $1"; }
