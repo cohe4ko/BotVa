@@ -320,7 +320,7 @@ app.get('/terminal', (c) => {
         function updateHeight() {
           var top = container.getBoundingClientRect().top;
           // On mobile: reserve ~50% for keyboard; on desktop: fill available space
-          var vh = isMobile ? window.innerHeight * 0.48 : window.innerHeight - top;
+          var vh = isMobile ? window.innerHeight * 0.6 : window.innerHeight - top;
           if (vh < 100) vh = 100;
           container.style.height = vh + 'px';
           fitAddon.fit();
