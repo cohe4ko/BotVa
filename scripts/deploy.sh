@@ -28,7 +28,7 @@ if ! command -v node &>/dev/null; then
   command -v fnm &>/dev/null && eval "$(fnm env)"
   [ -s "$HOME/.fnm/fnm" ] && eval "$($HOME/.fnm/fnm env)"
   # Try common paths
-  for p in /usr/local/bin /usr/bin "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/.volta/bin"; do
+  for p in /usr/local/bin /usr/bin "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/.volta/bin" "$HOME/.local/share/fnm/aliases/default/bin"; do
     [ -x "$p/node" ] && export PATH="$p:$PATH" && break
   done
 fi
@@ -59,12 +59,31 @@ done
 do_setup() {
   echo -e "${BOLD}BotVa — First-time Setup${NC}\n"
 
-  # Node check
+  # Node check — install if missing
   NODE_VER=$(node --version 2>/dev/null || echo "none")
+  if [ "$NODE_VER" = "none" ]; then
+    warn "Node.js not found. Installing Node.js 22 LTS via fnm..."
+    if ! command -v fnm &>/dev/null; then
+      curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
+      export PATH="$HOME/.local/share/fnm:$HOME/.fnm:$PATH"
+      eval "$(fnm env)"
+    fi
+    fnm install 22
+    fnm use 22
+    fnm default 22
+    eval "$(fnm env)"
+    NODE_VER=$(node --version 2>/dev/null || echo "none")
+    if [ "$NODE_VER" = "none" ]; then
+      err "Failed to install Node.js"
+      exit 1
+    fi
+    info "Node.js $NODE_VER installed"
+  fi
+
   NODE_MAJOR=$(echo "$NODE_VER" | sed 's/v//' | cut -d. -f1)
   if [ "$NODE_MAJOR" -lt 20 ] 2>/dev/null; then
     err "Node.js 20+ required (found: $NODE_VER)"
-    echo "  Install: https://nodejs.org or 'brew install node'"
+    echo "  Upgrade: fnm install 22 && fnm use 22 && fnm default 22"
     exit 1
   fi
   info "Node.js $NODE_VER"
