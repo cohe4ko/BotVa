@@ -24,6 +24,7 @@ import { getModel, setModel, MODELS, getModelLabel } from './model.js'
 import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
 import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, getSessionDetail, type DiskSession, type ClaudeProject } from './disk-sessions.js'
+import { hasSessionTitle } from './session-titles.js'
 
 // --- AskUser pending responses ---
 const pendingQuestions = new Map<string, {
@@ -308,12 +309,17 @@ async function handleMessage(
     while (true) {
       // Build memory context
       const memoryCtx = await buildMemoryContext(chatIdStr, currentMessage)
-      const fullMessage = memoryCtx
+      let fullMessage = memoryCtx
         ? `[Short-term context — fades over time. Use SaveFact for permanent storage.]\n${memoryCtx}\n\n${currentMessage}`
         : currentMessage
 
       // Get session
       const sessionId = getSession(chatIdStr)
+
+      // Nudge LLM to name untitled sessions
+      if (sessionId && !hasSessionTitle(sessionId)) {
+        fullMessage += '\n\n[Session has no title yet. Call NameSession now with a short 3-5 word title.]'
+      }
 
       // Start typing
       const sendTyping = () => ctx.api.sendChatAction(chatId, 'typing').catch(() => {})
