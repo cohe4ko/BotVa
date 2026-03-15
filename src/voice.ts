@@ -72,6 +72,20 @@ export async function transcribeAudio(filePath: string): Promise<string> {
     `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${sttModel}\r\n`
   ))
 
+  // language hint: if set, forces single language; if empty, Whisper auto-detects
+  const sttLang = env['GROQ_STT_LANGUAGE'] // e.g. 'uk', 'ru', 'en' or unset for auto-detect
+  if (sttLang) {
+    parts.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n${sttLang}\r\n`
+    ))
+  }
+
+  // prompt helps Whisper with expected languages and context
+  const sttPrompt = env['GROQ_STT_PROMPT'] ?? 'Розмова українською, російською або англійською мовою.'
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${sttPrompt}\r\n`
+  ))
+
   parts.push(Buffer.from(`--${boundary}--\r\n`))
 
   const body = Buffer.concat(parts)
