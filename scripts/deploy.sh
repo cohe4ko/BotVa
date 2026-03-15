@@ -111,6 +111,45 @@ do_setup() {
     echo -e "  ${RED}  brew install node@22 && brew link --overwrite node@22${NC}\n"
   fi
 
+  # Claude Code CLI
+  if ! command -v claude &>/dev/null; then
+    warn "Claude Code CLI not found. Installing..."
+    npm install -g @anthropic-ai/claude-code
+    if command -v claude &>/dev/null; then
+      info "Claude Code CLI installed"
+    else
+      err "Failed to install Claude Code CLI"
+      echo "  Install manually: npm install -g @anthropic-ai/claude-code"
+    fi
+  else
+    info "Claude Code CLI $(claude --version 2>/dev/null || echo 'installed')"
+  fi
+
+  # Caddy web server (optional — for reverse proxy / HTTPS)
+  if ! command -v caddy &>/dev/null; then
+    echo -n "Install Caddy web server (for HTTPS/reverse proxy)? [y/N]: "
+    read -r install_caddy
+    if [ "$install_caddy" = "y" ] || [ "$install_caddy" = "Y" ]; then
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install caddy
+      elif command -v apt-get &>/dev/null; then
+        sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+        sudo apt-get update && sudo apt-get install -y caddy
+      elif command -v yum &>/dev/null; then
+        sudo yum install -y yum-plugin-copr
+        sudo yum copr enable @caddy/caddy
+        sudo yum install -y caddy
+      else
+        warn "Cannot auto-install Caddy. See: https://caddyserver.com/docs/install"
+      fi
+      command -v caddy &>/dev/null && info "Caddy installed" || warn "Caddy installation failed"
+    fi
+  else
+    info "Caddy $(caddy version 2>/dev/null | head -c 20)"
+  fi
+
   # Install deps
   echo -n "  Installing npm dependencies... "
   npm install --silent 2>&1
