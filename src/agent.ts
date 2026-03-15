@@ -186,12 +186,22 @@ async function runAgentOnce(
     } else if (isCancelled(chatId) || wasAborted) {
       resultText = '(запит скасовано)'
     } else {
-      logger.error({ err }, 'Agent error')
+      const isProcessCrash = errMsg.includes('exited with code') || errMsg.includes('not ready for writing') || errMsg.includes('terminated process')
 
-      if ((errMsg.includes('exited with code') || errMsg.includes('not ready for writing') || errMsg.includes('terminated process')) && sessionId) {
+      if (isProcessCrash && sessionId) {
+        logger.warn({ err, chatId, sessionId: sessionId.slice(0, 8) }, 'Agent process crashed with session, will retry fresh')
         sessionFailed = true
+      } else if (isProcessCrash) {
+        logger.error({ err, chatId, model }, 'Agent process crashed without session')
+        const partial = recentAssistantTexts.slice(-4).join('\n\n')
+        if (partial) {
+          resultText = `${partial}\n\n{{agent.crash.partial}}`
+        } else {
+          resultText = '{{agent.crash}}'
+        }
       } else {
-        resultText = `Помилка агента: ${errMsg}`
+        logger.error({ err, chatId, model, sessionId: sessionId?.slice(0, 8) }, 'Agent error')
+        resultText = `{{agent.error}} ${errMsg}`
       }
     }
   } finally {
@@ -221,6 +231,10 @@ export async function runAgent(
     clearSession(chatId)
 
     const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer)
+    if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
+      logger.error({ chatId }, 'Retry without session also failed')
+      return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }
+    }
     return { text: retry.text, newSessionId: retry.newSessionId, usage: retry.usage }
   }
 

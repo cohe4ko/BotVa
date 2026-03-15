@@ -9,6 +9,12 @@ const translations: Record<BotLang, Record<string, string>> = {
     'auth.denied': 'Access denied. Your chat ID: {chatId}',
     'auth.noReply': '(no reply)',
 
+    // Agent errors
+    'agent.crash': '⚠️ Claude process crashed (exit code 1). Try again or /new for a fresh session.',
+    'agent.crash.partial': '⚠️ Process interrupted. Partial response above.',
+    'agent.crash.double': '⚠️ Claude process crashed twice. Try /new for a clean session, or try later.',
+    'agent.error': '⚠️ Agent error:',
+
     // Start / Help
     'cmd.start': "BotVa online.\n\nYour chat ID: <code>{chatId}</code>\n\n/new -- new session\n/cancel -- cancel current request\n/model -- switch AI model\n/memory -- recent memories\n/usage -- usage stats\n/settings -- voice, language, style & more\n/session -- switch sessions, import from CLI\n/admin -- admin panel",
     'cmd.chatid': 'Your chat ID: <code>{chatId}</code>',
@@ -223,6 +229,12 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Auth
     'auth.denied': 'Немає доступу. Твій chat ID: {chatId}',
     'auth.noReply': '(без відповіді)',
+
+    // Agent errors
+    'agent.crash': '⚠️ Процес Claude впав (exit code 1). Спробуй ще раз або /new для нової сесії.',
+    'agent.crash.partial': '⚠️ Процес перервався. Часткова відповідь вище.',
+    'agent.crash.double': '⚠️ Процес Claude впав двічі. Спробуй /new для чистої сесії, або пізніше.',
+    'agent.error': '⚠️ Помилка агента:',
 
     // Start / Help
     'cmd.start': "BotVa на зв'язку.\n\nТвій chat ID: <code>{chatId}</code>\n\n/new -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/memory -- останні спогади\n/usage -- статистика використання\n/settings -- голос, мова, стиль та інше\n/session -- перемикання сесій, імпорт з CLI\n/admin -- адмін панель",

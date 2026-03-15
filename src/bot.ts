@@ -433,6 +433,10 @@ async function handleMessage(
         return
       }
 
+      // Translate agent error markers {{key}} to localized text
+      const t = chatT(chatIdStr)
+      text = text.replace(/\{\{([a-z._]+)\}\}/g, (_, key) => t(key))
+
       // Save memory
       await saveConversationTurn(chatIdStr, currentMessage, text)
 
