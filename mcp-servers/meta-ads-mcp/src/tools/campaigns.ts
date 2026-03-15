@@ -497,6 +497,8 @@ export function registerCampaignTools(
           { optimization_goal: "VIDEO_VIEWS", billing_event: "VIDEO_VIEWS" },
           { optimization_goal: "CONVERSIONS", billing_event: "IMPRESSIONS" },
           { optimization_goal: "APP_INSTALLS", billing_event: "IMPRESSIONS" },
+          { optimization_goal: "LEAD_GENERATION", billing_event: "IMPRESSIONS" },
+          { optimization_goal: "QUALITY_LEAD", billing_event: "IMPRESSIONS" },
         ];
 
         const isValidCombination = validCombinations.some(

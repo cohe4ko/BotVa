@@ -658,24 +658,22 @@ export const ListCreativesSchema = z.object({
 export const CreateAdCreativeSchema = z.object({
   account_id: z.string().describe("Meta Ad Account ID"),
   name: z.string().min(1).describe("Creative name"),
-  title: z.string().optional().describe("Ad title"),
-  body: z.string().optional().describe("Ad body text"),
-  image_url: z.string().url().optional().describe("Image URL for the creative"),
+  page_id: z.string().describe("Facebook Page ID (required - ads are shown on behalf of this page)"),
+  title: z.string().optional().describe("Ad headline/title"),
+  body: z.string().optional().describe("Ad body text (main message)"),
+  image_url: z.string().url().optional().describe("Image URL - will be uploaded to Meta as ad image automatically"),
+  image_hash: z.string().optional().describe("Image hash from previously uploaded ad image (use instead of image_url)"),
   video_id: z.string().optional().describe("Video ID for video creatives"),
-  call_to_action: z
-    .object({
-      type: z
-        .string()
-        .describe("Call to action type (e.g., LEARN_MORE, SHOP_NOW)"),
-      value: z
-        .any()
-        .optional()
-        .describe("Call to action value (e.g., link URL)"),
-    })
-    .optional()
-    .describe("Call to action configuration"),
-  link_url: z.string().url().optional().describe("Destination URL for the ad"),
-  display_link: z.string().optional().describe("Display link text"),
+  call_to_action_type: z
+    .enum([
+      "LEARN_MORE", "SHOP_NOW", "SIGN_UP", "BOOK_TRAVEL", "CONTACT_US",
+      "DOWNLOAD", "GET_OFFER", "GET_QUOTE", "SUBSCRIBE", "WATCH_MORE",
+      "APPLY_NOW", "ORDER_NOW", "WHATSAPP_MESSAGE", "SEND_MESSAGE",
+    ])
+    .default("LEARN_MORE")
+    .describe("Call to action button type"),
+  link_url: z.string().url().optional().describe("Destination URL when user clicks the ad"),
+  display_link: z.string().optional().describe("Display link text shown in ad (e.g. spacedome.com.ua)"),
 });
 
 export const PreviewAdSchema = z.object({

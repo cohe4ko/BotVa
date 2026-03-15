@@ -558,21 +558,77 @@ export class MetaApiClient {
     return PaginationHelper.parsePaginatedResponse(response);
   }
 
+  async uploadAdImage(
+    accountId: string,
+    imageUrl: string
+  ): Promise<{ hash: string; url: string }> {
+    const formattedAccountId = this.auth.getAccountId(accountId);
+
+    // Download the image first
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to download image from ${imageUrl}: ${imageResponse.status}`);
+    }
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const base64Image = imageBuffer.toString("base64");
+
+    // Upload via bytes parameter
+    const body = this.buildQueryString({ bytes: base64Image });
+
+    const result = await this.makeRequest<{ images: Record<string, { hash: string; url: string }> }>(
+      `${formattedAccountId}/adimages`,
+      "POST",
+      body,
+      formattedAccountId,
+      true
+    );
+
+    // Extract hash from response (key is filename)
+    const imageData = Object.values(result.images)[0];
+    if (!imageData) {
+      throw new Error("No image data returned from upload");
+    }
+    return { hash: imageData.hash, url: imageData.url };
+  }
+
   async createAdCreative(
     accountId: string,
     creativeData: {
       name: string;
+      page_id: string;
       title?: string;
       body?: string;
-      image_url?: string;
+      image_hash?: string;
       video_id?: string;
-      call_to_action?: any;
+      call_to_action_type?: string;
       link_url?: string;
       display_link?: string;
     }
   ): Promise<{ id: string }> {
     const formattedAccountId = this.auth.getAccountId(accountId);
-    const body = this.buildQueryString(creativeData);
+
+    // Build object_story_spec (required by Meta API)
+    const linkData: any = {};
+    if (creativeData.body) linkData.message = creativeData.body;
+    if (creativeData.link_url) linkData.link = creativeData.link_url;
+    if (creativeData.title) linkData.name = creativeData.title;
+    if (creativeData.image_hash) linkData.image_hash = creativeData.image_hash;
+    if (creativeData.display_link) linkData.caption = creativeData.display_link;
+    if (creativeData.call_to_action_type) {
+      linkData.call_to_action = { type: creativeData.call_to_action_type };
+    }
+
+    const objectStorySpec: any = {
+      page_id: creativeData.page_id,
+      link_data: linkData,
+    };
+
+    const params: any = {
+      name: creativeData.name,
+      object_story_spec: JSON.stringify(objectStorySpec),
+    };
+
+    const body = this.buildQueryString(params);
 
     return this.makeRequest<{ id: string }>(
       `${formattedAccountId}/adcreatives`,

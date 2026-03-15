@@ -76,39 +76,49 @@ export function registerCreativeTools(
     async ({
       account_id,
       name,
+      page_id,
       title,
       body,
       image_url,
+      image_hash,
       video_id,
-      call_to_action,
+      call_to_action_type,
       link_url,
       display_link,
     }) => {
       try {
-        const creativeData: any = {
-          name,
-        };
-
-        if (title) creativeData.title = title;
-        if (body) creativeData.body = body;
-        if (image_url) creativeData.image_url = image_url;
-        if (video_id) creativeData.video_id = video_id;
-        if (call_to_action) creativeData.call_to_action = call_to_action;
-        if (link_url) creativeData.link_url = link_url;
-        if (display_link) creativeData.display_link = display_link;
-
         // Validate that we have either an image or video
-        if (!image_url && !video_id) {
+        if (!image_url && !image_hash && !video_id) {
           return {
             content: [
               {
                 type: "text",
-                text: "Error: Either image_url or video_id must be provided for the creative",
+                text: "Error: Either image_url, image_hash, or video_id must be provided for the creative",
               },
             ],
             isError: true,
           };
         }
+
+        // If image_url provided but no image_hash, upload the image first
+        let finalImageHash = image_hash;
+        if (image_url && !image_hash) {
+          const uploaded = await metaClient.uploadAdImage(account_id, image_url);
+          finalImageHash = uploaded.hash;
+        }
+
+        const creativeData: any = {
+          name,
+          page_id,
+        };
+
+        if (title) creativeData.title = title;
+        if (body) creativeData.body = body;
+        if (finalImageHash) creativeData.image_hash = finalImageHash;
+        if (video_id) creativeData.video_id = video_id;
+        if (call_to_action_type) creativeData.call_to_action_type = call_to_action_type;
+        if (link_url) creativeData.link_url = link_url;
+        if (display_link) creativeData.display_link = display_link;
 
         const result = await metaClient.createAdCreative(
           account_id,
@@ -122,16 +132,17 @@ export function registerCreativeTools(
           details: {
             id: result.id,
             name,
+            page_id,
             title,
             body,
-            image_url,
+            image_hash: finalImageHash,
             video_id,
-            call_to_action,
+            call_to_action_type,
             link_url,
             account_id,
           },
           next_steps: [
-            "Use this creative in ad creation",
+            "Create an ad that links this creative to an ad set",
             "Preview the creative across different placements",
             "Test different variations for A/B testing",
           ],
