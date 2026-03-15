@@ -322,7 +322,7 @@ app.get('/terminal', (c) => {
           var vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
           var top = container.getBoundingClientRect().top;
           // On iOS with keyboard, getBoundingClientRect is relative to viewport
-          var available = vh - top - 4; // 4px breathing room
+          var available = vh - top;
           if (available < 100) available = 100;
           container.style.height = available + 'px';
           fitAddon.fit();
