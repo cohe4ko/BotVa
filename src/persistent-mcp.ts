@@ -72,6 +72,19 @@ class PersistentMcpManager {
     return createSdkMcpServer({ name, version: '1.0.0', tools: sdkTools })
   }
 
+  /** Check if a persistent server is currently running */
+  isRunning(name: string): boolean {
+    const server = this.servers.get(name)
+    return !!server && this.isAlive(server)
+  }
+
+  /** Get PID of running persistent server */
+  getPid(name: string): number | null {
+    const server = this.servers.get(name)
+    if (!server || !this.isAlive(server)) return null
+    return server.transport.pid
+  }
+
   stop(name: string): void {
     const server = this.servers.get(name)
     if (server) {

@@ -110,6 +110,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a one-shot reminder', available: true },
     { name: 'ListReminders', icon: 'bell-ring', category: 'reminders', description: 'List pending reminders', available: true },
     { name: 'DeleteReminder', icon: 'bell-off', category: 'reminders', description: 'Cancel a reminder', available: true },
+    // Screenshot
+    { name: 'TakeScreenshot', icon: 'camera', category: 'browser', description: 'Screenshot a webpage or system screen', available: true },
     // Session
     { name: 'NameSession', icon: 'tag', category: 'utility', description: 'Name the current session', available: true },
   ]
@@ -1035,6 +1037,79 @@ EXAMPLES:
           return { content: [{ type: 'text' as const, text: `User chose: ${answer}` }] }
         } catch {
           return { content: [{ type: 'text' as const, text: 'User did not respond (timeout).' }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Screenshot tool ---
+
+  if (isOn('TakeScreenshot')) tools.push(
+    tool(
+      'TakeScreenshot',
+      `Take a screenshot of a webpage or system screen. Returns the image to you (you can see and analyze it) AND sends it to the chat.
+
+Use PROACTIVELY:
+- To verify how a page looks after deploy or changes
+- To see what's on a webpage before extracting data
+- To check the current state of the system screen
+- When user asks "покажи сайт", "як виглядає", "зроби скріншот"
+
+type 'web': opens URL in headless Chromium, takes screenshot. Use fullPage=true for long pages.
+type 'system': captures the current system screen (macOS).`,
+      {
+        type: z.enum(['web', 'system']).default('web').describe('web = webpage screenshot, system = desktop capture'),
+        url: z.string().optional().describe('URL to screenshot (required for web)'),
+        fullPage: z.boolean().default(false).describe('Capture full scrollable page (web only)'),
+      },
+      async ({ type, url, fullPage }) => {
+        usedTools.add('TakeScreenshot')
+        try {
+          if (type === 'web' && !url) {
+            return { content: [{ type: 'text' as const, text: 'Error: url is required for web screenshots' }], isError: true }
+          }
+
+          await ctx.replyWithChatAction('upload_photo')
+          const { execSync } = await import('child_process')
+          const { unlinkSync } = await import('fs')
+          const ts = Date.now()
+          const rawPath = `/tmp/ss-${ts}.png`
+
+          if (type === 'web') {
+            const args = ['npx', 'playwright', 'screenshot', url!, rawPath]
+            if (fullPage) args.push('--full-page')
+            execSync(args.join(' '), { timeout: 30000, stdio: 'pipe' })
+          } else {
+            execSync(`screencapture -x ${rawPath}`, { timeout: 5000, stdio: 'pipe' })
+          }
+
+          // Optimize with sharp
+          const sharp = (await import('sharp')).default
+          const optPath = `/tmp/ss-opt-${ts}.png`
+          await sharp(rawPath).resize(1280, null, { withoutEnlargement: true }).png().toFile(optPath)
+
+          // Read as base64 for model
+          const imageData = readFileSync(optPath).toString('base64')
+
+          // Send to chat
+          const caption = type === 'web' ? url! : 'System screenshot'
+          await ctx.replyWithPhoto(new InputFile(optPath), { caption })
+
+          // Cleanup
+          try { unlinkSync(rawPath) } catch { /* ignore */ }
+          try { unlinkSync(optPath) } catch { /* ignore */ }
+
+          // Return image to model
+          return {
+            content: [
+              { type: 'image' as const, data: imageData, mimeType: 'image/png' },
+              { type: 'text' as const, text: `Screenshot: ${caption}` },
+            ]
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'TakeScreenshot failed')
+          return { content: [{ type: 'text' as const, text: `Screenshot error: ${msg}` }], isError: true }
         }
       }
     )

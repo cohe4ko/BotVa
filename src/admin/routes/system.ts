@@ -109,7 +109,7 @@ function getEmbeddingPidPath(): string {
   return resolve(getProjectRoot(), 'store', 'embedding.pid')
 }
 
-app.get('/system', (c) => {
+app.get('/system', async (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
   const root = getProjectRoot()
@@ -224,7 +224,7 @@ app.get('/system', (c) => {
     </div>
 
     <h3>${icon('plug')} ${t('sys.mcpServers')}</h3>
-    ${renderMcpTable(mcpServers, getEnvBotMap(), t)}
+    ${renderMcpTable(mcpServers, getEnvBotMap(), t, await getPersistentStatus(mcpServers))}
 
     <h3>${icon('wrench')} ${t('sys.agentTools')}</h3>
     ${renderBuiltinToolsTable(getBuiltinToolDefs(mergedEnv), t, getToolUsageStats())}
@@ -345,7 +345,22 @@ function getMergedEnv(): Record<string, string> {
   return mergedEnv
 }
 
-function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, string[]>, t: TFunc) {
+async function getPersistentStatus(servers: McpServerEntry[]): Promise<Record<string, { running: boolean; pid: number | null }>> {
+  try {
+    const { persistentMcp } = await import('../../persistent-mcp.js')
+    const result: Record<string, { running: boolean; pid: number | null }> = {}
+    for (const s of servers) {
+      if (s.persistent) {
+        result[s.name] = { running: persistentMcp.isRunning(s.name), pid: persistentMcp.getPid(s.name) }
+      }
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, string[]>, t: TFunc, persistentStatus?: Record<string, { running: boolean; pid: number | null }>) {
   return html`
     <div class="table-wrap" id="mcp-table">
       <table>
@@ -354,9 +369,17 @@ function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, str
           ${servers.map(s => {
             const active = s.enabled && s.userEnabled
             const envVars = s.condition === 'always' ? [] : s.condition.split(' + ')
+            const ps = s.persistent ? persistentStatus?.[s.name] : undefined
             return html`
               <tr${!s.userEnabled ? ' style="opacity:0.55"' : ''}>
-                <td><strong>${s.name}</strong></td>
+                <td>
+                  <strong>${s.name}</strong>
+                  ${s.persistent
+                    ? ps?.running
+                      ? html`<br><span class="badge badge-set" style="font-size:0.6rem;padding:0.05rem 0.3rem">${icon('zap', 9)} persistent <small>pid ${ps.pid}</small></span>`
+                      : html`<br><span class="badge" style="font-size:0.6rem;padding:0.05rem 0.3rem;background:var(--mc-yellow-light,#fff3cd);color:var(--mc-yellow,#856404)">${icon('zap', 9)} persistent <small>idle</small></span>`
+                    : ''}
+                </td>
                 <td class="hide-mobile"><code style="font-size:0.72rem">${s.command} ${s.args.join(' ').replace(new RegExp(getProjectRoot().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.').slice(0, 80)}${s.args.join(' ').length > 80 ? '…' : ''}</code></td>
                 <td class="hide-mobile">${s.condition === 'always'
                   ? html`<span class="badge badge-set" style="font-size:0.7rem">${icon('check', 11)} always</span>`
@@ -629,19 +652,21 @@ app.post('/system/tool-toggle/:name', (c) => {
 })
 
 // Toggle MCP server on/off
-app.post('/system/mcp-toggle/:name', (c) => {
+app.post('/system/mcp-toggle/:name', async (c) => {
   const t: TFunc = c.get('t')
   const name = c.req.param('name')
   const disabled = isServerDisabled(name)
   setServerEnabled(name, disabled) // flip: was disabled → enable, was enabled → disable
-  return c.html(renderMcpTable(getMcpServersConfig(getMergedEnv()), getEnvBotMap(), t))
+  const servers = getMcpServersConfig(getMergedEnv())
+  return c.html(renderMcpTable(servers, getEnvBotMap(), t, await getPersistentStatus(servers)))
 })
 
 // Delete MCP server
-app.delete('/system/mcp-delete/:name', (c) => {
+app.delete('/system/mcp-delete/:name', async (c) => {
   const t: TFunc = c.get('t')
   removeMcpServer(c.req.param('name'))
-  return c.html(renderMcpTable(getMcpServersConfig(getMergedEnv()), getEnvBotMap(), t))
+  const servers = getMcpServersConfig(getMergedEnv())
+  return c.html(renderMcpTable(servers, getEnvBotMap(), t, await getPersistentStatus(servers)))
 })
 
 // Add MCP server form
@@ -668,6 +693,10 @@ app.get('/system/mcp-add', (c) => {
       </label>
       <label style="margin-top:0.5rem">${t('sys.mcpPassthrough')} <small>${t('sys.mcpPassthroughHint')}</small>
         <input type="text" name="envPassthrough" placeholder="MY_API_KEY, MY_SECRET">
+      </label>
+      <label style="margin-top:0.75rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+        <input type="checkbox" name="persistent" value="1" style="width:auto">
+        ${icon('zap', 13)} Persistent <small style="color:var(--mc-text-dim)">— keep process alive between agent queries (for browsers, FreeCAD, etc.)</small>
       </label>
       <div style="display:flex;gap:0.5rem;margin-top:1rem">
         <button type="submit">${icon('save', 13)} ${t('sys.mcpSave')}</button>
@@ -708,6 +737,10 @@ app.get('/system/mcp-edit/:name', (c) => {
       <label style="margin-top:0.5rem">${t('sys.mcpPassthrough')} <small>${t('sys.mcpPassthroughHint')}</small>
         <input type="text" name="envPassthrough" value="${(server.envPassthrough ?? []).join(', ')}">
       </label>
+      <label style="margin-top:0.75rem;display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+        <input type="checkbox" name="persistent" value="1"${server.persistent ? ' checked' : ''} style="width:auto">
+        ${icon('zap', 13)} Persistent <small style="color:var(--mc-text-dim)">— keep process alive between agent queries</small>
+      </label>
       <div style="display:flex;gap:0.5rem;margin-top:1rem">
         <button type="submit">${icon('save', 13)} ${t('sys.mcpSave')}</button>
         <a href="/system" role="button" class="outline" style="text-decoration:none">${t('sys.cancel')}</a>
@@ -732,13 +765,14 @@ app.post('/system/mcp-save', async (c) => {
   const args = argsStr ? argsStr.split(/\s+/) : []
   const envVars = envVarsStr ? envVarsStr.split(',').map(s => s.trim()).filter(Boolean) : undefined
   const envPassthrough = envPassStr ? envPassStr.split(',').map(s => s.trim()).filter(Boolean) : undefined
+  const persistent = body['persistent'] === '1'
 
   const existing = getMcpServer(name)
 
   if (editName) {
-    updateMcpServer(name, { command, args, envVars, envPassthrough })
+    updateMcpServer(name, { command, args, envVars, envPassthrough, persistent })
   } else {
-    addMcpServer(name, { command, args, envVars, envPassthrough, enabled: true })
+    addMcpServer(name, { command, args, envVars, envPassthrough, enabled: true, persistent })
   }
 
   return c.redirect('/system')

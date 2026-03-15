@@ -25,6 +25,7 @@ export interface McpServerEntry {
   enabled: boolean         // user toggle AND env vars present
   userEnabled: boolean     // user toggle only
   condition: string        // 'always' or env var names required
+  persistent: boolean      // keep subprocess alive between queries
 }
 
 export interface McpServerRuntime {
@@ -126,6 +127,7 @@ export function getMcpServersConfig(env: Record<string, string> = process.env as
       enabled: s.enabled && envOk,
       userEnabled: s.enabled,
       condition,
+      persistent: s.persistent ?? false,
     }
   })
 }
