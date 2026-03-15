@@ -10,6 +10,7 @@ set -eo pipefail
 #   ./scripts/deploy.sh status   — show bot status
 #   ./scripts/deploy.sh build    — rebuild TypeScript + MCP servers
 #   ./scripts/deploy.sh launchd  — install macOS launchd services
+#   ./scripts/deploy.sh systemd  — install Linux systemd services
 #   ./scripts/deploy.sh embedding-start — start embedding service (semantic search)
 #   ./scripts/deploy.sh embedding-stop  — stop embedding service
 #   ./scripts/deploy.sh backup   — create backup (bot or full system)
@@ -437,6 +438,88 @@ PLIST
   echo "  launchctl start com.botva.bot.<name>"
 }
 
+do_systemd() {
+  echo -e "${BOLD}Installing Linux systemd services...${NC}\n"
+
+  if ! command -v systemctl &>/dev/null; then
+    err "systemctl not found — systemd required"
+    exit 1
+  fi
+
+  NODE_PATH=$(which node)
+  USER=$(whoami)
+  UNIT_DIR="$HOME/.config/systemd/user"
+  mkdir -p "$UNIT_DIR"
+
+  for bot in "${BOTS[@]}"; do
+    UNIT="botva-$bot"
+    UNIT_FILE="$UNIT_DIR/$UNIT.service"
+
+    cat > "$UNIT_FILE" <<UNIT
+[Unit]
+Description=BotVa bot: $bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$DIR
+Environment=BOT_NAME=$bot
+Environment=NODE_OPTIONS=--max-old-space-size=$MEM_MB
+ExecStart=$NODE_PATH $DIR/dist/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:$DIR/workspace/logs/botva-$bot.log
+StandardError=append:$DIR/workspace/logs/botva-$bot.log
+
+[Install]
+WantedBy=default.target
+UNIT
+
+    systemctl --user daemon-reload
+    systemctl --user enable "$UNIT" 2>/dev/null
+    systemctl --user restart "$UNIT"
+    info "$bot → $UNIT.service (auto-start on login)"
+  done
+
+  # Embedding service
+  UNIT_FILE="$UNIT_DIR/botva-embedding.service"
+  cat > "$UNIT_FILE" <<UNIT
+[Unit]
+Description=BotVa embedding service
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$DIR
+Environment=NODE_OPTIONS=--max-old-space-size=$MEM_MB
+ExecStart=$NODE_PATH $DIR/dist/scripts/embedding-server.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:$DIR/workspace/logs/botva-embedding.log
+StandardError=append:$DIR/workspace/logs/botva-embedding.log
+
+[Install]
+WantedBy=default.target
+UNIT
+
+  systemctl --user daemon-reload
+  systemctl --user enable botva-embedding 2>/dev/null
+  info "embedding → botva-embedding.service"
+
+  # Enable lingering so user services run without login
+  if ! loginctl show-user "$USER" 2>/dev/null | grep -q 'Linger=yes'; then
+    warn "Enabling lingering for $USER (services run without active login)"
+    sudo loginctl enable-linger "$USER" 2>/dev/null || warn "Failed to enable linger — run: sudo loginctl enable-linger $USER"
+  fi
+
+  echo -e "\nManage:"
+  echo "  systemctl --user status 'botva-*'"
+  echo "  systemctl --user stop botva-<name>"
+  echo "  systemctl --user start botva-<name>"
+  echo "  journalctl --user -u botva-<name> -f"
+}
+
 # ---- Main ----
 
 do_embedding_start() {
@@ -506,13 +589,14 @@ case "${1:-}" in
   status)   do_status ;;
   admin)    do_admin ;;
   launchd)  do_launchd ;;
+  systemd)  do_systemd ;;
   embedding-start)  do_embedding_start ;;
   embedding-stop)   do_embedding_stop ;;
   backup)   do_backup "${2:-}" ;;
   restore)  shift; do_restore "$@" ;;
   backups)  do_list_backups ;;
   *)
-    echo "Usage: $0 {setup|build|start|stop|restart|status|admin|launchd|embedding-start|embedding-stop|backup|restore|backups}"
+    echo "Usage: $0 {setup|build|start|stop|restart|status|admin|launchd|systemd|embedding-start|embedding-stop|backup|restore|backups}"
     echo ""
     echo "  setup            — first-time install (deps, build, check config)"
     echo "  build            — rebuild TypeScript"
@@ -522,6 +606,7 @@ case "${1:-}" in
     echo "  status           — show running bots"
     echo "  admin            — start admin panel with one-time token"
     echo "  launchd          — install macOS auto-start services"
+    echo "  systemd          — install Linux systemd user services"
     echo "  embedding-start  — start embedding service (semantic search)"
     echo "  embedding-stop   — stop embedding service"
     echo "  backup           — create backup [bot-name] (or full system)"
