@@ -7,6 +7,7 @@ import { resolve } from 'path'
 import crypto from 'crypto'
 import os from 'os'
 import { logger } from '../logger.js'
+import { attachTerminalWS, cleanupAllTerminals } from './terminal-ws.js'
 
 const LOCK_FILE = resolve(process.cwd(), 'workspace', 'admin.lock')
 
@@ -138,6 +139,9 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
   // Start HTTP server
   state.server = serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
 
+  // Attach WebSocket for terminal
+  attachTerminalWS(state.server)
+
   // Handle server errors (e.g. port conflict race condition)
   state.server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
@@ -179,6 +183,7 @@ function killPortOccupant(port: number): void {
 
 export function stopAdmin(manual = false): void {
   if (state.timer) { clearTimeout(state.timer); state.timer = null }
+  cleanupAllTerminals()
   if (state.server) {
     state.server.close()
     state.server = null

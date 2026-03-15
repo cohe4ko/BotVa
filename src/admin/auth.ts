@@ -218,6 +218,19 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
   return c.html(loginPage(undefined, t))
 }
 
+/** Validate auth from raw cookie header (for WebSocket upgrade) */
+export function validateAuthFromCookieHeader(cookieHeader: string | undefined): boolean {
+  if (!cookieHeader) return false
+  const cookies: Record<string, string> = {}
+  for (const pair of cookieHeader.split(';')) {
+    const [k, ...v] = pair.split('=')
+    if (k) cookies[k.trim()] = v.join('=').trim()
+  }
+  if (sessionToken && cookies[COOKIE_SESSION] === sessionToken) return true
+  if (TOKEN && cookies[COOKIE_TOKEN] === TOKEN) return true
+  return false
+}
+
 export function setAuthCookie(c: Context, token: string): boolean {
   if (token !== TOKEN) return false
   setCookie(c, COOKIE_TOKEN, token, {

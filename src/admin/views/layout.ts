@@ -22,6 +22,7 @@ const PAGE_ICONS: Record<string, string> = {
   '/create-bot': 'plus-circle',
   '/docs': 'book-open',
   '/templates': 'file-code',
+  '/terminal': 'terminal',
 }
 
 export function layout(title: string, content: HtmlContent, activePath = '/', t?: TFunc, lang?: Lang, pageIcon?: string): HtmlContent {
@@ -87,6 +88,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:14px;height:14px"></i> ${_t('nav.storage')}</a>
       <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:14px;height:14px"></i> ${_t('nav.backup')}</a>
       <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:14px;height:14px"></i> ${_t('nav.diagnostics')}</a>
+      <a href="/terminal" class="${activePath === '/terminal' ? 'active' : ''}"><i data-lucide="terminal" style="width:14px;height:14px"></i> ${_t('nav.terminal')}</a>
       <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:14px;height:14px"></i> ${_t('nav.system')}</a>
       <div class="nav-actions">
         <a href="/docs" class="theme-toggle" title="${_t('nav.docs')}">

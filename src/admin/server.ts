@@ -23,6 +23,7 @@ import botDiagnostics from './routes/bot-diagnostics.js'
 import diagnostics from './routes/diagnostics.js'
 import docs from './routes/docs.js'
 import templates from './routes/templates.js'
+import terminal from './routes/terminal.js'
 
 export function createAdminApp(): Hono<I18nEnv> {
   const app = new Hono<I18nEnv>()
@@ -69,6 +70,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', diagnostics)
   app.route('/', docs)
   app.route('/', templates)
+  app.route('/', terminal)
 
   return app
 }
@@ -108,5 +110,8 @@ if (isDirectRun) {
   resetIdleTimer()
   const host = process.env.ADMIN_HOST || `http://localhost:${port}`
   console.log(`\n  BotVa Admin Panel\n  ${host}\n  Auto-shutdown after 20 min inactivity\n`)
-  serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
+  const httpServer = serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
+
+  // Attach WebSocket for terminal
+  import('./terminal-ws.js').then(({ attachTerminalWS }) => attachTerminalWS(httpServer))
 }

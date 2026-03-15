@@ -19,7 +19,12 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.diagnostics': 'Diagnostics',
     'nav.new': 'New',
     'nav.docs': 'Docs',
+    'nav.terminal': 'Terminal',
     'nav.footer': 'BotVa Admin',
+
+    // Terminal
+    'terminal.title': 'Terminal',
+    'terminal.desc': 'Interactive Claude Code CLI session',
 
     // System Diagnostics
     'sdiag.title': 'System Diagnostics',
@@ -635,7 +640,12 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.diagnostics': 'Діагностика',
     'nav.new': 'Новий',
     'nav.docs': 'Документація',
+    'nav.terminal': 'Термінал',
     'nav.footer': 'BotVa Адмін',
+
+    // Terminal
+    'terminal.title': 'Термінал',
+    'terminal.desc': 'Інтерактивна сесія Claude Code CLI',
 
     // System Diagnostics
     'sdiag.title': 'Діагностика системи',
