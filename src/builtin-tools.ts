@@ -94,6 +94,8 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
     { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video to chat', available: true },
+    // Telegram reactions
+    { name: 'SetReaction', icon: 'heart', category: 'telegram', description: 'React to user message with emoji', available: true },
     // User interaction
     { name: 'AskUser', icon: 'message-circle', category: 'telegram', description: 'Ask user to choose from options via buttons', available: true },
     // Bot management
@@ -623,6 +625,45 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'SendMedia tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Telegram reactions ---
+
+  if (isOn('SetReaction')) tools.push(
+    tool(
+      'SetReaction',
+      `React to the user's message with an emoji. Use to express emotion, acknowledge, or give feedback without words.
+
+Use PROACTIVELY:
+- User shares good news or achievement -> 🎉 or 🔥
+- Task completed successfully -> ✅ or 👍
+- Something funny -> 😂
+- User shares something touching -> ❤️ or 🥰
+- Acknowledgment -> 👀 or 👍
+- Surprise or wow -> 🤯 or 😮
+
+Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 🎉 🤩 🤮 💩 🙏 👌 🕊 🤡 🥱 🥴 😍 🐳 ❤️‍🔥 🌚 🌭 💯 🤣 ⚡️ 🍌 🏆 💔 🤨 😐 🍓 🍾 💋 🖕 😈 😴 😭 🤓 👻 👨‍💻 👀 🎃 🙈 😇 😨 🤝 ✍️ 🤗 🫡 🎅 🎄 ☃️ 💅 🤪 🗿 🆒 💘 🙉 🦄 😘 💊 🙊 😎 👾 🤷‍♂️ 🤷 🤷‍♀️ 😡
+
+Do NOT overuse -- one reaction per message max. Skip if no strong emotion fits.`,
+      {
+        emoji: z.string().describe('Single emoji to react with'),
+      },
+      async ({ emoji }) => {
+        usedTools.add('SetReaction')
+        try {
+          const messageId = ctx.message?.message_id
+          if (!messageId) {
+            return { content: [{ type: 'text' as const, text: 'No message to react to' }], isError: true }
+          }
+          await ctx.api.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: emoji as any }])
+          return { content: [{ type: 'text' as const, text: `Reacted with ${emoji}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SetReaction tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
