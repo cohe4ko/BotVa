@@ -1100,6 +1100,13 @@ export function createBot(): Bot {
     )
   })
 
+  // /restart — restart bot process (watchdog will auto-restart)
+  bot.command('restart', async (ctx) => {
+    if (!isAuthorised(ctx.chat.id)) return
+    await ctx.reply('🔄 Restarting...')
+    setTimeout(() => process.exit(1), 500)
+  })
+
   // Text messages
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
