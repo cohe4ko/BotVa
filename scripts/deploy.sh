@@ -57,6 +57,16 @@ info() { echo -e "${GREEN}✓${NC} $1"; }
 warn() { echo -e "${YELLOW}!${NC} $1"; }
 err()  { echo -e "${RED}✗${NC} $1"; }
 
+# Telegram notification for deploy events (uses NOTIFY_BOT_TOKEN/NOTIFY_CHAT_ID from .env)
+notify_telegram() {
+  local msg="$1"
+  [ -z "${NOTIFY_BOT_TOKEN:-}" ] || [ -z "${NOTIFY_CHAT_ID:-}" ] && return 0
+  curl -s -X POST "https://api.telegram.org/bot${NOTIFY_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${NOTIFY_CHAT_ID}" \
+    -d "text=${msg}" \
+    -d "parse_mode=HTML" > /dev/null 2>&1 || true
+}
+
 BOTS=()
 for d in bots/*/; do
   [ -d "$d" ] && BOTS+=("$(basename "$d")")
@@ -272,8 +282,28 @@ do_setup() {
 
 do_build() {
   echo "Building TypeScript..."
-  npm run build
-  info "Build complete"
+
+  # Backup current dist/ before build
+  if [ -d dist/ ]; then
+    rm -rf dist.prev/
+    cp -r dist/ dist.prev/
+  fi
+
+  # Build
+  if npm run build; then
+    info "Build complete"
+    # Mark deploy time for probation window (used by start-bot-safe.sh)
+    date +%s > dist/.deploy-timestamp
+  else
+    err "Build FAILED"
+    if [ -d dist.prev/ ]; then
+      rm -rf dist/
+      mv dist.prev/ dist/
+      warn "Rolled back to previous dist/"
+      notify_telegram "🔴 <b>Build failed</b>. Rolled back to previous version."
+    fi
+    return 1
+  fi
 }
 
 get_pid() {
@@ -379,11 +409,15 @@ do_start() {
       warn "$bot already running (PID $pid)"
       continue
     fi
-    BOT_NAME="$bot" node dist/index.js > "$DIR/workspace/logs/botva-$bot.log" 2>&1 &
-    sleep 1
+    bash "$DIR/scripts/start-bot-safe.sh" "$bot" >> "$DIR/workspace/logs/botva-$bot.log" 2>&1 &
+    WRAPPER_PID=$!
+    # Save wrapper PID for stop command
+    mkdir -p "bots/$bot/store"
+    echo "$WRAPPER_PID" > "bots/$bot/store/wrapper.pid"
+    sleep 2
     new_pid=$(get_pid "$bot")
     if is_alive "$new_pid"; then
-      info "$bot started (PID $new_pid)"
+      info "$bot started (PID $new_pid, wrapper $WRAPPER_PID)"
     else
       err "$bot failed to start — check $DIR/workspace/logs/botva-$bot.log"
     fi
@@ -396,12 +430,26 @@ do_stop() {
   echo -e "${BOLD}Stopping BotVa bots...${NC}"
 
   for bot in "${BOTS[@]}"; do
+    # Stop wrapper first (sends SIGTERM → wrapper kills child node → both exit)
+    local wrapper_pidfile="bots/$bot/store/wrapper.pid"
+    if [ -f "$wrapper_pidfile" ]; then
+      local wpid
+      wpid=$(cat "$wrapper_pidfile")
+      if is_alive "$wpid"; then
+        kill "$wpid" 2>/dev/null
+        info "$bot wrapper stopped (PID $wpid)"
+      fi
+      rm -f "$wrapper_pidfile"
+    fi
+
+    # Also kill node process directly (in case started without wrapper)
     pid=$(get_pid "$bot")
     if is_alive "$pid"; then
       kill "$pid" 2>/dev/null
       info "$bot stopped (PID $pid)"
     else
-      warn "$bot not running"
+      # Only warn if wrapper was also not running
+      [ ! -f "$wrapper_pidfile" ] && warn "$bot not running"
     fi
   done
 }
@@ -493,6 +541,7 @@ do_launchd() {
     LABEL="com.botva.bot.$bot"
     PLIST="$AGENTS_DIR/$LABEL.plist"
 
+    BASH_PATH=$(which bash)
     cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -502,24 +551,21 @@ do_launchd() {
   <string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$NODE_PATH</string>
-    <string>$DIR/dist/index.js</string>
+    <string>$BASH_PATH</string>
+    <string>$DIR/scripts/start-bot-safe.sh</string>
+    <string>$bot</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$DIR</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>BOT_NAME</key>
-    <string>$bot</string>
     <key>PATH</key>
     <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
-  <key>ThrottleInterval</key>
-  <integer>5</integer>
+  <false/>
   <key>StandardOutPath</key>
   <string>$DIR/workspace/logs/botva-$bot.log</string>
   <key>StandardErrorPath</key>
@@ -557,6 +603,7 @@ do_systemd() {
     UNIT="botva-$bot"
     UNIT_FILE="$UNIT_DIR/$UNIT.service"
 
+    BASH_PATH=$(which bash)
     cat > "$UNIT_FILE" <<UNIT
 [Unit]
 Description=BotVa bot: $bot
@@ -566,11 +613,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$DIR
-Environment=BOT_NAME=$bot
-Environment=NODE_OPTIONS=--max-old-space-size=$MEM_MB
-ExecStart=$NODE_PATH $DIR/dist/index.js
-Restart=on-failure
-RestartSec=5
+ExecStart=$BASH_PATH $DIR/scripts/start-bot-safe.sh $bot
+Restart=no
 StandardOutput=append:$DIR/workspace/logs/botva-$bot.log
 StandardError=append:$DIR/workspace/logs/botva-$bot.log
 

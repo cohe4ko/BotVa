@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist.prev/
+dist.stable/
 .env
 .mcp.json
 store/
