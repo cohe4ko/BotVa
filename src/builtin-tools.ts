@@ -97,6 +97,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Telegram reactions
     { name: 'SetReaction', icon: 'heart', category: 'telegram', description: 'React to user message with emoji', available: true },
     { name: 'PinMessage', icon: 'pin', category: 'telegram', description: 'Pin/unpin messages in chat', available: true },
+    { name: 'ForwardMessage', icon: 'forward', category: 'telegram', description: 'Forward or copy messages to another chat', available: true },
     { name: 'OpenWebApp', icon: 'layout', category: 'telegram', description: 'Open interactive Mini App (HTML) in Telegram', condition: 'PUBLISH_BASE_URL (HTTPS)', available: hasPublish },
     // User interaction
     { name: 'AskUser', icon: 'message-circle', category: 'telegram', description: 'Ask user to choose from options via buttons', available: true },
@@ -1248,6 +1249,66 @@ Do NOT overuse — pin only truly important messages.`,
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'PinMessage failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- Forward / Copy messages ---
+
+  if (isOn('ForwardMessage')) tools.push(
+    tool(
+      'ForwardMessage',
+      `Forward or copy messages to another chat (bot, group, channel).
+
+Use when:
+- User says "перешли це в ...", "forward to ...", "скопіюй повідомлення"
+- Inter-bot communication: send a message to another bot's chat
+- Sharing content to a channel or group
+
+mode=forward preserves "Forwarded from" header.
+mode=copy sends as the bot itself (no forwarding attribution).`,
+      {
+        target_chat_id: z.union([z.number(), z.string()]).describe(
+          'Target chat ID (number) or @username of the channel/group to forward to'
+        ),
+        message_ids: z.array(z.number()).min(1).max(100).optional().describe(
+          'Message IDs to forward. If omitted, forwards the current user message.'
+        ),
+        mode: z.enum(['forward', 'copy']).default('forward').describe(
+          'forward = keep original sender; copy = send as bot'
+        ),
+      },
+      async (args) => {
+        usedTools.add('ForwardMessage')
+        try {
+          const fromChatId = chatId
+          const ids = args.message_ids ?? (ctx.message?.message_id ? [ctx.message.message_id] : null)
+          if (!ids || ids.length === 0) {
+            return { content: [{ type: 'text' as const, text: 'No message to forward (provide message_ids or send a message first)' }], isError: true }
+          }
+
+          if (args.mode === 'copy') {
+            if (ids.length === 1) {
+              const result = await ctx.api.copyMessage(args.target_chat_id, fromChatId, ids[0])
+              return { content: [{ type: 'text' as const, text: `Message copied to ${args.target_chat_id} (new message_id: ${result.message_id})` }] }
+            } else {
+              const results = await ctx.api.copyMessages(args.target_chat_id, fromChatId, ids)
+              return { content: [{ type: 'text' as const, text: `${results.length} messages copied to ${args.target_chat_id}` }] }
+            }
+          } else {
+            if (ids.length === 1) {
+              const result = await ctx.api.forwardMessage(args.target_chat_id, fromChatId, ids[0])
+              return { content: [{ type: 'text' as const, text: `Message forwarded to ${args.target_chat_id} (message_id: ${result.message_id})` }] }
+            } else {
+              const results = await ctx.api.forwardMessages(args.target_chat_id, fromChatId, ids)
+              return { content: [{ type: 'text' as const, text: `${results.length} messages forwarded to ${args.target_chat_id}` }] }
+            }
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'ForwardMessage failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
