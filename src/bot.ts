@@ -478,6 +478,29 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
     debateLog(chatIdStr, 'RELAY_SKIP_ANSWERER_FIRST', { textPreview: text.slice(0, 80) })
   }
 
+  // In debate mode, use Telegraph for long messages to avoid 429 rate limits
+  if (debate && TELEGRAPH_ENABLED && shouldUseTelegraph(text)) {
+    try {
+      const title = `${ctx.me?.first_name ?? BOT_NAME}`
+      const url = await createTelegraphPage(title, text)
+      if (url) {
+        // Send short preview + link to Telegram
+        const preview = text.replace(/[#*_~`>|]/g, '').slice(0, 200).trim()
+        const msg = `${preview}...\n\n📖 <a href="${url}">Читати повністю</a>`
+        try {
+          await ctx.reply(msg, { parse_mode: 'HTML' })
+        } catch {
+          await ctx.reply(`${preview}...\n\n📖 ${url}`).catch(() => {})
+        }
+        debateLog(chatIdStr, 'TELEGRAPH_SENT', { url, chars: text.length })
+        return
+      }
+    } catch (err) {
+      debateLog(chatIdStr, 'TELEGRAPH_ERROR', { error: String(err) })
+      // Fall through to chunked send
+    }
+  }
+
   // Send chunks to Telegram (with retry on 429 rate limit)
   const formatted = formatForTelegram(text)
   const chunks = splitMessage(formatted)
@@ -833,7 +856,7 @@ async function handleMessage(
 
       // Send text
       if (inGroup) {
-        // Group mode: chunked with emoji ID markers (no telegraph)
+        // Group mode: telegraph for debates, chunked otherwise
         await sendGroupChunked(ctx, text)
       } else {
         // Private chat: telegraph for long messages
