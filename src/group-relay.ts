@@ -8,7 +8,7 @@
  * Relay file: store/group-relay/<chatId>.jsonl
  */
 
-import { existsSync, mkdirSync, appendFileSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, appendFileSync, readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { PROJECT_ROOT, BOT_NAME } from './config.js'
 import { logger } from './logger.js'
@@ -76,13 +76,18 @@ function relayRead(chatId: string): RelayMessage[] {
   if (fileSize <= pos) return []
 
   try {
-    const fd = readFileSync(path, 'utf-8')
-    const allLines = fd.split('\n').filter(Boolean)
-
-    // Find new lines by reading from current byte position
-    const newContent = fd.slice(pos)
+    // Read only new bytes (pos is byte offset, not character offset)
+    const bytesToRead = fileSize - pos
+    const buf = Buffer.alloc(bytesToRead)
+    const fd = openSync(path, 'r')
+    try {
+      readSync(fd, buf, 0, bytesToRead, pos)
+    } finally {
+      closeSync(fd)
+    }
     filePositions.set(chatId, fileSize)
 
+    const newContent = buf.toString('utf-8')
     const newLines = newContent.split('\n').filter(Boolean)
     const messages: RelayMessage[] = []
 
