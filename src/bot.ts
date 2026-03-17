@@ -361,22 +361,144 @@ function randomGroupDelay(): number {
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
-// Note: handoff @mention stays in the response body (in the header line).
-// The receiving bot sees the full message with content, not just a bare @mention.
+// --- Group chunk protocol (sending side) ---
+// Multi-chunk messages get emoji ID + ⏩ continuation marker.
+// Receiving bot assembles chunks by matching emoji ID.
 
-/** In group mode: ensure response fits in a single Telegram message (no chunking).
- *  Truncates if needed, preserving the header with @mention. */
-function truncateForGroup(text: string, limit = MAX_MESSAGE_LENGTH - 100): string {
-  if (text.length <= limit) return text
-  // Keep first `limit` chars + truncation marker
-  const truncated = text.slice(0, limit)
-  // Try to cut at last paragraph or sentence
-  const lastParagraph = truncated.lastIndexOf('\n\n')
-  const lastSentence = truncated.lastIndexOf('. ')
-  const cutAt = lastParagraph > limit * 0.6 ? lastParagraph
-    : lastSentence > limit * 0.6 ? lastSentence + 1
-    : limit
-  return text.slice(0, cutAt) + '\n\n[...обрізано]'
+const CHUNK_EMOJIS = ['🔴', '🟢', '🔵', '🟡', '🟣', '🟠', '🔶', '🔷', '🟤', '⚫']
+
+function randomChunkEmoji(): string {
+  return CHUNK_EMOJIS[Math.floor(Math.random() * CHUNK_EMOJIS.length)]
+}
+
+/** Send response in group mode with chunk assembly markers.
+ *  Single message: sent as-is (no markers).
+ *  Multiple chunks: each gets [N/M] emoji⏩, last gets [N/M] emoji (no ⏩). */
+async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
+  const formatted = formatForTelegram(text)
+  const chunks = splitMessage(formatted)
+
+  if (chunks.length === 1) {
+    // Single chunk: send as-is, no markers
+    try {
+      await ctx.reply(chunks[0], { parse_mode: 'HTML' })
+    } catch {
+      await ctx.reply(chunks[0].replace(/<[^>]+>/g, ''))
+    }
+    return
+  }
+
+  // Multi-chunk: add emoji ID + continuation markers
+  const emoji = randomChunkEmoji()
+  for (let i = 0; i < chunks.length; i++) {
+    const isLast = i === chunks.length - 1
+    // splitMessage already adds [N/M] indicator — append emoji marker after it
+    const marker = isLast ? ` ${emoji}` : ` ${emoji}⏩`
+    let chunk = chunks[i] + marker
+    try {
+      await ctx.reply(chunk, { parse_mode: 'HTML' })
+    } catch {
+      await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
+    }
+  }
+}
+
+// --- Group chunk protocol (receiving side) ---
+// Buffer incoming chunks from other bots, assemble when complete.
+
+const CHUNK_CONTINUE_RE = /\s([🔴🟢🔵🟡🟣🟠🔶🔷🟤⚫])⏩$/
+const CHUNK_FINAL_RE = /\s([🔴🟢🔵🟡🟣🟠🔶🔷🟤⚫])$/
+const CHUNK_BUFFER_TIMEOUT_MS = 30_000
+
+interface ChunkBuffer {
+  chunks: string[]
+  emoji: string
+  firstCtx: Context
+  timer: ReturnType<typeof setTimeout>
+}
+
+const groupChunkBuffer = new Map<string, ChunkBuffer>()
+
+/** Strip chunk marker from message text */
+function stripChunkMarker(text: string): string {
+  return text.replace(/\s[🔴🟢🔵🟡🟣🟠🔶🔷🟤⚫]⏩?$/, '').trimEnd()
+}
+
+/**
+ * Try to handle a group message as a chunk.
+ * Returns true if message was consumed (buffered or assembled), false if not a chunk.
+ */
+function handleGroupChunk(ctx: Context, text: string): boolean {
+  if (!isGroupChat(ctx)) return false
+  const sender = ctx.message?.from
+  if (!sender?.is_bot) return false
+
+  const groupId = String(ctx.chat!.id)
+  const senderId = sender.id
+
+  // Check for continuation marker: emoji⏩
+  const continueMatch = text.match(CHUNK_CONTINUE_RE)
+  if (continueMatch) {
+    const emoji = continueMatch[1]
+    const bufKey = `${groupId}:${senderId}:${emoji}`
+    const cleanText = stripChunkMarker(text)
+    const existing = groupChunkBuffer.get(bufKey)
+
+    if (existing) {
+      // Append to existing buffer
+      existing.chunks.push(cleanText)
+      clearTimeout(existing.timer)
+      existing.timer = setTimeout(() => {
+        // Timeout: assemble what we have
+        const buf = groupChunkBuffer.get(bufKey)
+        if (buf) {
+          const assembled = buf.chunks.join('\n\n')
+          groupChunkBuffer.delete(bufKey)
+          logger.info({ groupId, senderId, emoji, chunks: buf.chunks.length }, 'Chunk assembly timeout — processing partial')
+          handleMessage(buf.firstCtx, assembled)
+        }
+      }, CHUNK_BUFFER_TIMEOUT_MS)
+    } else {
+      // First chunk — create buffer
+      const timer = setTimeout(() => {
+        const buf = groupChunkBuffer.get(bufKey)
+        if (buf) {
+          const assembled = buf.chunks.join('\n\n')
+          groupChunkBuffer.delete(bufKey)
+          logger.info({ groupId, senderId, emoji, chunks: buf.chunks.length }, 'Chunk assembly timeout — processing partial')
+          handleMessage(buf.firstCtx, assembled)
+        }
+      }, CHUNK_BUFFER_TIMEOUT_MS)
+      groupChunkBuffer.set(bufKey, { chunks: [cleanText], emoji, firstCtx: ctx, timer })
+    }
+    return true // consumed
+  }
+
+  // Check for final marker: emoji (without ⏩)
+  const finalMatch = text.match(CHUNK_FINAL_RE)
+  if (finalMatch) {
+    const emoji = finalMatch[1]
+    const bufKey = `${groupId}:${senderId}:${emoji}`
+    const existing = groupChunkBuffer.get(bufKey)
+
+    if (existing) {
+      // Last chunk — assemble and process
+      clearTimeout(existing.timer)
+      const cleanText = stripChunkMarker(text)
+      existing.chunks.push(cleanText)
+      const assembled = existing.chunks.join('\n\n')
+      groupChunkBuffer.delete(bufKey)
+      logger.info({ groupId, senderId, emoji, chunks: existing.chunks.length }, 'Chunk assembly complete')
+      handleMessage(existing.firstCtx, assembled)
+      return true // consumed
+    }
+    // No buffer — could be a single message that happens to end with an emoji
+    // from our set. Don't consume — let normal flow handle it.
+    return false
+  }
+
+  // No chunk markers — not a chunk
+  return false
 }
 
 // --- Main handler ---
@@ -630,10 +752,8 @@ async function handleMessage(
 
       // Send text
       if (inGroup) {
-        // Group mode: single message, no telegraph, no chunking
-        // Truncate if needed to keep @mention header visible to the other bot
-        const groupText = truncateForGroup(text)
-        await sendChunked(ctx, groupText) // sendChunked handles HTML formatting; truncated text fits in 1 chunk
+        // Group mode: chunked with emoji ID markers (no telegraph)
+        await sendGroupChunked(ctx, text)
       } else {
         // Private chat: telegraph for long messages
         const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
@@ -1329,6 +1449,10 @@ export function createBot(): Bot {
 
     // skip known bot commands (they have their own handlers above)
     if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|restart)\b/.test(text)) return
+
+    // Group chunk assembly: intercept multi-chunk messages from bots
+    if (handleGroupChunk(ctx, text)) return
+
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
     if (text.startsWith('/')) {
