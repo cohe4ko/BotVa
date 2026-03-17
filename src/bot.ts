@@ -462,27 +462,35 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
 
   debateLog(chatIdStr, 'SEND', { hasDebate: !!debate, textPreview: text.slice(0, 100) })
 
+  // Write to relay FIRST (before Telegram send) so other bots get the message
+  // even if Telegram send fails for some chunks.
+  // Skip relay for answerer's first message (confirmation like "Ready, waiting for questions").
+  const chatState = getGroupState(chatIdStr)
+  const isAnswererFirstMsg = debate?.myRole === 'answerer' && chatState && chatState.count <= 1
+  if (!isAnswererFirstMsg) {
+    try {
+      relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, text)
+      debateLog(chatIdStr, 'RELAY_WRITTEN', { chars: text.length })
+    } catch (err) {
+      debateLog(chatIdStr, 'RELAY_WRITE_ERROR', { error: String(err) })
+    }
+  } else {
+    debateLog(chatIdStr, 'RELAY_SKIP_ANSWERER_FIRST', { textPreview: text.slice(0, 80) })
+  }
+
+  // Send chunks to Telegram
   const formatted = formatForTelegram(text)
   const chunks = splitMessage(formatted)
-
-  // Send chunks to Telegram (plain split, no emoji markers)
   for (const chunk of chunks) {
     try {
       await ctx.reply(chunk, { parse_mode: 'HTML' })
     } catch {
-      await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
+      try {
+        await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
+      } catch (err) {
+        debateLog(chatIdStr, 'SEND_CHUNK_ERROR', { error: String(err), chunkLen: chunk.length })
+      }
     }
-  }
-
-  // Write full text to relay so other bots receive it.
-  // Skip relay for answerer's first message (confirmation like "Ready, waiting for questions")
-  // — only the asker's first question should be relayed to start the debate.
-  const chatState = getGroupState(chatIdStr)
-  const isAnswererFirstMsg = debate?.myRole === 'answerer' && chatState && chatState.count <= 1
-  if (!isAnswererFirstMsg) {
-    relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, text)
-  } else {
-    debateLog(chatIdStr, 'RELAY_SKIP_ANSWERER_FIRST', { textPreview: text.slice(0, 80) })
   }
 }
 
