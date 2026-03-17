@@ -12,7 +12,7 @@ interface TelegraphAccount {
 
 let telegraphAccount: TelegraphAccount | null = null
 
-const TELEGRAPH_THRESHOLD = 2500
+const TELEGRAPH_THRESHOLD = 2000
 
 export function shouldUseTelegraph(content: string): boolean {
   return content.length > TELEGRAPH_THRESHOLD

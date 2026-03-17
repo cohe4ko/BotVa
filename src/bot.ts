@@ -398,6 +398,18 @@ function resetDebateState(chatId: string): void {
   groupDebateState.delete(chatId)
 }
 
+/** Extract retry_after from Grammy/Telegram 429 errors (multiple locations + fallback to message parsing) */
+function extractRetryAfter(err: any): number | undefined {
+  const ra = err?.parameters?.retry_after
+    ?? err?.payload?.parameters?.retry_after
+    ?? err?.error?.parameters?.retry_after
+  if (typeof ra === 'number' && ra > 0) return ra
+  // Fallback: parse from error message string "retry after NN"
+  const match = String(err).match(/retry after (\d+)/i)
+  if (match) return parseInt(match[1], 10)
+  return undefined
+}
+
 // --- Group stop flag (persists until human sends new message) ---
 const stoppedChats = new Set<string>()
 const pausedChats = new Set<string>()
@@ -518,7 +530,7 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
         await ctx.reply(chunk, { parse_mode: 'HTML' })
         sent = true
       } catch (err: any) {
-        const retryAfter = err?.parameters?.retry_after ?? err?.payload?.parameters?.retry_after
+        const retryAfter = extractRetryAfter(err)
         if (retryAfter && attempt < 2) {
           debateLog(chatIdStr, 'RATE_LIMITED', { retryAfter, attempt })
           await new Promise(r => setTimeout(r, (retryAfter + 1) * 1000))
@@ -529,7 +541,7 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
           await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
           sent = true
         } catch (err2: any) {
-          const retryAfter2 = err2?.parameters?.retry_after ?? err2?.payload?.parameters?.retry_after
+          const retryAfter2 = extractRetryAfter(err2)
           if (retryAfter2 && attempt < 2) {
             debateLog(chatIdStr, 'RATE_LIMITED', { retryAfter: retryAfter2, attempt })
             await new Promise(r => setTimeout(r, (retryAfter2 + 1) * 1000))
@@ -860,17 +872,6 @@ async function handleMessage(
         usage = result.usage
       } catch (err) {
         logAudit(chatIdStr, 'error', err instanceof Error ? err.message : String(err))
-        // If there's a pending followup (user sent message during work),
-        // recover instead of crashing — clear broken session and continue loop
-        const followup = getAndClearFollowup(chatIdStr)
-        if (followup) {
-          logger.warn({ chatId: chatIdStr, err }, 'Agent crashed during interrupt, recovering with followup')
-          reporter.addFollowupMarker(followup)
-          clearCancelled(chatIdStr)
-          clearSession(chatIdStr)
-          currentMessage = chatT(chatIdStr)('followup.prefix', { text: followup })
-          continue
-        }
         throw err
       }
 
