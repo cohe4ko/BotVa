@@ -223,6 +223,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'menu.usage': 'Usage stats',
     'menu.settings': 'Settings',
     'menu.admin': 'Start/stop admin panel',
+    'menu.restart': 'Restart bot',
   },
 
   uk: {
@@ -444,6 +445,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'menu.usage': 'Статистика використання',
     'menu.settings': 'Налаштування',
     'menu.admin': 'Запустити/зупинити адмін панель',
+    'menu.restart': 'Перезапустити бота',
   },
 }
 

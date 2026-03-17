@@ -1252,6 +1252,7 @@ export function createBot(): Bot {
     { command: 'settings', description: t('menu.settings') },
     { command: 'session', description: t('menu.session') },
     { command: 'admin', description: t('menu.admin') },
+    { command: 'restart', description: t('menu.restart') },
   ]
   // Default commands in Ukrainian
   bot.api.setMyCommands(cmds(tUk)).catch(err => logger.error({ err }, 'Failed to set bot commands'))
