@@ -276,16 +276,20 @@ function isGroupChat(ctx: Context): boolean {
   return type === 'group' || type === 'supergroup'
 }
 
-/** Check if this bot is @mentioned in the message entities */
+/** Check if this bot is @mentioned in the message (entities or text fallback) */
 function isBotMentioned(ctx: Context): boolean {
   const botUsername = ctx.me?.username
   if (!botUsername) return false
   const entities = ctx.message?.entities ?? ctx.message?.caption_entities ?? []
   const text = ctx.message?.text ?? ctx.message?.caption ?? ''
-  return entities.some(e =>
+  // Check entities first (standard Telegram mention parsing)
+  const hasEntity = entities.some(e =>
     e.type === 'mention' &&
     text.slice(e.offset, e.offset + e.length).toLowerCase() === `@${botUsername.toLowerCase()}`
   )
+  if (hasEntity) return true
+  // Fallback: check text content (HTML parse_mode may not create entities for @mentions)
+  return text.toLowerCase().includes(`@${botUsername.toLowerCase()}`)
 }
 
 /** Check if this message is a reply to one of the bot's messages */
