@@ -2,140 +2,185 @@
  * Auto-react to user messages using embedding similarity.
  * Zero tokens — runs entirely on local embedding service.
  *
- * Each category has multiple emoji alternatives — picked randomly
- * for variety. Categories are semantic clusters, not fixed mappings.
+ * Approach: every Telegram reaction emoji is embedded with a semantic
+ * description. User message is compared against ALL emoji embeddings.
+ * The system discovers the best match — no hardcoded categories.
  */
 
-import { embed, cosineSim } from './embeddings.js'
+import { embed, embedBatch, cosineSim } from './embeddings.js'
 import { logger } from './logger.js'
 
-// Reaction categories: emoji alternatives + reference phrases
-// First emoji in array is most common (higher weight), rest add variety
-const REACTION_REFS: { emojis: string[]; phrases: string[] }[] = [
-  // Gratitude
-  { emojis: ['❤️', '🙏', '🤗', '❤️‍🔥', '💕'],
-    phrases: ['дякую', 'спасибі', 'thanks', 'дякс', 'thx', 'thank you', 'мерсі', 'дуже дякую', 'ти найкращий', 'ти супер'] },
-  // Laughter
-  { emojis: ['😂', '🤣', '😁', '💀'],
-    phrases: ['ахаха', 'хахаха', 'лол', 'lol', 'haha', 'ржу', 'смішно', 'жиза', 'ору', 'dying', 'rofl'] },
-  // Excitement / cool
-  { emojis: ['🔥', '⚡️', '🤩', '💯', '🆒'],
-    phrases: ['круто', 'клас', 'вау', 'wow', 'cool', 'nice', 'awesome', 'sick', 'зашибісь', 'файно', 'шикарно', 'бомба'] },
-  // Acknowledgment / ok
-  { emojis: ['👌', '👍', '🫡'],
-    phrases: ['ок', 'окей', 'зрозуміло', 'ясно', 'добре', 'got it', 'okay', 'ладно', 'прийнято', 'зрозумів'] },
-  // Command / let's go
-  { emojis: ['🫡', '⚡️', '🏆'],
-    phrases: ['зроби', 'давай', 'запускай', 'починай', 'do it', 'go ahead', "let's go", 'вперед', 'поїхали', 'реалізуй', 'роби'] },
-  // Thinking / curious
-  { emojis: ['🤔', '🤨', '🧐'],
-    phrases: ['хм', 'цікаво', 'hmm', 'interesting', 'а що якщо', 'не впевнений', 'дивно', 'не зрозуміло'] },
-  // Confirmation / works
-  { emojis: ['👍', '✅', '👏'],
-    phrases: ['все ок', 'працює', 'супер', 'норм', 'нормально', 'все добре', 'все працює', 'виглядає добре'] },
-  // Celebration / achievement
-  { emojis: ['🎉', '🏆', '🍾', '🥳'],
-    phrases: ['вийшло', 'зробив', 'готово', 'нарешті', 'перемога', 'вдалось', 'accomplished', 'done', 'finally', 'achieved'] },
-  // Love / affection
-  { emojis: ['🥰', '😍', '💘', '❤️'],
-    phrases: ['люблю', 'обожнюю', 'love it', 'beautiful', 'чудово', 'прекрасно', 'gorgeous', 'милота', 'adorable'] },
-  // Surprise / mind blown
-  { emojis: ['🤯', '😱', '😮', '👀'],
-    phrases: ['нічого собі', 'не може бути', 'серйозно', 'ого', 'omg', 'what', 'no way', 'mind blown', 'неочікувано', 'шок'] },
-  // Sadness / empathy
-  { emojis: ['😢', '💔', '🫂'],
-    phrases: ['сумно', 'шкода', 'sad', 'unfortunately', 'на жаль', 'поганенько', 'не вдалося', 'розчарування', 'прикро'] },
-  // Greeting
-  { emojis: ['👋', '🤝', '😊'],
-    phrases: ['привіт', 'hello', 'hi', 'вітаю', 'доброго ранку', 'добрий день', 'добрий вечір', 'hey', 'morning'] },
+// Every available Telegram reaction emoji with semantic description.
+// Description is what gets embedded — richer description = better matching.
+const EMOJI_DESCRIPTORS: { emoji: string; desc: string }[] = [
+  // Positive / approval
+  { emoji: '👍', desc: 'good, ok, agree, approve, yes, confirmed, все добре, згоден, так, підтверджую' },
+  { emoji: '👎', desc: 'bad, disagree, no, dislike, thumbs down, не згоден, ні, погано' },
+  { emoji: '❤️', desc: 'love, thank you, grateful, appreciation, дякую, спасибі, люблю, вдячний, мерсі' },
+  { emoji: '🔥', desc: 'amazing, fire, hot, excellent, cool, круто, клас, вогонь, шикарно, бомба' },
+  { emoji: '🥰', desc: 'adore, sweet, cute, warm feelings, милота, обожнюю, ніжність, мило' },
+  { emoji: '👏', desc: 'applause, bravo, well done, congratulations, браво, молодець, аплодисменти' },
+  { emoji: '😁', desc: 'happy, grinning, cheerful, glad, радий, веселий, посмішка' },
+  { emoji: '🤔', desc: 'thinking, hmm, curious, wondering, not sure, хм, думаю, цікаво, не впевнений' },
+  { emoji: '🤯', desc: 'mind blown, shocked, unbelievable, amazing discovery, шок, нічого собі, вибух мозку' },
+  { emoji: '😱', desc: 'scared, terrified, omg, horror, oh no, жах, страшно, ой' },
+  { emoji: '🤬', desc: 'angry, furious, cursing, rage, злий, лютий, лайка' },
+  { emoji: '😢', desc: 'sad, crying, upset, unfortunate, disappointing, сумно, плачу, шкода, прикро' },
+  { emoji: '🎉', desc: 'celebration, party, congrats, hooray, success, свято, вітаю, ура, перемога, вдалось' },
+  { emoji: '🤩', desc: 'star struck, wow, fantastic, impressed, захоплений, вау, фантастика' },
+  { emoji: '🤮', desc: 'disgusting, gross, vomit, ew, огидно, фу, бридко' },
+  { emoji: '💩', desc: 'crap, terrible, awful, shit quality, лайно, жахливо, відстій' },
+  { emoji: '🙏', desc: 'please, pray, hope, grateful, thank you, будь ласка, прошу, дякую, надіюсь' },
+  { emoji: '👌', desc: 'perfect, ok, fine, understood, got it, чудово, ок, зрозуміло, ясно' },
+  { emoji: '🕊', desc: 'peace, calm, harmony, dove, мир, спокій, гармонія' },
+  { emoji: '🤡', desc: 'clown, joke, ridiculous, foolish, silly, клоун, жарт, дурня, смішний' },
+  { emoji: '🥱', desc: 'boring, yawn, sleepy, tedious, нудно, позіхаю, сонний' },
+  { emoji: '🥴', desc: 'drunk, dizzy, confused, woozy, п\'яний, заплутаний' },
+  { emoji: '😍', desc: 'love eyes, beautiful, gorgeous, stunning, красиво, прекрасно, чудово' },
+  { emoji: '🐳', desc: 'whale, big, ocean, marine, кит, великий, море' },
+  { emoji: '❤️‍🔥', desc: 'burning love, passion, intense, desire, пристрасть, палке кохання' },
+  { emoji: '🌚', desc: 'creepy, suspicious, dark humor, subtle, хитрий, підозрілий, темний гумор' },
+  { emoji: '🌭', desc: 'hot dog, random, food, funny, хот-дог, рандомний' },
+  { emoji: '💯', desc: 'hundred percent, absolutely, totally agree, exactly right, стовідсотково, абсолютно, саме так' },
+  { emoji: '🤣', desc: 'laughing hard, rofl, hilarious, dying of laughter, ахаха, ржу, помираю зі сміху' },
+  { emoji: '⚡️', desc: 'fast, lightning, energy, power, quick, швидко, блискавка, енергія, потужно' },
+  { emoji: '🍌', desc: 'banana, silly, random, funny, банан' },
+  { emoji: '🏆', desc: 'trophy, winner, champion, achievement, victory, трофей, переможець, досягнення, чемпіон' },
+  { emoji: '💔', desc: 'heartbreak, sad, disappointed, painful, розбите серце, розчарування, біль' },
+  { emoji: '🤨', desc: 'suspicious, skeptical, raised eyebrow, doubt, підозрілий, скептичний, сумніваюсь' },
+  { emoji: '😐', desc: 'neutral, meh, indifferent, unimpressed, байдуже, ніяк, без емоцій' },
+  { emoji: '🍓', desc: 'strawberry, sweet, berry, cute, полуниця, солодкий' },
+  { emoji: '🍾', desc: 'champagne, celebrate, toast, party, шампанське, святкуємо, тост' },
+  { emoji: '💋', desc: 'kiss, love, romantic, affection, поцілунок, кохання' },
+  { emoji: '🖕', desc: 'middle finger, screw you, rude, fuck off, нахабний' },
+  { emoji: '😈', desc: 'devil, mischief, evil, naughty, temptation, диявол, пустощі, хитрий' },
+  { emoji: '😴', desc: 'sleeping, tired, bored, zzz, сплю, втомився, нудно' },
+  { emoji: '😭', desc: 'sobbing, crying hard, overwhelmed, emotional, ридаю, зворушений, сильно плачу' },
+  { emoji: '🤓', desc: 'nerd, smart, geek, glasses, intellectual, нерд, розумний, гік' },
+  { emoji: '👻', desc: 'ghost, spooky, boo, halloween, scary, привид, бу, страшно' },
+  { emoji: '👨‍💻', desc: 'programmer, developer, coding, working, hacker, програміст, кодер, працюю' },
+  { emoji: '👀', desc: 'looking, watching, eyes, attention, noticed, interesting, дивлюсь, помітив, цікаво' },
+  { emoji: '🎃', desc: 'halloween, pumpkin, spooky, scary, autumn, гарбуз, хелловін' },
+  { emoji: '🙈', desc: 'embarrassed, oops, hide, shy, oh no, ой, соромно, ховаюсь' },
+  { emoji: '😇', desc: 'angel, innocent, pure, good, holy, ангел, невинний, святий' },
+  { emoji: '😨', desc: 'fearful, anxious, worried, nervous, scared, боюсь, тривожно, хвилююсь' },
+  { emoji: '🤝', desc: 'handshake, deal, agreement, partnership, hello, домовились, угода, привіт' },
+  { emoji: '✍️', desc: 'writing, note, working on it, creating, пишу, нотатка, працюю над' },
+  { emoji: '🤗', desc: 'hug, warm, welcome, supportive, friendly, обійми, тепло, підтримка' },
+  { emoji: '🫡', desc: 'salute, yes sir, on it, roger, will do, так точно, є, зрозумів, зроблю, слухаюсь' },
+  { emoji: '🎅', desc: 'santa, christmas, gift, holiday, winter, санта, різдво, подарунок' },
+  { emoji: '🎄', desc: 'christmas tree, holiday, festive, december, ялинка, свято' },
+  { emoji: '☃️', desc: 'snowman, winter, cold, snow, сніговик, зима, холодно' },
+  { emoji: '💅', desc: 'sassy, fabulous, confident, unbothered, queen, впевнена, фабулос' },
+  { emoji: '🤪', desc: 'crazy, wild, zany, silly, wacky, божевільний, шалений, дурний' },
+  { emoji: '🗿', desc: 'stone face, bruh, deadpan, moyai, unfazed, кам\'яне обличчя, серйозний' },
+  { emoji: '🆒', desc: 'cool, alright, chill, no worries, кул, норм, без проблем' },
+  { emoji: '💘', desc: 'cupid, falling in love, romance, crush, закоханість, романтика' },
+  { emoji: '🙉', desc: 'not listening, ignore, la la la, не чую, ігнорую' },
+  { emoji: '🦄', desc: 'unicorn, magical, rare, special, unique, єдиноріг, магічний, унікальний' },
+  { emoji: '😘', desc: 'blowing kiss, love, flirty, bye, air kiss, повітряний поцілунок, бувай' },
+  { emoji: '💊', desc: 'pill, medicine, health, cure, drug, таблетка, ліки, здоров\'я' },
+  { emoji: '🙊', desc: 'oops said too much, secret, covering mouth, ой сказав зайве, секрет' },
+  { emoji: '😎', desc: 'cool, sunglasses, confident, badass, smooth, крутий, впевнений, стильний' },
+  { emoji: '👾', desc: 'alien, game, pixel, space invader, retro, інопланетянин, гра, ретро' },
+  { emoji: '🤷‍♂️', desc: 'shrug, don\'t know, whatever, no idea, не знаю, без поняття, ну хз' },
+  { emoji: '🤷', desc: 'shrug, don\'t know, whatever, no idea, не знаю, без поняття' },
+  { emoji: '🤷‍♀️', desc: 'shrug, don\'t know, whatever, no idea, не знаю, без поняття' },
+  { emoji: '😡', desc: 'angry, mad, furious, rage, pissed, злий, розлючений, бісить' },
 ]
 
-const SIMILARITY_THRESHOLD = 0.72
-const MAX_MESSAGE_LENGTH = 200 // skip long messages (likely tasks, not reactions)
+const SIMILARITY_THRESHOLD = 0.55 // lower threshold since we match individual emoji, not clusters
+const MAX_MESSAGE_LENGTH = 200
 
-// Pre-computed reference embeddings (cached after first use)
-let refEmbeddings: { emojis: string[]; embeddings: Float32Array[] }[] | null = null
+// Pre-computed emoji embeddings (cached after first use)
+let emojiEmbeddings: { emoji: string; vec: Float32Array }[] | null = null
 let initPromise: Promise<void> | null = null
 
 /**
- * Initialize reference embeddings. Called once, cached forever.
+ * Initialize emoji embeddings. Called once, cached forever.
+ * Uses batch embedding for efficiency (~70 descriptions in one call).
  */
 async function initRefs(): Promise<void> {
-  if (refEmbeddings) return
+  if (emojiEmbeddings) return
   if (initPromise) { await initPromise; return }
 
   initPromise = (async () => {
-    const results: { emojis: string[]; embeddings: Float32Array[] }[] = []
+    const descriptions = EMOJI_DESCRIPTORS.map(d => d.desc)
+    const vectors = await embedBatch(descriptions, 'passage')
 
-    for (const ref of REACTION_REFS) {
-      const embeddings: Float32Array[] = []
-      for (const phrase of ref.phrases) {
-        const vec = await embed(phrase, 'passage')
-        if (vec) embeddings.push(vec)
-      }
-      if (embeddings.length > 0) {
-        results.push({ emojis: ref.emojis, embeddings })
+    const results: { emoji: string; vec: Float32Array }[] = []
+    for (let i = 0; i < EMOJI_DESCRIPTORS.length; i++) {
+      const vec = vectors[i]
+      if (vec) {
+        results.push({ emoji: EMOJI_DESCRIPTORS[i].emoji, vec })
       }
     }
 
-    refEmbeddings = results
-    logger.info({ categories: results.length, totalPhrases: results.reduce((s, r) => s + r.embeddings.length, 0) }, 'Auto-react embeddings initialized')
+    emojiEmbeddings = results
+    logger.info({ emojis: results.length }, 'Auto-react: all emoji embeddings initialized')
   })()
 
   await initPromise
 }
 
 /**
- * Pick a random emoji from alternatives with weighted distribution.
- * First emoji has ~50% chance, rest split the other 50%.
- */
-function pickEmoji(emojis: string[]): string {
-  if (emojis.length === 1) return emojis[0]
-
-  // First emoji gets weight 2, rest get weight 1
-  const totalWeight = emojis.length + 1 // first has 2, rest have 1 each
-  const roll = Math.random() * totalWeight
-
-  if (roll < 2) return emojis[0] // ~50% for primary
-  const idx = Math.floor(roll - 2) + 1
-  return emojis[Math.min(idx, emojis.length - 1)]
-}
-
-/**
- * Classify a message and return the best matching emoji, or null if no match.
- * Picks from category alternatives randomly for variety.
+ * Classify a message and return the best matching emoji, or null.
+ * Compares against ALL Telegram reaction emoji — no fixed categories.
  */
 export async function classifyReaction(message: string): Promise<string | null> {
-  // Skip too short or too long messages
   if (message.length < 1 || message.length > MAX_MESSAGE_LENGTH) return null
-
-  // Skip messages that look like commands
   if (message.startsWith('/')) return null
 
   await initRefs()
-  if (!refEmbeddings || refEmbeddings.length === 0) return null
+  if (!emojiEmbeddings || emojiEmbeddings.length === 0) return null
 
   const msgVec = await embed(message, 'query')
   if (!msgVec) return null
 
-  let bestCategory: string[] | null = null
-  let bestScore = 0
-
-  for (const ref of refEmbeddings) {
-    for (const refVec of ref.embeddings) {
-      const score = cosineSim(msgVec, refVec)
-      if (score > bestScore) {
-        bestScore = score
-        bestCategory = ref.emojis
-      }
+  // Find top matches
+  const scored: { emoji: string; score: number }[] = []
+  for (const ref of emojiEmbeddings) {
+    const score = cosineSim(msgVec, ref.vec)
+    if (score >= SIMILARITY_THRESHOLD) {
+      scored.push({ emoji: ref.emoji, score })
     }
   }
 
-  if (bestScore >= SIMILARITY_THRESHOLD && bestCategory) {
-    const emoji = pickEmoji(bestCategory)
-    logger.debug({ emoji, score: bestScore.toFixed(3), message: message.slice(0, 50), alternatives: bestCategory.length }, 'Auto-react match')
-    return emoji
+  if (scored.length === 0) return null
+
+  // Sort by score descending
+  scored.sort((a, b) => b.score - a.score)
+
+  // Pick from top 3 with weighted random for variety
+  // Higher score = higher chance, but not deterministic
+  const top = scored.slice(0, 3)
+  const emoji = weightedPick(top)
+
+  logger.debug({
+    emoji,
+    top: top.map(t => `${t.emoji}:${t.score.toFixed(3)}`).join(' '),
+    message: message.slice(0, 50),
+  }, 'Auto-react match')
+
+  return emoji
+}
+
+/**
+ * Weighted random pick from scored candidates.
+ * Score difference matters: 0.8 vs 0.6 gives strong preference to 0.8.
+ */
+function weightedPick(candidates: { emoji: string; score: number }[]): string {
+  if (candidates.length === 1) return candidates[0].emoji
+
+  // Use score as weight (squared for stronger preference to top match)
+  const weights = candidates.map(c => c.score * c.score)
+  const total = weights.reduce((s, w) => s + w, 0)
+  let roll = Math.random() * total
+
+  for (let i = 0; i < candidates.length; i++) {
+    roll -= weights[i]
+    if (roll <= 0) return candidates[i].emoji
   }
 
-  return null
+  return candidates[0].emoji
 }
