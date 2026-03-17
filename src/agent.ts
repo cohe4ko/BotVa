@@ -202,7 +202,15 @@ async function runAgentOnce(
       }
 
       if (event.type === 'result') {
-        resultText = event.subtype === 'success' ? event.result : (event.errors?.join('\n') ?? 'Error occurred')
+        if (event.subtype === 'success') {
+          resultText = event.result
+        } else if (isInterrupted(chatId)) {
+          // On interrupt, SDK may return error result — prefer partial text
+          const partial = recentAssistantTexts.slice(-8).join('\n\n')
+          resultText = partial || (event as any).result || null
+        } else {
+          resultText = event.errors?.join('\n') ?? 'Error occurred'
+        }
 
         // Only discard result on hard cancel, not on soft interrupt
         if (isCancelled(chatId) && !isInterrupted(chatId)) {
@@ -237,14 +245,17 @@ async function runAgentOnce(
 
     if (isInterrupted(chatId) || (wasAborted && !isCancelled(chatId))) {
       // Soft interrupt — return partial result (like ESC in Claude Code)
-      if (!resultText) {
-        const partial = recentAssistantTexts.slice(-8).join('\n\n')
-        resultText = partial || null  // null = no message sent
+      // Always prefer partial text over SDK crash errors in resultText
+      const partial = recentAssistantTexts.slice(-8).join('\n\n')
+      if (partial) {
+        resultText = partial
+      } else if (!resultText) {
+        resultText = null  // null = no message sent
       }
     } else if (isCancelled(chatId) || wasAborted) {
       resultText = '(запит скасовано)'
     } else {
-      const isProcessCrash = errMsg.includes('exited with code') || errMsg.includes('not ready for writing') || errMsg.includes('terminated process')
+      const isProcessCrash = errMsg.includes('exited with code') || errMsg.includes('not ready for writing') || errMsg.includes('terminated process') || errMsg.includes('Cannot read properties of undefined')
 
       if (isProcessCrash && sessionId) {
         logger.warn({ err, chatId, sessionId: sessionId.slice(0, 8) }, 'Agent process crashed with session, will retry fresh')
