@@ -97,6 +97,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Telegram reactions
     { name: 'SetReaction', icon: 'heart', category: 'telegram', description: 'React to user message with emoji', available: true },
     { name: 'PinMessage', icon: 'pin', category: 'telegram', description: 'Pin/unpin messages in chat', available: true },
+    { name: 'OpenWebApp', icon: 'layout', category: 'telegram', description: 'Open interactive Mini App (HTML) in Telegram', condition: 'PUBLISH_BASE_URL (HTTPS)', available: hasPublish },
     // User interaction
     { name: 'AskUser', icon: 'message-circle', category: 'telegram', description: 'Ask user to choose from options via buttons', available: true },
     // Bot management
@@ -1247,6 +1248,109 @@ Do NOT overuse — pin only truly important messages.`,
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'PinMessage failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- WebApp / Mini App ---
+
+  if (hasPublish && isOn('OpenWebApp')) tools.push(
+    tool(
+      'OpenWebApp',
+      `Open an interactive Mini App (WebApp) inside Telegram. The user taps a button and a full-screen web view opens.
+
+Use when:
+- User needs an interactive form, calculator, dashboard, or visualization
+- A rich UI would be better than plain text (charts, sliders, color pickers, maps)
+- User says "зроби форму", "відкрий додаток", "інтерактивний", "дашборд", "калькулятор"
+
+You provide HTML content — it gets published to HTTPS and sent as a WebApp button.
+The HTML can use Telegram.WebApp JS SDK (auto-injected) for:
+- Telegram.WebApp.sendData(JSON.stringify(data)) — send data back to bot (you receive it as a message)
+- Telegram.WebApp.close() — close the Mini App
+- Telegram.WebApp.themeParams — match Telegram theme colors
+
+Do NOT use for simple text/buttons — use AskUser for that.`,
+      {
+        html: z.string().optional().describe('Full HTML content for the Mini App. Telegram WebApp SDK script is auto-injected if missing.'),
+        url: z.string().optional().describe('Existing HTTPS URL to open as Mini App (use instead of html)'),
+        buttonText: z.string().default('Відкрити').describe('Text on the button that opens the Mini App'),
+        message: z.string().optional().describe('Message text shown above the button'),
+      },
+      async (args) => {
+        usedTools.add('OpenWebApp')
+        try {
+          let webappUrl = args.url
+
+          if (!webappUrl && args.html) {
+            // Inject Telegram WebApp SDK if not present
+            let html = args.html
+            if (!html.includes('telegram-web-app.js')) {
+              const sdkScript = '<script src="https://telegram.org/js/telegram-web-app.js"></script>'
+              if (html.includes('</head>')) {
+                html = html.replace('</head>', `${sdkScript}\n</head>`)
+              } else if (html.includes('<body')) {
+                html = html.replace('<body', `${sdkScript}\n<body`)
+              } else {
+                html = sdkScript + '\n' + html
+              }
+            }
+
+            // Add viewport meta if missing (important for mobile)
+            if (!html.includes('viewport')) {
+              const viewportMeta = '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">'
+              if (html.includes('</head>')) {
+                html = html.replace('</head>', `${viewportMeta}\n</head>`)
+              } else if (html.includes('<head>')) {
+                html = html.replace('<head>', `<head>\n${viewportMeta}`)
+              }
+            }
+
+            // Write to temp file and publish
+            const { randomBytes } = await import('crypto')
+            const hash = randomBytes(5).toString('hex')
+            const webappDir = resolve(PROJECT_ROOT, 'workspace', 'webapps')
+            mkdirSync(webappDir, { recursive: true })
+            const filePath = resolve(webappDir, `webapp-${hash}.html`)
+            const { writeFileSync: wfs } = await import('fs')
+            wfs(filePath, html, 'utf-8')
+
+            const { publishFile } = await import('./publish.js')
+            const published = await publishFile(filePath, 'webapps')
+            if (!published) {
+              return { content: [{ type: 'text' as const, text: 'Failed to publish WebApp HTML. Check PUBLISH_BASE_URL config.' }], isError: true }
+            }
+            webappUrl = published
+          }
+
+          if (!webappUrl) {
+            return { content: [{ type: 'text' as const, text: 'Provide either html or url parameter' }], isError: true }
+          }
+
+          // Validate HTTPS (Telegram requirement)
+          if (!webappUrl.startsWith('https://')) {
+            return { content: [{ type: 'text' as const, text: `WebApp URL must be HTTPS. Got: ${webappUrl}` }], isError: true }
+          }
+
+          // Send message with WebApp button
+          await ctx.reply(
+            args.message || '👇 Натисни щоб відкрити',
+            {
+              reply_markup: {
+                inline_keyboard: [[{
+                  text: args.buttonText || 'Відкрити',
+                  web_app: { url: webappUrl },
+                }]],
+              },
+            }
+          )
+
+          return { content: [{ type: 'text' as const, text: `WebApp button sent. URL: ${webappUrl}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'OpenWebApp failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }

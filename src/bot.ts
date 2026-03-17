@@ -1283,6 +1283,14 @@ export function createBot(): Bot {
     }
   })
 
+  // WebApp data (Mini App sends data back via Telegram.WebApp.sendData)
+  bot.on('message:web_app_data', async (ctx) => {
+    const chatId = ctx.chat.id
+    if (!isAuthorised(chatId)) return
+
+    const data = ctx.message.web_app_data.data
+    await handleMessage(ctx, `[WebApp data received]: ${data}`)
+  })
 
   // Poll answer handler (for AskUser poll mode)
   bot.on('poll_answer', async (ctx) => {
