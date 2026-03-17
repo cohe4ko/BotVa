@@ -24,7 +24,8 @@ async function runAgentOnce(
   chatId: string,
   onEvent?: (event: SDKMessage) => void,
   model?: string,
-  builtinMcpServer?: McpSdkServerConfigWithInstance
+  builtinMcpServer?: McpSdkServerConfigWithInstance,
+  permissionMode?: string
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -75,8 +76,8 @@ async function runAgentOnce(
       prompt: message,
       options: {
         cwd: BOT_DIR,
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
+        permissionMode: (permissionMode ?? 'bypassPermissions') as any,
+        allowDangerouslySkipPermissions: !permissionMode || permissionMode === 'bypassPermissions',
         settingSources: ['project', 'user'],
         abortController,
         mcpServers,
@@ -220,9 +221,10 @@ export async function runAgent(
   chatId: string,
   onEvent?: (event: SDKMessage) => void,
   model?: string,
-  builtinMcpServer?: McpSdkServerConfigWithInstance
+  builtinMcpServer?: McpSdkServerConfigWithInstance,
+  permissionMode?: string
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -230,7 +232,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }

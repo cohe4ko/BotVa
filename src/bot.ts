@@ -831,8 +831,10 @@ async function handleMessage(
           }
         }
         const currentModel = getModel(chatIdStr)
-        logger.info({ chatId: chatIdStr, model: currentModel, hasSession: !!sessionId }, 'Running agent')
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server)
+        const agentMode = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
+        const permissionMode = agentMode === 'plan' ? 'plan' : agentMode === 'edit' ? 'acceptEdits' : undefined
+        logger.info({ chatId: chatIdStr, model: currentModel, agentMode, hasSession: !!sessionId }, 'Running agent')
+        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage
@@ -950,6 +952,11 @@ export function createBot(): Bot {
     { id: 'result', labelKey: 'teamwork.result.label' },
     { id: 'none', labelKey: 'teamwork.none.label' },
   ]
+  const AGENT_MODE_OPTIONS = [
+    { id: 'full', labelKey: 'agent.full' },
+    { id: 'edit', labelKey: 'agent.edit' },
+    { id: 'plan', labelKey: 'agent.plan' },
+  ]
 
   function buildSettingsMessage(chatId: string) {
     const t = chatT(chatId)
@@ -964,12 +971,15 @@ export function createBot(): Bot {
     const styleLabel = t(STYLE_OPTIONS.find(o => o.id === style)?.labelKey ?? 'style.brunette.label')
     const delayLabel = DELAY_OPTIONS.find(o => o.id === delay)?.label ?? DELAY_OPTIONS[0].label
     const teamLabel = t(TEAM_OPTIONS.find(o => o.id === team)?.labelKey ?? 'teamwork.none.label')
+    const agentMode = getChatSetting(chatId, 'agent_mode') ?? 'full'
+    const agentLabel = t(AGENT_MODE_OPTIONS.find(o => o.id === agentMode)?.labelKey ?? 'agent.full')
     const langLabel = t(`lang.${lang}`)
 
     const keyboard = [
       [{ text: t(voiceOn ? 'settings.voice.on' : 'settings.voice.off'), callback_data: 'settings:voice' }],
       [{ text: t(statsOn ? 'settings.stats.on' : 'settings.stats.off'), callback_data: 'settings:stats' }],
       [{ text: t(factsOn ? 'settings.facts.on' : 'settings.facts.off'), callback_data: 'settings:facts' }],
+      [{ text: t('settings.agent', { label: agentLabel }), callback_data: 'settings:agent_mode' }],
       [{ text: t('settings.lang', { label: langLabel }), callback_data: 'settings:lang' }],
       [{ text: t('settings.style', { label: styleLabel }), callback_data: 'settings:style' }],
       [{ text: t('settings.delay', { label: delayLabel }), callback_data: 'settings:delay' }],
@@ -982,6 +992,7 @@ export function createBot(): Bot {
       `🗣 <b>${voiceOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.voice')}`,
       `📊 <b>${statsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.stats')}`,
       `🧠 <b>${factsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.facts')}`,
+      `🤖 <b>${agentLabel}</b> — ${t('settings.desc.agent')}`,
       `🌐 <b>${langLabel}</b> — ${t('settings.desc.lang')}`,
       `🎨 <b>${styleLabel}</b> — ${t('settings.desc.style')}`,
       `⏱ <b>${delayLabel}</b> — ${t('settings.desc.delay')}`,
@@ -1217,6 +1228,14 @@ export function createBot(): Bot {
           const next = ids[(ids.indexOf(cur) + 1) % ids.length]
           if (next === 'none') deleteChatSetting(chatIdStr, 'show_team_work')
           else setChatSetting(chatIdStr, 'show_team_work', next)
+          break
+        }
+        case 'agent_mode': {
+          const cur = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
+          const ids = AGENT_MODE_OPTIONS.map(o => o.id)
+          const next = ids[(ids.indexOf(cur) + 1) % ids.length]
+          if (next === 'full') deleteChatSetting(chatIdStr, 'agent_mode')
+          else setChatSetting(chatIdStr, 'agent_mode', next)
           break
         }
       }
