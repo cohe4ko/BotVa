@@ -529,10 +529,14 @@ async function handleMessage(
     rawText = buildGroupPrefix(ctx) + rawText
 
     // Random delay for group messages (natural pacing, prevents race conditions)
-    const delayMs = randomGroupDelay()
-    const delaySec = Math.round(delayMs / 1000)
-    await ctx.reply(`⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
-    await sleep(delayMs)
+    // Skip delay on first message (user's initial prompt) — only delay during active debate
+    const chatState = getGroupState(String(chatId))
+    if (chatState && chatState.count > 1) {
+      const delayMs = randomGroupDelay()
+      const delaySec = Math.round(delayMs / 1000)
+      await ctx.reply(`⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
+      await sleep(delayMs)
+    }
   } else if (!isAuthorised(chatId)) {
     await ctx.reply(chatT(String(chatId))('auth.denied', { chatId }))
     return
