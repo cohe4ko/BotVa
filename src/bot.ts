@@ -29,6 +29,7 @@ import { classifyReaction } from './auto-react.js'
 import { appendFileSync } from 'node:fs'
 import { resolve as pathResolve } from 'node:path'
 import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './group-relay.js'
+import { appendGroupContext, readGroupContext, clearGroupContext } from './group-context.js'
 
 // --- AskUser pending responses ---
 const pendingQuestions = new Map<string, {
@@ -624,6 +625,15 @@ async function handleMessage(
       }
     }
 
+    // Human message during active debate = context injection (not a debate turn)
+    const activeDebate = getDebateState(chatIdStr)
+    if (activeDebate && !fromRelay && sender && !sender.is_bot && chatState && chatState.count > 1) {
+      appendGroupContext(chatIdStr, rawText)
+      await ctx.api.sendMessage(chatId, `📌 Додано до контексту`).catch(() => {})
+      debateLog(chatIdStr, 'CONTEXT_INJECTED', { text: rawText.slice(0, 100) })
+      return
+    }
+
     // Add sender context prefix (for relay, it's already in rawText)
     if (!fromRelay) {
       rawText = buildGroupPrefix(ctx) + rawText
@@ -695,6 +705,12 @@ async function handleMessage(
       let fullMessage = memoryCtx
         ? `[Short-term context — fades over time. Use SaveFact for permanent storage.]\n${memoryCtx}\n\n${currentMessage}`
         : currentMessage
+
+      // Inject user-added group context (human messages during debate)
+      const groupCtx = inGroup ? readGroupContext(chatIdStr) : null
+      if (groupCtx) {
+        fullMessage = `[📌 Контекст від користувача]\n${groupCtx}\n\n${fullMessage}`
+      }
 
       // Get session
       const sessionId = getSession(chatIdStr)
@@ -844,6 +860,17 @@ async function handleMessage(
         usage = result.usage
       } catch (err) {
         logAudit(chatIdStr, 'error', err instanceof Error ? err.message : String(err))
+        // If there's a pending followup (user sent message during work),
+        // recover instead of crashing — clear broken session and continue loop
+        const followup = getAndClearFollowup(chatIdStr)
+        if (followup) {
+          logger.warn({ chatId: chatIdStr, err }, 'Agent crashed during interrupt, recovering with followup')
+          reporter.addFollowupMarker(followup)
+          clearCancelled(chatIdStr)
+          clearSession(chatIdStr)
+          currentMessage = chatT(chatIdStr)('followup.prefix', { text: followup })
+          continue
+        }
         throw err
       }
 
@@ -1607,6 +1634,7 @@ export function createBot(): Bot {
     resetGroupIterations(chatIdStr)
     resetDebateState(chatIdStr)
     relayClear(chatIdStr)
+    clearGroupContext(chatIdStr)
     stoppedChats.add(chatIdStr)
     await ctx.reply(`⏹ Діалог зупинено${state ? ` (було ${state.count} ітерацій)` : ''}.`)
   })
