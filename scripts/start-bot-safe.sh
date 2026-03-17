@@ -111,6 +111,11 @@ fi
 
 # ---- Main loop ----
 
+# Save wrapper PID so deploy.sh stop can find us
+WRAPPER_PIDFILE="$DIR/bots/$BOT/store/wrapper.pid"
+mkdir -p "$DIR/bots/$BOT/store"
+echo $$ > "$WRAPPER_PIDFILE"
+
 notify "🟢 <b>${BOT}</b> starting"
 
 while true; do
