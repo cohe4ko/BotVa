@@ -364,6 +364,21 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 // Note: handoff @mention stays in the response body (in the header line).
 // The receiving bot sees the full message with content, not just a bare @mention.
 
+/** In group mode: ensure response fits in a single Telegram message (no chunking).
+ *  Truncates if needed, preserving the header with @mention. */
+function truncateForGroup(text: string, limit = MAX_MESSAGE_LENGTH - 100): string {
+  if (text.length <= limit) return text
+  // Keep first `limit` chars + truncation marker
+  const truncated = text.slice(0, limit)
+  // Try to cut at last paragraph or sentence
+  const lastParagraph = truncated.lastIndexOf('\n\n')
+  const lastSentence = truncated.lastIndexOf('. ')
+  const cutAt = lastParagraph > limit * 0.6 ? lastParagraph
+    : lastSentence > limit * 0.6 ? lastSentence + 1
+    : limit
+  return text.slice(0, cutAt) + '\n\n[...обрізано]'
+}
+
 // --- Main handler ---
 
 async function handleMessage(
@@ -613,24 +628,26 @@ async function handleMessage(
         logger.info({ chatId: chatIdStr, ms: responseTimeMs, cost: `$${usage.costUSD.toFixed(4)}`, in: usage.inputTokens, out: usage.outputTokens }, 'Response sent')
       }
 
-      // Send text — skip auto-telegraph if agent already used PublishTelegraph
-      const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
-      // In groups: force telegraph for responses >3500 chars to avoid chunk issues
-      const forceGroupTelegraph = inGroup && text.length > 3500 && TELEGRAPH_ENABLED && !agentUsedTelegraph
-      const shouldTelegraph = (TELEGRAPH_ENABLED && shouldUseTelegraph(text) && !agentUsedTelegraph) || forceGroupTelegraph
-      if (shouldTelegraph) {
-        const url = await createTelegraphPage(BOT_NAME, text)
-        if (url) {
-          // In group: add handoff @mention after telegraph link so next bot gets triggered
-          // Extract @mention from response to include with the link
-          const mentionMatch = text.match(/\n\s*(@\w+)\s*$/)
-          const linkMsg = mentionMatch ? `${url}\n\n${mentionMatch[1]}` : url
-          await ctx.reply(linkMsg)
+      // Send text
+      if (inGroup) {
+        // Group mode: single message, no telegraph, no chunking
+        // Truncate if needed to keep @mention header visible to the other bot
+        const groupText = truncateForGroup(text)
+        await sendChunked(ctx, groupText) // sendChunked handles HTML formatting; truncated text fits in 1 chunk
+      } else {
+        // Private chat: telegraph for long messages
+        const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
+        const shouldTelegraph = TELEGRAPH_ENABLED && shouldUseTelegraph(text) && !agentUsedTelegraph
+        if (shouldTelegraph) {
+          const url = await createTelegraphPage(BOT_NAME, text)
+          if (url) {
+            await ctx.reply(url)
+          } else {
+            await sendChunked(ctx, text)
+          }
         } else {
           await sendChunked(ctx, text)
         }
-      } else {
-        await sendChunked(ctx, text)
       }
 
       // Usage stats footer
