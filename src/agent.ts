@@ -72,17 +72,25 @@ async function runAgentOnce(
 
     logger.debug({ chatId, model, sessionId: sessionId?.slice(0, 8) }, 'Starting agent query')
 
+    // Tool restrictions based on permission mode
+    const toolRestrictions = permissionMode === 'plan'
+      ? { tools: ['Read', 'Glob', 'Grep'] as string[], allowedTools: ['Read', 'Glob', 'Grep'] as string[] }
+      : permissionMode === 'acceptEdits'
+        ? { tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Task'] as string[], allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Task'] as string[] }
+        : {}
+
     const conversation = query({
       prompt: message,
       options: {
         cwd: BOT_DIR,
-        permissionMode: (permissionMode ?? 'bypassPermissions') as any,
-        allowDangerouslySkipPermissions: !permissionMode || permissionMode === 'bypassPermissions',
+        permissionMode: permissionMode === 'plan' ? 'plan' as any : 'bypassPermissions' as any,
+        allowDangerouslySkipPermissions: permissionMode !== 'plan',
         settingSources: ['project', 'user'],
         abortController,
         mcpServers,
         includePartialMessages: true,
         agentProgressSummaries: true,
+        ...toolRestrictions,
         ...(model ? { model } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
       },
