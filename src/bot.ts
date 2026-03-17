@@ -269,6 +269,87 @@ function isAuthorised(chatId: number): boolean {
   return allowed.includes(String(chatId))
 }
 
+// --- Group chat support ---
+
+function isGroupChat(ctx: Context): boolean {
+  const type = ctx.chat?.type
+  return type === 'group' || type === 'supergroup'
+}
+
+/** Check if this bot is @mentioned in the message entities */
+function isBotMentioned(ctx: Context): boolean {
+  const botUsername = ctx.me?.username
+  if (!botUsername) return false
+  const entities = ctx.message?.entities ?? ctx.message?.caption_entities ?? []
+  const text = ctx.message?.text ?? ctx.message?.caption ?? ''
+  return entities.some(e =>
+    e.type === 'mention' &&
+    text.slice(e.offset, e.offset + e.length).toLowerCase() === `@${botUsername.toLowerCase()}`
+  )
+}
+
+/** Check if this message is a reply to one of the bot's messages */
+function isReplyToBot(ctx: Context): boolean {
+  return ctx.message?.reply_to_message?.from?.id === ctx.me?.id
+}
+
+/**
+ * Determine if the bot should process a group message.
+ * Rules:
+ * - Must be @mentioned or replied to
+ * - Sender must be authorised user (their user ID is in ALLOWED_CHAT_ID) OR a bot (for ping-pong)
+ * - Other people in the group are ignored
+ */
+function shouldProcessGroupMessage(ctx: Context): boolean {
+  // Must be mentioned or replied to
+  if (!isBotMentioned(ctx) && !isReplyToBot(ctx)) return false
+  const sender = ctx.message?.from
+  if (!sender) return false
+  // Allow bots (for multi-bot ping-pong dialogue)
+  if (sender.is_bot) return true
+  // Allow authorised users (their user ID = their private chat ID in ALLOWED_CHAT_ID)
+  return isAuthorised(sender.id)
+}
+
+// --- Group iteration counter (anti-loop) ---
+
+const groupIterations = new Map<string, { count: number, max: number, startedAt: number }>()
+const GROUP_MAX_ITERATIONS = 20
+const GROUP_TIMEOUT_MS = 30 * 60 * 1000 // 30 min auto-reset
+
+function getGroupState(chatId: string) {
+  const state = groupIterations.get(chatId)
+  if (state && Date.now() - state.startedAt > GROUP_TIMEOUT_MS) {
+    groupIterations.delete(chatId)
+    return undefined
+  }
+  return state
+}
+
+function incrementGroupIteration(chatId: string): boolean {
+  let state = getGroupState(chatId)
+  if (!state) {
+    state = { count: 0, max: GROUP_MAX_ITERATIONS, startedAt: Date.now() }
+    groupIterations.set(chatId, state)
+  }
+  state.count++
+  return state.count <= state.max
+}
+
+function resetGroupIterations(chatId: string): void {
+  groupIterations.delete(chatId)
+}
+
+/** Build prefix with sender info for group messages */
+function buildGroupPrefix(ctx: Context): string {
+  const sender = ctx.message?.from
+  if (!sender) return ''
+  const name = sender.first_name + (sender.last_name ? ` ${sender.last_name}` : '')
+  const username = sender.username ? `@${sender.username}` : ''
+  const isBot = sender.is_bot ? ' [bot]' : ''
+  return `[Group message from ${name} ${username}${isBot}]\n`
+}
+
 // --- Main handler ---
 
 async function handleMessage(
@@ -278,7 +359,23 @@ async function handleMessage(
 ): Promise<void> {
   const chatId = ctx.chat?.id
   if (!chatId) return
-  if (!isAuthorised(chatId)) {
+
+  // Group chat: check mention + sender auth
+  if (isGroupChat(ctx)) {
+    if (!isAuthorised(chatId)) return // group not in ALLOWED_CHAT_ID -- silent ignore
+    if (!shouldProcessGroupMessage(ctx)) return // not mentioned or not authorised sender
+    // Anti-loop: check iteration counter
+    const chatIdStr = String(chatId)
+    if (!incrementGroupIteration(chatIdStr)) {
+      const state = getGroupState(chatIdStr)
+      if (state && state.count === state.max + 1) {
+        await ctx.reply(`🛑 Ліміт ітерацій (${state.max}). /stop для reset.`)
+      }
+      return
+    }
+    // Add sender context prefix
+    rawText = buildGroupPrefix(ctx) + rawText
+  } else if (!isAuthorised(chatId)) {
     await ctx.reply(chatT(String(chatId))('auth.denied', { chatId }))
     return
   }
@@ -1156,6 +1253,20 @@ export function createBot(): Bot {
     setTimeout(() => process.exit(1), 500)
   })
 
+  // /stop — reset group iteration counter
+  bot.command('stop', async (ctx) => {
+    const chatId = ctx.chat.id
+    if (!isGroupChat(ctx)) return
+    if (!isAuthorised(chatId)) return
+    // Only authorised users can stop
+    const sender = ctx.message?.from
+    if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
+    const chatIdStr = String(chatId)
+    const state = getGroupState(chatIdStr)
+    resetGroupIterations(chatIdStr)
+    await ctx.reply(`⏹ Діалог зупинено${state ? ` (було ${state.count} ітерацій)` : ''}.`)
+  })
+
   // Text messages
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
@@ -1173,7 +1284,7 @@ export function createBot(): Bot {
     }
 
     // skip known bot commands (they have their own handlers above)
-    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session)\b/.test(text)) return
+    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|restart)\b/.test(text)) return
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
     if (text.startsWith('/')) {
@@ -1185,7 +1296,9 @@ export function createBot(): Bot {
   // Voice messages
   bot.on('message:voice', async (ctx) => {
     const chatId = ctx.chat.id
-    if (!isAuthorised(chatId)) return
+    if (isGroupChat(ctx)) {
+      if (!isAuthorised(chatId) || !shouldProcessGroupMessage(ctx)) return
+    } else if (!isAuthorised(chatId)) return
 
     const t = chatT(String(chatId))
     const caps = voiceCapabilities()
@@ -1209,7 +1322,9 @@ export function createBot(): Bot {
   // Photos
   bot.on('message:photo', async (ctx) => {
     const chatId = ctx.chat.id
-    if (!isAuthorised(chatId)) return
+    if (isGroupChat(ctx)) {
+      if (!isAuthorised(chatId) || !shouldProcessGroupMessage(ctx)) return
+    } else if (!isAuthorised(chatId)) return
 
     try {
       const photos = ctx.message.photo
@@ -1254,7 +1369,9 @@ export function createBot(): Bot {
   // Documents
   bot.on('message:document', async (ctx) => {
     const chatId = ctx.chat.id
-    if (!isAuthorised(chatId)) return
+    if (isGroupChat(ctx)) {
+      if (!isAuthorised(chatId) || !shouldProcessGroupMessage(ctx)) return
+    } else if (!isAuthorised(chatId)) return
 
     try {
       const doc = ctx.message.document
@@ -1270,7 +1387,9 @@ export function createBot(): Bot {
   // Videos
   bot.on('message:video', async (ctx) => {
     const chatId = ctx.chat.id
-    if (!isAuthorised(chatId)) return
+    if (isGroupChat(ctx)) {
+      if (!isAuthorised(chatId) || !shouldProcessGroupMessage(ctx)) return
+    } else if (!isAuthorised(chatId)) return
 
     try {
       const video = ctx.message.video
