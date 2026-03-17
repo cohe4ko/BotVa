@@ -194,7 +194,6 @@ function collectFiles(dir: string, result: { name: string; content: string }[], 
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const fullPath = join(dir, entry.name)
     if (entry.isDirectory()) {
-      if (entry.name === 'memories') continue
       collectFiles(fullPath, result, baseDir)
     } else if (entry.name.endsWith('.md') || entry.name.endsWith('.txt')) {
       const content = readFileSync(fullPath, 'utf-8')
