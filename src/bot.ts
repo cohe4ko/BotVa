@@ -54,6 +54,12 @@ const pendingPolls = new Map<string, {
 
 const ASK_USER_TIMEOUT_MS = 120_000 // 2 min to answer
 
+// --- Permission request pending responses (ask mode) ---
+const pendingPermissions = new Map<string, {
+  resolve: (allowed: boolean) => void
+  timeout: ReturnType<typeof setTimeout>
+}>()
+
 // --- Formatting ---
 
 export function formatForTelegram(text: string): string {
@@ -721,9 +727,27 @@ async function handleMessage(
         }
         const currentModel = getModel(chatIdStr)
         const agentMode = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
-        const permissionMode = agentMode === 'plan' ? 'plan' : agentMode === 'edit' ? 'acceptEdits' : undefined
+        const permissionMode = agentMode === 'plan' ? 'plan' : undefined
         logger.info({ chatId: chatIdStr, model: currentModel, agentMode, hasSession: !!sessionId }, 'Running agent')
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode)
+
+        // Permission callback for ask mode
+        const onPermissionRequest = agentMode === 'ask' ? async (toolName: string, summary: string) => {
+          const msg = `🔐 <b>${escapeHtml(toolName)}</b>\n<code>${escapeHtml(summary)}</code>`
+          const keyboard = [
+            [{ text: '✅ Дозволити', callback_data: 'perm:allow' },
+             { text: '❌ Заборонити', callback_data: 'perm:deny' }],
+          ]
+          await ctx.api.sendMessage(chatId, msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } })
+          return new Promise<boolean>((resolve) => {
+            const timeout = setTimeout(() => {
+              pendingPermissions.delete(chatIdStr)
+              resolve(false) // timeout = deny
+            }, ASK_USER_TIMEOUT_MS)
+            pendingPermissions.set(chatIdStr, { resolve, timeout })
+          })
+        } : undefined
+
+        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage
@@ -843,7 +867,7 @@ export function createBot(): Bot {
   ]
   const AGENT_MODE_OPTIONS = [
     { id: 'full', labelKey: 'agent.full' },
-    { id: 'edit', labelKey: 'agent.edit' },
+    { id: 'ask', labelKey: 'agent.ask' },
     { id: 'plan', labelKey: 'agent.plan' },
   ]
 
@@ -1038,6 +1062,28 @@ export function createBot(): Bot {
           const msg = ctx.callbackQuery.message
           if (msg && 'text' in msg) {
             await ctx.editMessageText(`${msg.text}\n\n→ <b>${escapeHtml(answer)}</b>`, { parse_mode: 'HTML' })
+          }
+        } catch { /* ignore */ }
+      } else {
+        await ctx.answerCallbackQuery({ text: chatT(chatIdStr)('cb.questionExpired') })
+      }
+      return
+    }
+    // Permission request callback (ask mode)
+    if (ctx.callbackQuery?.data?.startsWith('perm:')) {
+      const chatIdStr = String(ctx.chat?.id)
+      const action = ctx.callbackQuery.data.slice(5) // remove 'perm:'
+      const pending = pendingPermissions.get(chatIdStr)
+      if (pending) {
+        clearTimeout(pending.timeout)
+        pendingPermissions.delete(chatIdStr)
+        const allowed = action === 'allow'
+        pending.resolve(allowed)
+        await ctx.answerCallbackQuery({ text: allowed ? '✅' : '❌' })
+        try {
+          const msg = ctx.callbackQuery.message
+          if (msg && 'text' in msg) {
+            await ctx.editMessageText(`${msg.text}\n\n${allowed ? '✅ Дозволено' : '❌ Заборонено'}`, { parse_mode: 'HTML' })
           }
         } catch { /* ignore */ }
       } else {

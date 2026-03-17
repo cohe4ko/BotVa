@@ -192,9 +192,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.facts.off': '🧠 Facts notify: OFF',
     'settings.desc.facts': 'Show saved facts in chat (SaveFact notifications)',
     'settings.agent': '🤖 Agent: {label}',
-    'settings.desc.agent': 'Agent mode: full (read+write+bash), edit (read+write), plan (read-only)',
+    'settings.desc.agent': 'Agent mode: full (no limits), ask user (confirms before actions), plan (read-only)',
     'agent.full': 'FULL',
-    'agent.edit': 'EDIT',
+    'agent.ask': 'ASK USER',
     'agent.plan': 'PLAN',
 
     // Sessions
@@ -422,9 +422,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.facts.off': '🧠 Факти: ВИМК',
     'settings.desc.facts': 'Показувати збережені факти в чаті (нотифікації SaveFact)',
     'settings.agent': '🤖 Агент: {label}',
-    'settings.desc.agent': 'Режим агента: повний (читання+запис+bash), редактор (читання+запис), план (тільки читання)',
+    'settings.desc.agent': 'Режим агента: повний (без обмежень), запит (підтверджує дії), план (тільки читання)',
     'agent.full': 'ПОВНИЙ',
-    'agent.edit': 'РЕДАКТОР',
+    'agent.ask': 'ЗАПИТ',
     'agent.plan': 'ПЛАН',
 
     // Sessions

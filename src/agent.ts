@@ -25,7 +25,8 @@ async function runAgentOnce(
   onEvent?: (event: SDKMessage) => void,
   model?: string,
   builtinMcpServer?: McpSdkServerConfigWithInstance,
-  permissionMode?: string
+  permissionMode?: string,
+  onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -75,9 +76,32 @@ async function runAgentOnce(
     // Tool restrictions based on permission mode
     const toolRestrictions = permissionMode === 'plan'
       ? { tools: ['Read', 'Glob', 'Grep'] as string[], allowedTools: ['Read', 'Glob', 'Grep'] as string[] }
-      : permissionMode === 'acceptEdits'
-        ? { tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Task'] as string[], allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Task'] as string[] }
-        : {}
+      : {}
+
+    // PreToolUse hooks for ask mode — intercept dangerous tools
+    const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'Task']
+    const permissionHooks = onPermissionRequest ? {
+      hooks: {
+        PreToolUse: [{
+          hooks: [async (input: any) => {
+            const toolName = input.tool_name ?? ''
+            if (READ_ONLY_TOOLS.includes(toolName)) {
+              return { decision: 'approve' as const }
+            }
+            const toolInput = input.tool_input ?? {}
+            const summary = toolInput.command
+              ? `bash: ${String(toolInput.command).slice(0, 150)}`
+              : toolInput.file_path
+                ? `${toolName}: ${toolInput.file_path}`
+                : toolName
+            const allowed = await onPermissionRequest(toolName, summary)
+            return allowed
+              ? { decision: 'approve' as const }
+              : { decision: 'block' as const, reason: 'Denied by user' }
+          }],
+        }],
+      },
+    } : {}
 
     const conversation = query({
       prompt: message,
@@ -91,6 +115,7 @@ async function runAgentOnce(
         includePartialMessages: true,
         agentProgressSummaries: true,
         ...toolRestrictions,
+        ...permissionHooks,
         ...(model ? { model } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
       },
@@ -230,9 +255,10 @@ export async function runAgent(
   onEvent?: (event: SDKMessage) => void,
   model?: string,
   builtinMcpServer?: McpSdkServerConfigWithInstance,
-  permissionMode?: string
+  permissionMode?: string,
+  onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -240,7 +266,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }
