@@ -585,7 +585,10 @@ async function handleMessage(
         replied,
         textPreview: rawText.slice(0, 100),
       })
-      if (!shouldProcessGroupMessage(ctx)) {
+      // During active debate, allow human messages through (they become context injection)
+      const hasActiveDebate = !!getDebateState(String(chatId))
+      const isHumanDuringDebate = hasActiveDebate && senderInfo && !senderInfo.is_bot
+      if (!isHumanDuringDebate && !shouldProcessGroupMessage(ctx)) {
         debateLog(String(chatId), 'SKIP:should_not_process', { mentioned, replied, senderId: senderInfo?.id, senderIsBot: senderInfo?.is_bot })
         return
       }
@@ -596,12 +599,41 @@ async function handleMessage(
 
     // If chat was /stopped or /paused, block relay messages. Human message clears the flag.
     const chatIdStr = String(chatId)
+    const sender = ctx.message?.from
+
+    // Human message during active debate = context injection (before iteration counter)
+    const activeDebate = getDebateState(chatIdStr)
+    if (activeDebate && !fromRelay && sender && !sender.is_bot) {
+      // Stopped chat: human message clears stop flag but doesn't inject context (starts fresh)
+      if (stoppedChats.has(chatIdStr)) {
+        stoppedChats.delete(chatIdStr)
+        // Fall through to normal processing (new debate)
+      } else if (pausedChats.has(chatIdStr)) {
+        // Paused: inject context AND resume
+        pausedChats.delete(chatIdStr)
+        appendGroupContext(chatIdStr, rawText)
+        await ctx.api.sendMessage(chatId, `📌 Додано до контексту. Діалог відновлено.`).catch(() => {})
+        debateLog(chatIdStr, 'CONTEXT_INJECTED_AND_RESUMED', { text: rawText.slice(0, 100) })
+        // Write resume signal to relay so bots pick up
+        try {
+          relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, '[System: debate resumed — continue from where you left off]')
+        } catch { /* ignore */ }
+        return
+      } else {
+        // Active debate, not paused/stopped: pure context injection
+        appendGroupContext(chatIdStr, rawText)
+        await ctx.api.sendMessage(chatId, `📌 Додано до контексту`).catch(() => {})
+        debateLog(chatIdStr, 'CONTEXT_INJECTED', { text: rawText.slice(0, 100) })
+        return
+      }
+    }
+
     if (stoppedChats.has(chatIdStr)) {
       if (fromRelay) {
         debateLog(chatIdStr, 'SKIP:stopped')
         return
       }
-      // Human message — allow new debate
+      // Human message (no active debate) — allow new debate
       stoppedChats.delete(chatIdStr)
     }
     if (pausedChats.has(chatIdStr)) {
@@ -625,7 +657,6 @@ async function handleMessage(
     }
     // Parse debate roles from first message (user's initial prompt)
     const chatState = getGroupState(chatIdStr)
-    const sender = ctx.message?.from
     debateLog(chatIdStr, 'ITERATION', { count: chatState?.count, senderIsBot: sender?.is_bot ?? fromRelay })
     if (chatState && chatState.count === 1 && sender && !sender.is_bot && ctx.me?.username) {
       const debate = parseDebateRoles(rawText, ctx.me.username)
@@ -635,15 +666,6 @@ async function handleMessage(
       } else {
         debateLog(chatIdStr, 'DEBATE_ROLES_NOT_FOUND', { myUsername: ctx.me.username, textPreview: rawText.slice(0, 200) })
       }
-    }
-
-    // Human message during active debate = context injection (not a debate turn)
-    const activeDebate = getDebateState(chatIdStr)
-    if (activeDebate && !fromRelay && sender && !sender.is_bot && chatState && chatState.count > 1) {
-      appendGroupContext(chatIdStr, rawText)
-      await ctx.api.sendMessage(chatId, `📌 Додано до контексту`).catch(() => {})
-      debateLog(chatIdStr, 'CONTEXT_INJECTED', { text: rawText.slice(0, 100) })
-      return
     }
 
     // Add sender context prefix (for relay, it's already in rawText)
@@ -1665,6 +1687,11 @@ export function createBot(): Bot {
       pausedChats.delete(chatIdStr)
       debateLog(chatIdStr, 'RESUMED')
       await ctx.reply('▶️ Діалог відновлено.')
+      // Write resume signal to relay so paused bots pick up
+      try {
+        relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, '[System: debate resumed — continue from where you left off]')
+        debateLog(chatIdStr, 'RESUME_RELAY_WRITTEN')
+      } catch { /* ignore */ }
     } else if (stoppedChats.has(chatIdStr)) {
       await ctx.reply('⏹ Діалог був зупинений через /stop. Надішли нове повідомлення для нового діалогу.')
     } else {
