@@ -799,7 +799,7 @@ async function handleMessage(
         }
         const currentModel = getModel(chatIdStr)
         const agentMode = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
-        const permissionMode = (agentMode === 'plan' || isDebateMode) ? 'plan' : undefined
+        const permissionMode = agentMode === 'plan' ? 'plan' : isDebateMode ? 'debate' : undefined
         logger.info({ chatId: chatIdStr, model: currentModel, agentMode, hasSession: !!sessionId }, 'Running agent')
 
         // Permission callback for ask mode

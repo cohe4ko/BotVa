@@ -78,6 +78,29 @@ async function runAgentOnce(
       ? { tools: ['Read', 'Glob', 'Grep'] as string[], allowedTools: ['Read', 'Glob', 'Grep'] as string[] }
       : {}
 
+    // Debate mode: allow read tools + MCP (WebSearch, WebFetch, PubMed), block write tools (Bash, Write, Edit, etc.)
+    const DEBATE_ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch']
+    const DEBATE_BLOCKED_TOOLS = ['Write', 'Edit', 'Bash', 'NotebookEdit']
+    const debateHooks = permissionMode === 'debate' ? {
+      hooks: {
+        PreToolUse: [{
+          hooks: [async (input: any) => {
+            const toolName = input.tool_name ?? ''
+            // Allow read tools explicitly
+            if (DEBATE_ALLOWED_TOOLS.includes(toolName)) {
+              return { decision: 'approve' as const }
+            }
+            // Block write tools explicitly
+            if (DEBATE_BLOCKED_TOOLS.includes(toolName)) {
+              return { decision: 'block' as const, reason: 'Write tools disabled in debate mode' }
+            }
+            // Allow all MCP tools (they start with mcp__ prefix or are passed through mcpServers)
+            return { decision: 'approve' as const }
+          }],
+        }],
+      },
+    } : {}
+
     // PreToolUse hooks for ask mode — intercept dangerous tools
     const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'Task']
     const permissionHooks = onPermissionRequest ? {
@@ -115,6 +138,7 @@ async function runAgentOnce(
         includePartialMessages: true,
         agentProgressSummaries: true,
         ...toolRestrictions,
+        ...debateHooks,
         ...permissionHooks,
         ...(model ? { model } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
