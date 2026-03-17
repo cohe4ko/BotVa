@@ -96,6 +96,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video to chat', available: true },
     // Telegram reactions
     { name: 'SetReaction', icon: 'heart', category: 'telegram', description: 'React to user message with emoji', available: true },
+    { name: 'PinMessage', icon: 'pin', category: 'telegram', description: 'Pin/unpin messages in chat', available: true },
     // User interaction
     { name: 'AskUser', icon: 'message-circle', category: 'telegram', description: 'Ask user to choose from options via buttons', available: true },
     // Bot management
@@ -1164,9 +1165,61 @@ type 'system': captures the current system screen (macOS).`,
     )
   )
 
+  // --- Pin/unpin messages ---
+
+  if (isOn('PinMessage')) tools.push(
+    tool(
+      'PinMessage',
+      `Pin or unpin messages in the Telegram chat.
+
+Use when:
+- User says "закріпи це", "pin this", "закріпи повідомлення"
+- PROACTIVELY for important results: morning briefing, key decisions, summaries
+- User says "відкріпи", "unpin", "відкріпи все"
+
+Do NOT overuse — pin only truly important messages.`,
+      {
+        action: z.enum(['pin', 'unpin', 'unpin_all']).default('pin').describe(
+          'pin = pin a message, unpin = unpin a message, unpin_all = unpin all messages'
+        ),
+        message_id: z.number().optional().describe(
+          'Message ID to pin/unpin. If omitted: pin = pins the last bot message, unpin = unpins the most recent pinned'
+        ),
+      },
+      async ({ action, message_id: msgId }) => {
+        usedTools.add('PinMessage')
+        try {
+          if (action === 'unpin_all') {
+            await ctx.api.unpinAllChatMessages(chatId)
+            return { content: [{ type: 'text' as const, text: 'All messages unpinned' }] }
+          }
+          if (action === 'unpin') {
+            if (msgId) {
+              await ctx.api.unpinChatMessage(chatId, msgId)
+            } else {
+              await ctx.api.unpinChatMessage(chatId)
+            }
+            return { content: [{ type: 'text' as const, text: `Unpinned${msgId ? ` message #${msgId}` : ''}` }] }
+          }
+          // action === 'pin'
+          const targetId = msgId ?? ctx.message?.message_id
+          if (!targetId) {
+            return { content: [{ type: 'text' as const, text: 'No message to pin (provide message_id)' }], isError: true }
+          }
+          await ctx.api.pinChatMessage(chatId, targetId, { disable_notification: true })
+          return { content: [{ type: 'text' as const, text: `Pinned message #${targetId}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'PinMessage failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
   // --- Session naming ---
 
-  if (isOn('NameSession')) tools.push(makeNameSessionTool(chatIdStr, usedTools))
+  if (isOn('NameSession')) tools.push(makeNameSessionTool(chatIdStr, usedTools, ctx, chatId))
 
   if (tools.length === 0) return null
 
@@ -1312,7 +1365,7 @@ function makeDeleteFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpTo
 
 // --- Session naming tool factory ---
 
-function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>): SdkMcpToolDefinition<any> {
+function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>, ctx: Context, chatId: number): SdkMcpToolDefinition<any> {
   return tool(
     'NameSession',
     'Give this session a short descriptive title (3-5 words). Call after 2nd user message when you understand the session topic. Title appears in session list (Claude Code /resume and Telegram /session).',
@@ -1327,6 +1380,10 @@ function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>): SdkMcpT
         }
         const { writeSessionTitle } = await import('./session-titles.js')
         writeSessionTitle(sessionId, args.title)
+        // Fire-and-forget: send session title message and pin it
+        ctx.api.sendMessage(chatId, `📌 ${args.title}`, { disable_notification: true })
+          .then(msg => ctx.api.pinChatMessage(chatId, msg.message_id, { disable_notification: true }).catch(() => {}))
+          .catch(() => {})
         return { content: [{ type: 'text' as const, text: `Session named: ${args.title}` }] }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
