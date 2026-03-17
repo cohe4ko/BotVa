@@ -397,6 +397,9 @@ function resetDebateState(chatId: string): void {
   groupDebateState.delete(chatId)
 }
 
+// --- Group stop flag (persists until human sends new message) ---
+const stoppedChats = new Set<string>()
+
 // --- Group iteration counter (anti-loop) ---
 
 const groupIterations = new Map<string, { count: number, max: number, startedAt: number }>()
@@ -467,7 +470,9 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
   // Skip relay for answerer's first message (confirmation like "Ready, waiting for questions").
   const chatState = getGroupState(chatIdStr)
   const isAnswererFirstMsg = debate?.myRole === 'answerer' && chatState && chatState.count <= 1
-  if (!isAnswererFirstMsg) {
+  if (stoppedChats.has(chatIdStr)) {
+    debateLog(chatIdStr, 'RELAY_SKIP_STOPPED')
+  } else if (!isAnswererFirstMsg) {
     try {
       relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, text)
       debateLog(chatIdStr, 'RELAY_WRITTEN', { chars: text.length })
@@ -575,8 +580,18 @@ async function handleMessage(
       debateLog(String(chatId), 'RELAY_RECEIVED', { textPreview: rawText.slice(0, 100) })
     }
 
-    // Anti-loop: check iteration counter
+    // If chat was /stopped, block relay messages. Human message clears the flag.
     const chatIdStr = String(chatId)
+    if (stoppedChats.has(chatIdStr)) {
+      if (fromRelay) {
+        debateLog(chatIdStr, 'SKIP:stopped')
+        return
+      }
+      // Human message — allow new debate
+      stoppedChats.delete(chatIdStr)
+    }
+
+    // Anti-loop: check iteration counter
     if (!incrementGroupIteration(chatIdStr)) {
       const state = getGroupState(chatIdStr)
       debateLog(chatIdStr, 'SKIP:iteration_limit', { count: state?.count, max: state?.max })
@@ -784,7 +799,7 @@ async function handleMessage(
         }
         const currentModel = getModel(chatIdStr)
         const agentMode = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
-        const permissionMode = agentMode === 'plan' ? 'plan' : undefined
+        const permissionMode = (agentMode === 'plan' || isDebateMode) ? 'plan' : undefined
         logger.info({ chatId: chatIdStr, model: currentModel, agentMode, hasSession: !!sessionId }, 'Running agent')
 
         // Permission callback for ask mode
@@ -1573,6 +1588,7 @@ export function createBot(): Bot {
     resetGroupIterations(chatIdStr)
     resetDebateState(chatIdStr)
     relayClear(chatIdStr)
+    stoppedChats.add(chatIdStr)
     await ctx.reply(`⏹ Діалог зупинено${state ? ` (було ${state.count} ітерацій)` : ''}.`)
   })
 
