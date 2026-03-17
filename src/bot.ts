@@ -350,6 +350,34 @@ function buildGroupPrefix(ctx: Context): string {
   return `[Group message from ${name} ${username}${isBot}]\n`
 }
 
+// --- Group delay (anti-race, natural pacing) ---
+
+const GROUP_DELAY_MIN_MS = 10_000
+const GROUP_DELAY_MAX_MS = 30_000
+
+function randomGroupDelay(): number {
+  return GROUP_DELAY_MIN_MS + Math.floor(Math.random() * (GROUP_DELAY_MAX_MS - GROUP_DELAY_MIN_MS))
+}
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+/**
+ * Extract @mention handoff from the end of agent response.
+ * Agent writes "... @botname" at the end. We strip it and return separately.
+ * Returns { cleanText, handoff } where handoff is "@botname" or null.
+ */
+function extractHandoff(text: string): { cleanText: string; handoff: string | null } {
+  // Match @username at the very end (possibly after newlines/spaces)
+  const match = text.match(/\n*\s*(@\w+)\s*$/)
+  if (match) {
+    return {
+      cleanText: text.slice(0, match.index).trimEnd(),
+      handoff: match[1],
+    }
+  }
+  return { cleanText: text, handoff: null }
+}
+
 // --- Main handler ---
 
 async function handleMessage(
@@ -361,7 +389,8 @@ async function handleMessage(
   if (!chatId) return
 
   // Group chat: check mention + sender auth
-  if (isGroupChat(ctx)) {
+  const inGroup = isGroupChat(ctx)
+  if (inGroup) {
     if (!isAuthorised(chatId)) return // group not in ALLOWED_CHAT_ID -- silent ignore
     if (!shouldProcessGroupMessage(ctx)) return // not mentioned or not authorised sender
     // Anti-loop: check iteration counter
@@ -375,6 +404,12 @@ async function handleMessage(
     }
     // Add sender context prefix
     rawText = buildGroupPrefix(ctx) + rawText
+
+    // Random delay for group messages (natural pacing, prevents race conditions)
+    const delayMs = randomGroupDelay()
+    const delaySec = Math.round(delayMs / 1000)
+    await ctx.reply(`⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
+    await sleep(delayMs)
   } else if (!isAuthorised(chatId)) {
     await ctx.reply(chatT(String(chatId))('auth.denied', { chatId }))
     return
@@ -592,9 +627,19 @@ async function handleMessage(
         logger.info({ chatId: chatIdStr, ms: responseTimeMs, cost: `$${usage.costUSD.toFixed(4)}`, in: usage.inputTokens, out: usage.outputTokens }, 'Response sent')
       }
 
+      // Group mode: extract handoff @mention, force telegraph for long responses
+      let handoff: string | null = null
+      if (inGroup) {
+        const extracted = extractHandoff(text)
+        text = extracted.cleanText
+        handoff = extracted.handoff
+      }
+
       // Send text — skip auto-telegraph if agent already used PublishTelegraph
-      const shouldTelegraph = TELEGRAPH_ENABLED && shouldUseTelegraph(text)
-        && !builtin?.usedTools.has('PublishTelegraph')
+      const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
+      // In groups: force telegraph for responses >3500 chars to avoid chunk issues
+      const forceGroupTelegraph = inGroup && text.length > 3500 && TELEGRAPH_ENABLED && !agentUsedTelegraph
+      const shouldTelegraph = (TELEGRAPH_ENABLED && shouldUseTelegraph(text) && !agentUsedTelegraph) || forceGroupTelegraph
       if (shouldTelegraph) {
         const url = await createTelegraphPage(BOT_NAME, text)
         if (url) {
@@ -604,6 +649,11 @@ async function handleMessage(
         }
       } else {
         await sendChunked(ctx, text)
+      }
+
+      // Group: send handoff message as separate message (triggers next bot)
+      if (inGroup && handoff) {
+        await ctx.reply(handoff)
       }
 
       // Usage stats footer
