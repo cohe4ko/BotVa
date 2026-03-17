@@ -478,17 +478,35 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
     debateLog(chatIdStr, 'RELAY_SKIP_ANSWERER_FIRST', { textPreview: text.slice(0, 80) })
   }
 
-  // Send chunks to Telegram
+  // Send chunks to Telegram (with retry on 429 rate limit)
   const formatted = formatForTelegram(text)
   const chunks = splitMessage(formatted)
   for (const chunk of chunks) {
-    try {
-      await ctx.reply(chunk, { parse_mode: 'HTML' })
-    } catch {
+    let sent = false
+    for (let attempt = 0; attempt < 3 && !sent; attempt++) {
       try {
-        await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
-      } catch (err) {
-        debateLog(chatIdStr, 'SEND_CHUNK_ERROR', { error: String(err), chunkLen: chunk.length })
+        await ctx.reply(chunk, { parse_mode: 'HTML' })
+        sent = true
+      } catch (err: any) {
+        const retryAfter = err?.parameters?.retry_after ?? err?.payload?.parameters?.retry_after
+        if (retryAfter && attempt < 2) {
+          debateLog(chatIdStr, 'RATE_LIMITED', { retryAfter, attempt })
+          await new Promise(r => setTimeout(r, (retryAfter + 1) * 1000))
+          continue
+        }
+        // Try plain text fallback
+        try {
+          await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
+          sent = true
+        } catch (err2: any) {
+          const retryAfter2 = err2?.parameters?.retry_after ?? err2?.payload?.parameters?.retry_after
+          if (retryAfter2 && attempt < 2) {
+            debateLog(chatIdStr, 'RATE_LIMITED', { retryAfter: retryAfter2, attempt })
+            await new Promise(r => setTimeout(r, (retryAfter2 + 1) * 1000))
+            continue
+          }
+          debateLog(chatIdStr, 'SEND_CHUNK_ERROR', { error: String(err2), chunkLen: chunk.length })
+        }
       }
     }
   }
