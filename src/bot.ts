@@ -39,6 +39,15 @@ const pendingReplyKeyboard = new Map<string, {
   timeout: ReturnType<typeof setTimeout>
 }>()
 
+const pendingPolls = new Map<string, {
+  chatId: number
+  options: string[]
+  messageId: number
+  resolve: (answer: string) => void
+  reject: (err: Error) => void
+  timeout: ReturnType<typeof setTimeout>
+}>()
+
 const ASK_USER_TIMEOUT_MS = 120_000 // 2 min to answer
 
 // --- Formatting ---
@@ -326,7 +335,28 @@ async function handleMessage(
       await sendTyping()
 
       // Create askUser callback for AskUser builtin tool
-      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply', customText?: string, customParseMode?: 'HTML' | 'MarkdownV2' | 'Markdown') => {
+      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply' | 'poll', customText?: string, customParseMode?: 'HTML' | 'MarkdownV2' | 'Markdown', multiple?: boolean) => {
+        // Poll mode: native Telegram poll
+        if (keyboardMode === 'poll') {
+          const pollOptions = options.map(o => o.label)
+          const msg = await ctx.api.sendPoll(chatId, question, pollOptions, {
+            is_anonymous: false,
+            allows_multiple_answers: multiple ?? false,
+          })
+
+          const pollId = msg.poll!.id
+
+          return new Promise<string>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              pendingPolls.delete(pollId)
+              // Close the poll on timeout
+              ctx.api.stopPoll(chatId, msg.message_id).catch(() => {})
+              reject(new Error('timeout'))
+            }, ASK_USER_TIMEOUT_MS)
+            pendingPolls.set(pollId, { chatId, options: pollOptions, messageId: msg.message_id, resolve, reject, timeout })
+          })
+        }
+
         let msgText: string
         let parseMode: 'HTML' | 'MarkdownV2' | 'Markdown' | undefined
 
@@ -1234,6 +1264,31 @@ export function createBot(): Bot {
     }
   })
 
+
+  // Poll answer handler (for AskUser poll mode)
+  bot.on('poll_answer', async (ctx) => {
+    const pollAnswer = ctx.pollAnswer
+    const pollId = pollAnswer.poll_id
+    const pending = pendingPolls.get(pollId)
+    if (!pending) return
+
+    const optionIds = pollAnswer.option_ids
+
+    // Ignore retracted votes (empty option_ids)
+    if (optionIds.length === 0) return
+
+    // Resolve with selected option labels
+    clearTimeout(pending.timeout)
+    pendingPolls.delete(pollId)
+
+    const selectedLabels = optionIds.map(i => pending.options[i]).filter(Boolean)
+    const answer = selectedLabels.join(', ')
+
+    // Close the poll to show it's done
+    ctx.api.stopPoll(pending.chatId, pending.messageId).catch(() => {})
+
+    pending.resolve(answer)
+  })
 
   bot.catch((err) => {
     logger.error({ err: err.error }, 'Bot error')

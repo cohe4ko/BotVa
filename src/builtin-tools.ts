@@ -124,9 +124,10 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
 export type AskUserCallback = (
   question: string,
   options: { label: string; description?: string }[],
-  keyboard: 'inline' | 'reply',
+  keyboard: 'inline' | 'reply' | 'poll',
   text?: string,
-  parseMode?: 'HTML' | 'MarkdownV2' | 'Markdown'
+  parseMode?: 'HTML' | 'MarkdownV2' | 'Markdown',
+  multiple?: boolean
 ) => Promise<string>
 
 export interface BuiltinToolsResult {
@@ -1034,6 +1035,7 @@ WHEN NOT TO USE:
 KEYBOARD MODES:
 - 'inline' (default): buttons under message. Short labels only (1-4 words, max ~20 chars). Buttons disappear after click. Has "Other" option automatically.
 - 'reply': buttons replace the keyboard. Supports longer labels (full sentences OK). Answer appears as text in chat. Best for: yes/no, confirmations, options with long descriptions. No "Other" option.
+- 'poll': native Telegram poll. Best for: multi-select (user picks several options), surveys, voting. Set multiple=true for checkboxes, false for single-choice radio. No "Other" option.
 
 Use 'reply' when:
 - Yes/no or confirmation (Так/Ні)
@@ -1045,33 +1047,42 @@ Use 'inline' when:
 - Multiple options (4+)
 - You want "Other" as fallback
 
+Use 'poll' when:
+- User needs to select multiple options from a list (set multiple=true)
+- Survey-style question with native Telegram poll UI
+- Single-choice poll with radio buttons (multiple=false)
+
 EXAMPLES:
 - "Знайди рецепт борщу" (3 results) → AskUser: "Який?", options=["Класичний", "Полтавський", "Вегетаріанський"], keyboard='inline'
 - "Видали файл" → AskUser: "Точно видалити?", options=["Так, видалити", "Ні, залишити"], keyboard='reply'
 - "Надішли email" → AskUser: "Надіслати цей лист Олені?", options=["Так, надіслати", "Ні, ще відредагую"], keyboard='reply'
 - Complex choice → AskUser: "Який формат?", options=["Детальний звіт з графіками", "Коротке резюме на 1 сторінку", "Таблиця з даними"], keyboard='reply'
+- Multi-select → AskUser: "Які теми?", options=["AI", "Медицина", "Фінанси"], keyboard='poll', multiple=true
 
-2-8 options. Tool blocks until user responds (2 min timeout).`,
+2-10 options. Tool blocks until user responds (2 min timeout).`,
       {
         question: z.string().describe('The question to ask the user'),
         options: z.array(z.object({
-          label: z.string().describe('Button label'),
-          description: z.string().optional().describe('Brief explanation shown under the question'),
-        })).min(2).max(8).describe('Available choices (2-8 options)'),
-        keyboard: z.enum(['inline', 'reply']).default('inline').describe(
-          'inline = buttons under message (short labels, has "Other"), reply = buttons replace keyboard (long labels OK, answer as text in chat)'
+          label: z.string().describe('Button/option label'),
+          description: z.string().optional().describe('Brief explanation shown under the question (not used in poll mode)'),
+        })).min(2).max(10).describe('Available choices (2-10 options)'),
+        keyboard: z.enum(['inline', 'reply', 'poll']).default('inline').describe(
+          'inline = buttons under message (short labels, has "Other"), reply = buttons replace keyboard (long labels OK), poll = native Telegram poll (multi-select with checkboxes)'
+        ),
+        multiple: z.boolean().default(false).describe(
+          'Only for poll mode: true = user can select multiple options (checkboxes), false = single choice (radio). Ignored for inline/reply.'
         ),
         text: z.string().optional().describe(
-          'Custom message text. If provided, replaces the auto-generated message above the buttons.'
+          'Custom message text. If provided, replaces the auto-generated message above the buttons. Not used in poll mode.'
         ),
         parse_mode: z.enum(['HTML', 'MarkdownV2', 'Markdown']).optional().describe(
-          'Telegram parse mode for the text. Default: HTML for auto-generated, none for custom text. Use MarkdownV2 for bold/italic/code in custom text.'
+          'Telegram parse mode for the text. Default: HTML for auto-generated, none for custom text. Not used in poll mode.'
         ),
       },
-      async ({ question, options, keyboard, text, parse_mode: pm }) => {
+      async ({ question, options, keyboard, multiple, text, parse_mode: pm }) => {
         usedTools.add('AskUser')
         try {
-          const answer = await askUser(question, options, keyboard, text, pm)
+          const answer = await askUser(question, options, keyboard, text, pm, multiple)
           if (answer === '__skip__') {
             return { content: [{ type: 'text' as const, text: 'User wants a different option (clicked "Other"). Ask them in text what they prefer.' }] }
           }
@@ -1206,6 +1217,19 @@ function makeSaveFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpTool
           })
         ).catch(err => logger.warn({ err }, 'Embedding generation failed'))
         const summary = args.facts.map((f, i) => `#${ids[i]} [${f.topic}]: ${f.content}`).join('\n')
+        // Fire-and-forget: notify owner about saved facts via Telegram (raw HTML, bypass formatForTelegram)
+        Promise.resolve().then(async () => {
+          const { ALLOWED_CHAT_ID, TELEGRAM_BOT_TOKEN } = await import('./config.js')
+          if (!ALLOWED_CHAT_ID || !TELEGRAM_BOT_TOKEN) return
+          const ownerChatId = ALLOWED_CHAT_ID.split(',')[0].trim()
+          const lines = args.facts.map((f, i) =>
+            `<b>#${ids[i]}</b> [${f.sector}] <b>${f.topic}</b>\n${f.content}\n<i>${f.tags}</i>`
+          )
+          const text = `🧠 Saved ${ids.length} fact${ids.length > 1 ? 's' : ''}:\n\n${lines.join('\n\n')}`
+          const { Bot } = await import('grammy')
+          const notifyBot = new Bot(TELEGRAM_BOT_TOKEN)
+          await notifyBot.api.sendMessage(Number(ownerChatId), text, { parse_mode: 'HTML' })
+        }).catch(() => {})
         return { content: [{ type: 'text' as const, text: `Saved ${ids.length} facts:\n${summary}` }] }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
