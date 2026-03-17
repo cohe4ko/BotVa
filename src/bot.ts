@@ -562,6 +562,7 @@ export function createBot(): Bot {
     const t = chatT(chatId)
     const voiceOn = getChatSetting(chatId, 'voice') === '1'
     const statsOn = getChatSetting(chatId, 'stats') === '1'
+    const factsOn = getChatSetting(chatId, 'fact_notify') !== '0' // ON by default
     const lang = getChatLang(chatId)
     const style = getChatSetting(chatId, 'progress_style') ?? 'brunette'
     const delay = getChatSetting(chatId, 'progress_delay') ?? '0'
@@ -575,6 +576,7 @@ export function createBot(): Bot {
     const keyboard = [
       [{ text: t(voiceOn ? 'settings.voice.on' : 'settings.voice.off'), callback_data: 'settings:voice' }],
       [{ text: t(statsOn ? 'settings.stats.on' : 'settings.stats.off'), callback_data: 'settings:stats' }],
+      [{ text: t(factsOn ? 'settings.facts.on' : 'settings.facts.off'), callback_data: 'settings:facts' }],
       [{ text: t('settings.lang', { label: langLabel }), callback_data: 'settings:lang' }],
       [{ text: t('settings.style', { label: styleLabel }), callback_data: 'settings:style' }],
       [{ text: t('settings.delay', { label: delayLabel }), callback_data: 'settings:delay' }],
@@ -586,6 +588,7 @@ export function createBot(): Bot {
       '',
       `🗣 <b>${voiceOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.voice')}`,
       `📊 <b>${statsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.stats')}`,
+      `🧠 <b>${factsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.facts')}`,
       `🌐 <b>${langLabel}</b> — ${t('settings.desc.lang')}`,
       `🎨 <b>${styleLabel}</b> — ${t('settings.desc.style')}`,
       `⏱ <b>${delayLabel}</b> — ${t('settings.desc.delay')}`,
@@ -790,6 +793,10 @@ export function createBot(): Bot {
         case 'stats':
           if (getChatSetting(chatIdStr, 'stats') === '1') deleteChatSetting(chatIdStr, 'stats')
           else setChatSetting(chatIdStr, 'stats', '1')
+          break
+        case 'facts':
+          if (getChatSetting(chatIdStr, 'fact_notify') === '0') deleteChatSetting(chatIdStr, 'fact_notify')
+          else setChatSetting(chatIdStr, 'fact_notify', '0')
           break
         case 'lang': {
           const cur = getChatLang(chatIdStr)

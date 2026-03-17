@@ -188,6 +188,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.desc.style': 'Progress indicator style: brunette (technical) or blonde (cute emoji)',
     'settings.desc.delay': 'How long progress stays visible after the final reply (0 = remove immediately, ∞ = keep forever)',
     'settings.desc.team': 'Show teammate work: all steps, result only, or hidden',
+    'settings.facts.on': '🧠 Facts notify: ON',
+    'settings.facts.off': '🧠 Facts notify: OFF',
+    'settings.desc.facts': 'Show saved facts in chat (SaveFact notifications)',
 
     // Sessions
     'cmd.session.title': 'Sessions',
@@ -410,6 +413,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.desc.style': 'Стиль індикатора прогресу: brunette (технічний) або blonde (милі емодзі)',
     'settings.desc.delay': 'Скільки прогрес видно після фінальної відповіді (0 = прибрати одразу, ∞ = залишити)',
     'settings.desc.team': 'Показ роботи команди: всі кроки, тільки результат або приховано',
+    'settings.facts.on': '🧠 Факти: УВІМК',
+    'settings.facts.off': '🧠 Факти: ВИМК',
+    'settings.desc.facts': 'Показувати збережені факти в чаті (нотифікації SaveFact)',
 
     // Sessions
     'cmd.session.title': 'Сесії',

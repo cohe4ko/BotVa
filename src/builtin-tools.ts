@@ -1218,6 +1218,9 @@ function makeSaveFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpTool
         Promise.resolve().then(async () => {
           const { ALLOWED_CHAT_ID, TELEGRAM_BOT_TOKEN } = await import('./config.js')
           if (!ALLOWED_CHAT_ID || !TELEGRAM_BOT_TOKEN) return
+          // Check if fact notifications are enabled (ON by default)
+          const { getChatSetting } = await import('./db.js')
+          if (getChatSetting(chatIdStr, 'fact_notify') === '0') return
           const ownerChatId = ALLOWED_CHAT_ID.split(',')[0].trim()
           const lines = args.facts.map((f, i) =>
             `<b>#${ids[i]}</b> [${f.sector}] <b>${f.topic}</b>\n${f.content}\n<i>${f.tags}</i>`
