@@ -316,10 +316,12 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
           if (images.length === 0) {
             return { content: [{ type: 'text' as const, text: `No images in gallery${args.bot ? ` for bot "${args.bot}"` : ''} (total: ${total})` }] }
           }
+          const galleryDir = resolve(PROJECT_ROOT, 'workspace', 'gallery')
           const lines = images.map(img => {
             const date = new Date(img.created_at * 1000).toISOString().slice(0, 16)
             const promptShort = img.prompt.length > 80 ? img.prompt.slice(0, 80) + '...' : img.prompt
-            return `#${img.id} | ${img.bot_name} | ${img.type} | ${formatSize(img.image_bytes)} | ${date} | ${promptShort}`
+            const path = resolve(galleryDir, img.filename)
+            return `#${img.id} | ${path} | ${img.bot_name} | ${img.type} | ${formatSize(img.image_bytes)} | ${date} | ${promptShort}`
           })
           lines.unshift(`Gallery: ${total} images total, showing ${images.length} (sorted by date, newest first)`)
           return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
