@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -eo pipefail
+# NOTE: no "set -e" here! The main loop uses wait which returns child's exit code.
+# With set -e, a non-zero exit from wait would kill the wrapper itself.
 
 # BotVa Crash Watchdog
 # Wraps bot process with crash counting, auto-rollback, and Telegram notifications.
