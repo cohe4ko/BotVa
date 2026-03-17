@@ -399,6 +399,7 @@ function resetDebateState(chatId: string): void {
 
 // --- Group stop flag (persists until human sends new message) ---
 const stoppedChats = new Set<string>()
+const pausedChats = new Set<string>()
 
 // --- Group iteration counter (anti-loop) ---
 
@@ -483,8 +484,8 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
     debateLog(chatIdStr, 'RELAY_SKIP_ANSWERER_FIRST', { textPreview: text.slice(0, 80) })
   }
 
-  // In debate mode, use Telegraph for long messages to avoid 429 rate limits
-  if (debate && TELEGRAPH_ENABLED && shouldUseTelegraph(text)) {
+  // Use Telegraph for long group messages to avoid 429 rate limits
+  if (TELEGRAPH_ENABLED && shouldUseTelegraph(text)) {
     try {
       const title = `${ctx.me?.first_name ?? BOT_NAME}`
       const url = await createTelegraphPage(title, text)
@@ -580,7 +581,7 @@ async function handleMessage(
       debateLog(String(chatId), 'RELAY_RECEIVED', { textPreview: rawText.slice(0, 100) })
     }
 
-    // If chat was /stopped, block relay messages. Human message clears the flag.
+    // If chat was /stopped or /paused, block relay messages. Human message clears the flag.
     const chatIdStr = String(chatId)
     if (stoppedChats.has(chatIdStr)) {
       if (fromRelay) {
@@ -589,6 +590,15 @@ async function handleMessage(
       }
       // Human message — allow new debate
       stoppedChats.delete(chatIdStr)
+    }
+    if (pausedChats.has(chatIdStr)) {
+      if (fromRelay) {
+        debateLog(chatIdStr, 'SKIP:paused')
+        return
+      }
+      // Human message — resume from pause
+      pausedChats.delete(chatIdStr)
+      debateLog(chatIdStr, 'RESUMED_BY_HUMAN')
     }
 
     // Anti-loop: check iteration counter
@@ -627,6 +637,15 @@ async function handleMessage(
       debateLog(chatIdStr, 'DELAY', { seconds: delaySec, count: chatState.count })
       await ctx.api.sendMessage(chatId, `⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
       await sleep(delayMs)
+      // Re-check stopped/paused after delay (user may have sent /stop during sleep)
+      if (stoppedChats.has(chatIdStr)) {
+        debateLog(chatIdStr, 'SKIP:stopped_after_delay')
+        return
+      }
+      if (pausedChats.has(chatIdStr)) {
+        debateLog(chatIdStr, 'SKIP:paused_after_delay')
+        return
+      }
     } else {
       debateLog(chatIdStr, 'NO_DELAY', { count: chatState?.count })
     }
@@ -1592,6 +1611,38 @@ export function createBot(): Bot {
     await ctx.reply(`⏹ Діалог зупинено${state ? ` (було ${state.count} ітерацій)` : ''}.`)
   })
 
+  // /pause — temporarily pause group debate (resume with /resume or any human message)
+  bot.command('pause', async (ctx) => {
+    const chatId = ctx.chat.id
+    if (!isGroupChat(ctx)) return
+    if (!isAuthorised(chatId)) return
+    const sender = ctx.message?.from
+    if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
+    const chatIdStr = String(chatId)
+    pausedChats.add(chatIdStr)
+    debateLog(chatIdStr, 'PAUSED')
+    await ctx.reply('⏸ Діалог на паузі. /resume або нове повідомлення щоб продовжити.')
+  })
+
+  // /resume — resume paused group debate
+  bot.command('resume', async (ctx) => {
+    const chatId = ctx.chat.id
+    if (!isGroupChat(ctx)) return
+    if (!isAuthorised(chatId)) return
+    const sender = ctx.message?.from
+    if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
+    const chatIdStr = String(chatId)
+    if (pausedChats.has(chatIdStr)) {
+      pausedChats.delete(chatIdStr)
+      debateLog(chatIdStr, 'RESUMED')
+      await ctx.reply('▶️ Діалог відновлено.')
+    } else if (stoppedChats.has(chatIdStr)) {
+      await ctx.reply('⏹ Діалог був зупинений через /stop. Надішли нове повідомлення для нового діалогу.')
+    } else {
+      await ctx.reply('▶️ Діалог не на паузі.')
+    }
+  })
+
   // Text messages
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
@@ -1609,7 +1660,7 @@ export function createBot(): Bot {
     }
 
     // skip known bot commands (they have their own handlers above)
-    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|restart)\b/.test(text)) return
+    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|pause|resume|restart)\b/.test(text)) return
 
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
