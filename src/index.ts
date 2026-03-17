@@ -7,7 +7,7 @@ import { getManagerName } from './team.js'
 import { initDatabase, getChatSetting } from './db.js'
 import { runDecaySweep } from './memory.js'
 import { cleanupOldUploads, ensureUploadsDir } from './media.js'
-import { createBot, sendMessage } from './bot.js'
+import { createBot, sendMessage, startRelayListener } from './bot.js'
 import { run, sequentialize } from '@grammyjs/runner'
 import { initScheduler, stopScheduler } from './scheduler.js'
 import { logger } from './logger.js'
@@ -230,6 +230,9 @@ async function main(): Promise<void> {
   // Init scheduler
   initScheduler(sendMessage)
 
+  // Start relay listener for bot-to-bot communication in groups
+  const stopRelay = startRelayListener(bot)
+
   // Start colleague socket listener
   startSocketListener()
 
@@ -248,6 +251,7 @@ async function main(): Promise<void> {
       const { persistentMcp } = await import('./persistent-mcp.js')
       persistentMcp.stopAll()
     } catch {}
+    stopRelay()
     stopSocketListener()
     stopScheduler()
     stopDeduplication()

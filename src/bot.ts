@@ -28,6 +28,7 @@ import { hasSessionTitle } from './session-titles.js'
 import { classifyReaction } from './auto-react.js'
 import { appendFileSync } from 'node:fs'
 import { resolve as pathResolve } from 'node:path'
+import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './group-relay.js'
 
 // --- AskUser pending responses ---
 const pendingQuestions = new Map<string, {
@@ -440,158 +441,35 @@ function randomGroupDelay(): number {
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
-// --- Group chunk protocol (sending side) ---
-// Multi-chunk messages get emoji ID + ⏩ continuation marker.
-// Receiving bot assembles chunks by matching emoji ID.
+// --- Group send + relay ---
 
-const CHUNK_EMOJIS = ['🔴', '🟢', '🔵', '🟡', '🟣', '🟠', '🔶', '🔷', '🟤', '⚫']
-
-function randomChunkEmoji(): string {
-  return CHUNK_EMOJIS[Math.floor(Math.random() * CHUNK_EMOJIS.length)]
-}
-
-/** Send response in group mode with chunk assembly markers.
- *  Auto-prepends @partnerUsername if debate is active (so the other bot receives the message).
- *  Single message: sent as-is (no markers).
- *  Multiple chunks: each gets [N/M] emoji⏩, last gets [N/M] emoji (no ⏩). */
+/** Send response in group mode. Writes full text to relay for other bots. */
 async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
-  // Auto-prepend @mention for debate partner
   const chatIdStr = String(ctx.chat?.id)
   const debate = getDebateState(chatIdStr)
+
+  // Strip any @mention agent might have added (relay handles delivery, not @mentions)
   if (debate) {
-    // Strip any existing @mention of partner at the start (agent might still add it)
     const partnerMentionRe = new RegExp(`^\\s*(?:(?:Питання|Відповідь)\\s+для\\s+)?@${debate.partnerUsername}[:\\s]*`, 'i')
     text = text.replace(partnerMentionRe, '').trimStart()
-    // Prepend clean @mention
-    text = `@${debate.partnerUsername}\n${text}`
-    debateLog(chatIdStr, 'SEND_WITH_MENTION', { partner: debate.partnerUsername, textPreview: text.slice(0, 100) })
-  } else {
-    debateLog(chatIdStr, 'SEND_NO_DEBATE_STATE', { textPreview: text.slice(0, 100) })
   }
+
+  debateLog(chatIdStr, 'SEND', { hasDebate: !!debate, textPreview: text.slice(0, 100) })
+
   const formatted = formatForTelegram(text)
   const chunks = splitMessage(formatted)
 
-  if (chunks.length === 1) {
-    // Single chunk: send as-is, no markers
-    try {
-      await ctx.reply(chunks[0], { parse_mode: 'HTML' })
-    } catch {
-      await ctx.reply(chunks[0].replace(/<[^>]+>/g, ''))
-    }
-    return
-  }
-
-  // Multi-chunk: add emoji ID + continuation markers
-  const emoji = randomChunkEmoji()
-  for (let i = 0; i < chunks.length; i++) {
-    const isLast = i === chunks.length - 1
-    // splitMessage already adds [N/M] indicator — append emoji marker after it
-    const marker = isLast ? ` ${emoji}` : ` ${emoji}⏩`
-    let chunk = chunks[i] + marker
+  // Send chunks to Telegram (plain split, no emoji markers)
+  for (const chunk of chunks) {
     try {
       await ctx.reply(chunk, { parse_mode: 'HTML' })
     } catch {
       await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
     }
   }
-}
 
-// --- Group chunk protocol (receiving side) ---
-// Buffer incoming chunks from other bots, assemble when complete.
-
-const CHUNK_CONTINUE_RE = /\s([🔴🟢🔵🟡🟣🟠🔶🔷🟤⚫])⏩$/
-const CHUNK_FINAL_RE = /\s([🔴🟢🔵🟡🟣🟠🔶🔷🟤⚫])$/
-const CHUNK_BUFFER_TIMEOUT_MS = 30_000
-
-interface ChunkBuffer {
-  chunks: string[]
-  emoji: string
-  firstCtx: Context
-  timer: ReturnType<typeof setTimeout>
-}
-
-const groupChunkBuffer = new Map<string, ChunkBuffer>()
-
-/** Strip chunk marker from message text */
-function stripChunkMarker(text: string): string {
-  return text.replace(/\s[🔴🟢🔵🟡🟣🟠🔶🔷🟤⚫]⏩?$/, '').trimEnd()
-}
-
-/**
- * Try to handle a group message as a chunk.
- * Returns true if message was consumed (buffered or assembled), false if not a chunk.
- */
-function handleGroupChunk(ctx: Context, text: string): boolean {
-  if (!isGroupChat(ctx)) return false
-  const sender = ctx.message?.from
-  if (!sender?.is_bot) return false
-
-  const groupId = String(ctx.chat!.id)
-  const senderId = sender.id
-
-  // Check for continuation marker: emoji⏩
-  const continueMatch = text.match(CHUNK_CONTINUE_RE)
-  if (continueMatch) {
-    const emoji = continueMatch[1]
-    const bufKey = `${groupId}:${senderId}:${emoji}`
-    const cleanText = stripChunkMarker(text)
-    const existing = groupChunkBuffer.get(bufKey)
-
-    if (existing) {
-      // Append to existing buffer
-      existing.chunks.push(cleanText)
-      clearTimeout(existing.timer)
-      existing.timer = setTimeout(() => {
-        // Timeout: assemble what we have
-        const buf = groupChunkBuffer.get(bufKey)
-        if (buf) {
-          const assembled = buf.chunks.join('\n\n')
-          groupChunkBuffer.delete(bufKey)
-          logger.info({ groupId, senderId, emoji, chunks: buf.chunks.length }, 'Chunk assembly timeout — processing partial')
-          handleMessage(buf.firstCtx, assembled)
-        }
-      }, CHUNK_BUFFER_TIMEOUT_MS)
-    } else {
-      // First chunk — create buffer
-      const timer = setTimeout(() => {
-        const buf = groupChunkBuffer.get(bufKey)
-        if (buf) {
-          const assembled = buf.chunks.join('\n\n')
-          groupChunkBuffer.delete(bufKey)
-          logger.info({ groupId, senderId, emoji, chunks: buf.chunks.length }, 'Chunk assembly timeout — processing partial')
-          handleMessage(buf.firstCtx, assembled)
-        }
-      }, CHUNK_BUFFER_TIMEOUT_MS)
-      groupChunkBuffer.set(bufKey, { chunks: [cleanText], emoji, firstCtx: ctx, timer })
-    }
-    return true // consumed
-  }
-
-  // Check for final marker: emoji (without ⏩)
-  const finalMatch = text.match(CHUNK_FINAL_RE)
-  if (finalMatch) {
-    const emoji = finalMatch[1]
-    const bufKey = `${groupId}:${senderId}:${emoji}`
-    const existing = groupChunkBuffer.get(bufKey)
-
-    if (existing) {
-      // Last chunk — assemble and process
-      clearTimeout(existing.timer)
-      const cleanText = stripChunkMarker(text)
-      existing.chunks.push(cleanText)
-      const assembled = existing.chunks.join('\n\n')
-      groupChunkBuffer.delete(bufKey)
-      logger.info({ groupId, senderId, emoji, chunks: existing.chunks.length }, 'Chunk assembly complete')
-      handleMessage(existing.firstCtx, assembled)
-      return true // consumed
-    }
-    // No buffer — could be a single message that happens to end with an emoji
-    // from our set. Don't consume — let normal flow handle it.
-    return false
-  }
-
-  // No chunk markers — not a chunk
-  return false
+  // Write full text to relay so other bots receive it
+  relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, text)
 }
 
 // --- Main handler ---
@@ -599,46 +477,55 @@ function handleGroupChunk(ctx: Context, text: string): boolean {
 async function handleMessage(
   ctx: Context,
   rawText: string,
-  forceVoiceReply = false
+  forceVoiceReply = false,
+  fromRelay = false
 ): Promise<void> {
   const chatId = ctx.chat?.id
   if (!chatId) return
 
   // Group chat: check mention + sender auth
-  const inGroup = isGroupChat(ctx)
+  const inGroup = isGroupChat(ctx) || fromRelay
   if (inGroup) {
     if (!isAuthorised(chatId)) {
       debateLog(String(chatId), 'SKIP:not_authorised_group')
       return
     }
-    const mentioned = isBotMentioned(ctx)
-    const replied = isReplyToBot(ctx)
-    const senderInfo = ctx.message?.from
-    debateLog(String(chatId), 'MSG_RECEIVED', {
-      from: senderInfo?.username || senderInfo?.first_name,
-      isBot: senderInfo?.is_bot,
-      mentioned,
-      replied,
-      textPreview: rawText.slice(0, 100),
-    })
-    if (!shouldProcessGroupMessage(ctx)) {
-      debateLog(String(chatId), 'SKIP:should_not_process', { mentioned, replied, senderId: senderInfo?.id, senderIsBot: senderInfo?.is_bot })
-      return
+
+    if (!fromRelay) {
+      // Normal Telegram message: check mention/reply
+      const mentioned = isBotMentioned(ctx)
+      const replied = isReplyToBot(ctx)
+      const senderInfo = ctx.message?.from
+      debateLog(String(chatId), 'MSG_RECEIVED', {
+        from: senderInfo?.username || senderInfo?.first_name,
+        isBot: senderInfo?.is_bot,
+        mentioned,
+        replied,
+        textPreview: rawText.slice(0, 100),
+      })
+      if (!shouldProcessGroupMessage(ctx)) {
+        debateLog(String(chatId), 'SKIP:should_not_process', { mentioned, replied, senderId: senderInfo?.id, senderIsBot: senderInfo?.is_bot })
+        return
+      }
+    } else {
+      // Relay message: always process (already filtered by relay module)
+      debateLog(String(chatId), 'RELAY_RECEIVED', { textPreview: rawText.slice(0, 100) })
     }
+
     // Anti-loop: check iteration counter
     const chatIdStr = String(chatId)
     if (!incrementGroupIteration(chatIdStr)) {
       const state = getGroupState(chatIdStr)
       debateLog(chatIdStr, 'SKIP:iteration_limit', { count: state?.count, max: state?.max })
       if (state && state.count === state.max + 1) {
-        await ctx.reply(`🛑 Ліміт ітерацій (${state.max}). /stop для reset.`)
+        await ctx.api.sendMessage(chatId, `🛑 Ліміт ітерацій (${state.max}). /stop для reset.`).catch(() => {})
       }
       return
     }
     // Parse debate roles from first message (user's initial prompt)
     const chatState = getGroupState(chatIdStr)
     const sender = ctx.message?.from
-    debateLog(chatIdStr, 'ITERATION', { count: chatState?.count, senderIsBot: sender?.is_bot })
+    debateLog(chatIdStr, 'ITERATION', { count: chatState?.count, senderIsBot: sender?.is_bot ?? fromRelay })
     if (chatState && chatState.count === 1 && sender && !sender.is_bot && ctx.me?.username) {
       const debate = parseDebateRoles(rawText, ctx.me.username)
       if (debate) {
@@ -649,8 +536,10 @@ async function handleMessage(
       }
     }
 
-    // Add sender context prefix
-    rawText = buildGroupPrefix(ctx) + rawText
+    // Add sender context prefix (for relay, it's already in rawText)
+    if (!fromRelay) {
+      rawText = buildGroupPrefix(ctx) + rawText
+    }
 
     // Random delay for group messages (natural pacing, prevents race conditions)
     // Skip delay on first message (user's initial prompt) — only delay during active debate
@@ -658,7 +547,7 @@ async function handleMessage(
       const delayMs = randomGroupDelay()
       const delaySec = Math.round(delayMs / 1000)
       debateLog(chatIdStr, 'DELAY', { seconds: delaySec, count: chatState.count })
-      await ctx.reply(`⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
+      await ctx.api.sendMessage(chatId, `⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
       await sleep(delayMs)
     } else {
       debateLog(chatIdStr, 'NO_DELAY', { count: chatState?.count })
@@ -1580,6 +1469,7 @@ export function createBot(): Bot {
     const state = getGroupState(chatIdStr)
     resetGroupIterations(chatIdStr)
     resetDebateState(chatIdStr)
+    relayClear(chatIdStr)
     await ctx.reply(`⏹ Діалог зупинено${state ? ` (було ${state.count} ітерацій)` : ''}.`)
   })
 
@@ -1601,9 +1491,6 @@ export function createBot(): Bot {
 
     // skip known bot commands (they have their own handlers above)
     if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|restart)\b/.test(text)) return
-
-    // Group chunk assembly: intercept multi-chunk messages from bots
-    if (handleGroupChunk(ctx, text)) return
 
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
@@ -1794,4 +1681,41 @@ export async function sendMessage(chatId: string, text: string): Promise<void> {
       await bot.api.sendMessage(Number(chatId), chunk.replace(/<[^>]+>/g, ''))
     }
   }
+}
+
+/**
+ * Start relay listener for bot-to-bot communication in group chats.
+ * Polls relay files for messages from other bots and processes them.
+ */
+export function startRelayListener(bot: Bot): () => void {
+  if (!ALLOWED_CHAT_ID) return () => {}
+
+  // All negative chat IDs are group chats (Telegram convention)
+  const chatIds = ALLOWED_CHAT_ID.split(',').map(s => s.trim()).filter(id => id.startsWith('-'))
+  if (chatIds.length === 0) {
+    logger.debug('No group chats configured — relay listener not started')
+    return () => {}
+  }
+
+  return startRelayPoller(chatIds, (msg) => {
+    // Build group prefix from relay data
+    const prefix = `[Group message from ${msg.botName} @${msg.botUsername} [bot]]\n`
+    const fullText = prefix + msg.text
+
+    // Create a minimal context-like object for handleMessage
+    // We need: chat.id, api (for sending), me (for bot info)
+    const fakeCtx = {
+      chat: { id: Number(msg.chatId), type: 'group' as const },
+      message: undefined,
+      callbackQuery: undefined,
+      api: bot.api,
+      me: bot.botInfo,
+      reply: (text: string, opts?: any) => bot.api.sendMessage(Number(msg.chatId), text, opts),
+      replyWithVoice: (input: any) => bot.api.sendVoice(Number(msg.chatId), input),
+    } as unknown as Context
+
+    handleMessage(fakeCtx, fullText, false, true).catch((err) => {
+      logger.error({ err, chatId: msg.chatId, from: msg.botName }, 'Relay message processing failed')
+    })
+  })
 }
