@@ -361,22 +361,8 @@ function randomGroupDelay(): number {
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
-/**
- * Extract @mention handoff from the end of agent response.
- * Agent writes "... @botname" at the end. We strip it and return separately.
- * Returns { cleanText, handoff } where handoff is "@botname" or null.
- */
-function extractHandoff(text: string): { cleanText: string; handoff: string | null } {
-  // Match @username at the very end (possibly after newlines/spaces)
-  const match = text.match(/\n*\s*(@\w+)\s*$/)
-  if (match) {
-    return {
-      cleanText: text.slice(0, match.index).trimEnd(),
-      handoff: match[1],
-    }
-  }
-  return { cleanText: text, handoff: null }
-}
+// Note: handoff @mention stays in the response body (in the header line).
+// The receiving bot sees the full message with content, not just a bare @mention.
 
 // --- Main handler ---
 
@@ -627,14 +613,6 @@ async function handleMessage(
         logger.info({ chatId: chatIdStr, ms: responseTimeMs, cost: `$${usage.costUSD.toFixed(4)}`, in: usage.inputTokens, out: usage.outputTokens }, 'Response sent')
       }
 
-      // Group mode: extract handoff @mention, force telegraph for long responses
-      let handoff: string | null = null
-      if (inGroup) {
-        const extracted = extractHandoff(text)
-        text = extracted.cleanText
-        handoff = extracted.handoff
-      }
-
       // Send text — skip auto-telegraph if agent already used PublishTelegraph
       const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
       // In groups: force telegraph for responses >3500 chars to avoid chunk issues
@@ -643,17 +621,16 @@ async function handleMessage(
       if (shouldTelegraph) {
         const url = await createTelegraphPage(BOT_NAME, text)
         if (url) {
-          await ctx.reply(url)
+          // In group: add handoff @mention after telegraph link so next bot gets triggered
+          // Extract @mention from response to include with the link
+          const mentionMatch = text.match(/\n\s*(@\w+)\s*$/)
+          const linkMsg = mentionMatch ? `${url}\n\n${mentionMatch[1]}` : url
+          await ctx.reply(linkMsg)
         } else {
           await sendChunked(ctx, text)
         }
       } else {
         await sendChunked(ctx, text)
-      }
-
-      // Group: send handoff message as separate message (triggers next bot)
-      if (inGroup && handoff) {
-        await ctx.reply(handoff)
       }
 
       // Usage stats footer
