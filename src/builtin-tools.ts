@@ -1,7 +1,7 @@
 import { tool, createSdkMcpServer, type McpSdkServerConfigWithInstance, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import type { Context } from 'grammy'
-import { InputFile } from 'grammy'
+import { InputFile, InputMediaBuilder } from 'grammy'
 import { readEnvFile } from './env.js'
 import { logger } from './logger.js'
 import { TELEGRAPH_ENABLED, PROJECT_ROOT } from './config.js'
@@ -93,7 +93,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Email
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
-    { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video to chat', available: true },
+    { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video or album (2-10 files)', available: true },
     // Telegram reactions
     { name: 'SetReaction', icon: 'heart', category: 'telegram', description: 'React to user message with emoji', available: true },
     { name: 'PinMessage', icon: 'pin', category: 'telegram', description: 'Pin/unpin messages in chat', available: true },
@@ -594,15 +594,49 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('SendMedia')) tools.push(
     tool(
       'SendMedia',
-      'Send a file to the chat as photo, document, voice, or video. Use AFTER creating/downloading/finding a file that the user needs — e.g. after RunPython generates a chart, after downloading a document, after writing a file user asked for. Also use when user says "надішли", "покажи фото", "відправ файл". Choose type: photo for images, document for PDF/CSV/etc, voice for audio, video for video.',
+      `Send a file to the chat as photo, document, voice, or video.
+
+**Single file:** set filePath + type.
+**Album (2-10 files):** set files array instead of filePath. All files sent as one media group (album). Voice not supported in albums.
+
+Use AFTER creating/downloading/finding a file. Also when user says "надішли", "покажи фото", "відправ файл".
+For albums: "надішли останні 5 фото з галереї", "відправ всі картинки", or when you have multiple results.`,
       {
-        filePath: z.string().describe('Absolute path to the file to send'),
-        type: z.enum(['photo', 'document', 'voice', 'video']).describe('Media type: photo, document, voice, or video'),
-        caption: z.string().optional().describe('Optional caption (not supported for voice)'),
+        filePath: z.string().optional().describe('Absolute path to single file (use this OR files, not both)'),
+        type: z.enum(['photo', 'document', 'voice', 'video']).optional().describe('Media type for single file mode'),
+        caption: z.string().optional().describe('Caption for single file, or caption for the FIRST item in album'),
+        files: z.array(z.object({
+          filePath: z.string().describe('Absolute path to the file'),
+          type: z.enum(['photo', 'document', 'video']).describe('Media type (voice not supported in albums)'),
+          caption: z.string().optional().describe('Optional caption for this item'),
+        })).min(2).max(10).optional().describe('Array of 2-10 files to send as album (media group)'),
       },
       async (args) => {
         usedTools.add('SendMedia')
         try {
+          // --- Album mode ---
+          if (args.files && args.files.length >= 2) {
+            await ctx.replyWithChatAction('upload_photo')
+            const media = args.files.map((f, i) => {
+              const inputFile = new InputFile(f.filePath)
+              const cap = (i === 0 ? args.caption ?? f.caption : f.caption)?.slice(0, 1024)
+              switch (f.type) {
+                case 'photo':
+                  return InputMediaBuilder.photo(inputFile, { caption: cap })
+                case 'video':
+                  return InputMediaBuilder.video(inputFile, { caption: cap })
+                case 'document':
+                  return InputMediaBuilder.document(inputFile, { caption: cap })
+              }
+            })
+            await ctx.replyWithMediaGroup(media)
+            return { content: [{ type: 'text' as const, text: `Album sent (${args.files.length} items)` }] }
+          }
+
+          // --- Single file mode ---
+          if (!args.filePath || !args.type) {
+            return { content: [{ type: 'text' as const, text: 'Error: provide filePath+type for single file, or files[] for album' }], isError: true }
+          }
           const file = new InputFile(args.filePath)
           const caption = args.caption?.slice(0, 1024)
           switch (args.type) {
