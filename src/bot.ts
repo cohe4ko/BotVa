@@ -703,9 +703,9 @@ async function handleMessage(
 
     // Loop: run agent, check for follow-up messages (like typing in CLI while agent runs)
     while (true) {
-      // Build memory context (in debate mode: skip diaries but keep long-term facts)
+      // Build memory context (in debate mode: keep diaries but skip short-term episodic memories)
       const isDebateMode = inGroup && !!getDebateState(chatIdStr)
-      const memoryCtx = await buildMemoryContext(chatIdStr, currentMessage, { skipDiaries: isDebateMode })
+      const memoryCtx = await buildMemoryContext(chatIdStr, currentMessage, { skipShortTermMemories: isDebateMode })
       let fullMessage = memoryCtx
         ? `[Short-term context — fades over time. Use SaveFact for permanent storage.]\n${memoryCtx}\n\n${currentMessage}`
         : currentMessage
