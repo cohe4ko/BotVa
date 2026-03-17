@@ -637,19 +637,16 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('SetReaction')) tools.push(
     tool(
       'SetReaction',
-      `React to the user's message with an emoji. Use to express emotion, acknowledge, or give feedback without words.
+      `React to the user's message with a specific emoji. Common reactions (thanks, lol, cool, ok) are handled AUTOMATICALLY by the system — you don't need to call this tool for those.
 
-Use PROACTIVELY:
-- User shares good news or achievement -> 🎉 or 🔥
-- Task completed successfully -> ✅ or 👍
-- Something funny -> 😂
-- User shares something touching -> ❤️ or 🥰
-- Acknowledgment -> 👀 or 👍
-- Surprise or wow -> 🤯 or 😮
+Use this tool ONLY when:
+- You want a SPECIFIC uncommon emoji that auto-react wouldn't pick (🎉 🏆 🤮 💩 🤡 etc.)
+- The context requires a nuanced reaction that only you as agent can determine
+- User explicitly asks for a reaction
 
-Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 🎉 🤩 🤮 💩 🙏 👌 🕊 🤡 🥱 🥴 😍 🐳 ❤️‍🔥 🌚 🌭 💯 🤣 ⚡️ 🍌 🏆 💔 🤨 😐 🍓 🍾 💋 🖕 😈 😴 😭 🤓 👻 👨‍💻 👀 🎃 🙈 😇 😨 🤝 ✍️ 🤗 🫡 🎅 🎄 ☃️ 💅 🤪 🗿 🆒 💘 🙉 🦄 😘 💊 🙊 😎 👾 🤷‍♂️ 🤷 🤷‍♀️ 😡
+Do NOT use for: simple acknowledgment, thanks, lol, cool, ok — those are auto-reacted already.
 
-Do NOT overuse -- one reaction per message max. Skip if no strong emotion fits.`,
+Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 🎉 🤩 🤮 💩 🙏 👌 🕊 🤡 🥱 🥴 😍 🐳 ❤️‍🔥 🌚 🌭 💯 🤣 ⚡️ 🍌 🏆 💔 🤨 😐 🍓 🍾 💋 🖕 😈 😴 😭 🤓 👻 👨‍💻 👀 🎃 🙈 😇 😨 🤝 ✍️ 🤗 🫡 🎅 🎄 ☃️ 💅 🤪 🗿 🆒 💘 🙉 🦄 😘 💊 🙊 😎 👾 🤷‍♂️ 🤷 🤷‍♀️ 😡`,
       {
         emoji: z.string().describe('Single emoji to react with'),
       },

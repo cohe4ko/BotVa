@@ -25,6 +25,7 @@ import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } 
 import { createBuiltinMcpServer } from './builtin-tools.js'
 import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, getSessionDetail, type DiskSession, type ClaudeProject } from './disk-sessions.js'
 import { hasSessionTitle } from './session-titles.js'
+import { classifyReaction } from './auto-react.js'
 
 // --- AskUser pending responses ---
 const pendingQuestions = new Map<string, {
@@ -407,6 +408,17 @@ async function handleMessage(
           pendingQuestions.set(chatIdStr, { resolve, reject, timeout })
         })
       }
+
+      // Auto-react: fire-and-forget emoji reaction based on embedding similarity (0 tokens)
+      classifyReaction(currentMessage).then(emoji => {
+        if (emoji) {
+          const messageId = ctx.message?.message_id
+          if (messageId) {
+            ctx.api.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: emoji as any }])
+              .catch(() => {}) // silent — reaction is cosmetic
+          }
+        }
+      }).catch(() => {})
 
       // Create builtin MCP server (image gen, voice, telegraph, media sending)
       const builtin = await createBuiltinMcpServer(ctx, chatId, askUserCallback)
