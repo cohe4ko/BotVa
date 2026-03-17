@@ -26,6 +26,8 @@ import { createBuiltinMcpServer } from './builtin-tools.js'
 import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, getSessionDetail, type DiskSession, type ClaudeProject } from './disk-sessions.js'
 import { hasSessionTitle } from './session-titles.js'
 import { classifyReaction } from './auto-react.js'
+import { appendFileSync } from 'node:fs'
+import { resolve as pathResolve } from 'node:path'
 
 // --- AskUser pending responses ---
 const pendingQuestions = new Map<string, {
@@ -315,6 +317,17 @@ function shouldProcessGroupMessage(ctx: Context): boolean {
   return isAuthorised(sender.id)
 }
 
+// --- Debate logging ---
+
+const DEBATE_LOG_PATH = pathResolve(BOT_DIR, 'debate.log')
+
+function debateLog(chatId: string, event: string, data?: Record<string, unknown>): void {
+  const ts = new Date().toISOString()
+  const line = `[${ts}] [${BOT_NAME}] [chat:${chatId}] ${event}${data ? ' ' + JSON.stringify(data) : ''}\n`
+  try { appendFileSync(DEBATE_LOG_PATH, line) } catch { /* ignore */ }
+  logger.info({ chatId, event, ...data }, `debate: ${event}`)
+}
+
 // --- Group debate state (tracks partner bot for auto @mention) ---
 
 interface DebateState {
@@ -451,6 +464,9 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
     text = text.replace(partnerMentionRe, '').trimStart()
     // Prepend clean @mention
     text = `@${debate.partnerUsername}\n${text}`
+    debateLog(chatIdStr, 'SEND_WITH_MENTION', { partner: debate.partnerUsername, textPreview: text.slice(0, 100) })
+  } else {
+    debateLog(chatIdStr, 'SEND_NO_DEBATE_STATE', { textPreview: text.slice(0, 100) })
   }
   const formatted = formatForTelegram(text)
   const chunks = splitMessage(formatted)
@@ -591,12 +607,29 @@ async function handleMessage(
   // Group chat: check mention + sender auth
   const inGroup = isGroupChat(ctx)
   if (inGroup) {
-    if (!isAuthorised(chatId)) return // group not in ALLOWED_CHAT_ID -- silent ignore
-    if (!shouldProcessGroupMessage(ctx)) return // not mentioned or not authorised sender
+    if (!isAuthorised(chatId)) {
+      debateLog(String(chatId), 'SKIP:not_authorised_group')
+      return
+    }
+    const mentioned = isBotMentioned(ctx)
+    const replied = isReplyToBot(ctx)
+    const senderInfo = ctx.message?.from
+    debateLog(String(chatId), 'MSG_RECEIVED', {
+      from: senderInfo?.username || senderInfo?.first_name,
+      isBot: senderInfo?.is_bot,
+      mentioned,
+      replied,
+      textPreview: rawText.slice(0, 100),
+    })
+    if (!shouldProcessGroupMessage(ctx)) {
+      debateLog(String(chatId), 'SKIP:should_not_process', { mentioned, replied, senderId: senderInfo?.id, senderIsBot: senderInfo?.is_bot })
+      return
+    }
     // Anti-loop: check iteration counter
     const chatIdStr = String(chatId)
     if (!incrementGroupIteration(chatIdStr)) {
       const state = getGroupState(chatIdStr)
+      debateLog(chatIdStr, 'SKIP:iteration_limit', { count: state?.count, max: state?.max })
       if (state && state.count === state.max + 1) {
         await ctx.reply(`🛑 Ліміт ітерацій (${state.max}). /stop для reset.`)
       }
@@ -605,11 +638,14 @@ async function handleMessage(
     // Parse debate roles from first message (user's initial prompt)
     const chatState = getGroupState(chatIdStr)
     const sender = ctx.message?.from
+    debateLog(chatIdStr, 'ITERATION', { count: chatState?.count, senderIsBot: sender?.is_bot })
     if (chatState && chatState.count === 1 && sender && !sender.is_bot && ctx.me?.username) {
       const debate = parseDebateRoles(rawText, ctx.me.username)
       if (debate) {
         groupDebateState.set(chatIdStr, debate)
-        logger.info({ chatId: chatIdStr, role: debate.myRole, partner: debate.partnerUsername }, 'Debate role parsed')
+        debateLog(chatIdStr, 'DEBATE_ROLES_PARSED', { myRole: debate.myRole, partner: debate.partnerUsername })
+      } else {
+        debateLog(chatIdStr, 'DEBATE_ROLES_NOT_FOUND', { myUsername: ctx.me.username, textPreview: rawText.slice(0, 200) })
       }
     }
 
@@ -621,9 +657,13 @@ async function handleMessage(
     if (chatState && chatState.count > 1) {
       const delayMs = randomGroupDelay()
       const delaySec = Math.round(delayMs / 1000)
+      debateLog(chatIdStr, 'DELAY', { seconds: delaySec, count: chatState.count })
       await ctx.reply(`⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
       await sleep(delayMs)
+    } else {
+      debateLog(chatIdStr, 'NO_DELAY', { count: chatState?.count })
     }
+    debateLog(chatIdStr, 'PROCESSING', { debateActive: !!getDebateState(chatIdStr) })
   } else if (!isAuthorised(chatId)) {
     await ctx.reply(chatT(String(chatId))('auth.denied', { chatId }))
     return
@@ -663,8 +703,9 @@ async function handleMessage(
 
     // Loop: run agent, check for follow-up messages (like typing in CLI while agent runs)
     while (true) {
-      // Build memory context
-      const memoryCtx = await buildMemoryContext(chatIdStr, currentMessage)
+      // Build memory context (skip in debate mode — short-term memory pollutes debate quality)
+      const isDebateMode = inGroup && !!getDebateState(chatIdStr)
+      const memoryCtx = isDebateMode ? '' : await buildMemoryContext(chatIdStr, currentMessage)
       let fullMessage = memoryCtx
         ? `[Short-term context — fades over time. Use SaveFact for permanent storage.]\n${memoryCtx}\n\n${currentMessage}`
         : currentMessage
