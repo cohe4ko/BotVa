@@ -311,6 +311,68 @@ function shouldProcessGroupMessage(ctx: Context): boolean {
   return isAuthorised(sender.id)
 }
 
+// --- Group debate state (tracks partner bot for auto @mention) ---
+
+interface DebateState {
+  partnerUsername: string   // other bot's @username (without @)
+  myRole: 'asker' | 'answerer'
+  startedAt: number
+}
+
+const groupDebateState = new Map<string, DebateState>()
+
+/** Parse debate roles from user's initial message.
+ *  Expects: "@AskerBot питає, @AnswererBot відповідає" (any order) */
+function parseDebateRoles(text: string, myUsername: string): DebateState | null {
+  // Match both possible patterns: "питає" / "відповідає" or "asks" / "answers"
+  const mentionRe = /@(\w+)/g
+  const mentions: string[] = []
+  let m
+  while ((m = mentionRe.exec(text)) !== null) mentions.push(m[1])
+  if (mentions.length < 2) return null
+
+  const lower = text.toLowerCase()
+  const myLower = myUsername.toLowerCase()
+
+  // Find which mention is asker and which is answerer
+  for (const mention of mentions) {
+    const mentionLower = mention.toLowerCase()
+    const mentionIdx = lower.indexOf(`@${mentionLower}`)
+    if (mentionIdx === -1) continue
+
+    // Check what follows this mention
+    const after = lower.slice(mentionIdx + mention.length + 1, mentionIdx + mention.length + 30)
+    const isAsker = /\s*(питає|питач|asks?|asker)/.test(after)
+    const isAnswerer = /\s*(відповідає|відповідач|answers?|answerer)/.test(after)
+
+    if (isAsker && mentionLower === myLower) {
+      // I'm the asker — partner is the other mention
+      const partner = mentions.find(m => m.toLowerCase() !== myLower)
+      if (partner) return { partnerUsername: partner, myRole: 'asker', startedAt: Date.now() }
+    }
+    if (isAnswerer && mentionLower === myLower) {
+      const partner = mentions.find(m => m.toLowerCase() !== myLower)
+      if (partner) return { partnerUsername: partner, myRole: 'answerer', startedAt: Date.now() }
+    }
+    if (isAsker && mentionLower !== myLower) {
+      // Other bot is asker — I'm answerer
+      return { partnerUsername: mention, myRole: 'answerer', startedAt: Date.now() }
+    }
+    if (isAnswerer && mentionLower !== myLower) {
+      return { partnerUsername: mention, myRole: 'asker', startedAt: Date.now() }
+    }
+  }
+  return null
+}
+
+function getDebateState(chatId: string): DebateState | undefined {
+  return groupDebateState.get(chatId)
+}
+
+function resetDebateState(chatId: string): void {
+  groupDebateState.delete(chatId)
+}
+
 // --- Group iteration counter (anti-loop) ---
 
 const groupIterations = new Map<string, { count: number, max: number, startedAt: number }>()
@@ -372,9 +434,20 @@ function randomChunkEmoji(): string {
 }
 
 /** Send response in group mode with chunk assembly markers.
+ *  Auto-prepends @partnerUsername if debate is active (so the other bot receives the message).
  *  Single message: sent as-is (no markers).
  *  Multiple chunks: each gets [N/M] emoji⏩, last gets [N/M] emoji (no ⏩). */
 async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
+  // Auto-prepend @mention for debate partner
+  const chatIdStr = String(ctx.chat?.id)
+  const debate = getDebateState(chatIdStr)
+  if (debate) {
+    // Strip any existing @mention of partner at the start (agent might still add it)
+    const partnerMentionRe = new RegExp(`^\\s*(?:(?:Питання|Відповідь)\\s+для\\s+)?@${debate.partnerUsername}[:\\s]*`, 'i')
+    text = text.replace(partnerMentionRe, '').trimStart()
+    // Prepend clean @mention
+    text = `@${debate.partnerUsername}\n${text}`
+  }
   const formatted = formatForTelegram(text)
   const chunks = splitMessage(formatted)
 
@@ -525,12 +598,22 @@ async function handleMessage(
       }
       return
     }
+    // Parse debate roles from first message (user's initial prompt)
+    const chatState = getGroupState(chatIdStr)
+    const sender = ctx.message?.from
+    if (chatState && chatState.count === 1 && sender && !sender.is_bot && ctx.me?.username) {
+      const debate = parseDebateRoles(rawText, ctx.me.username)
+      if (debate) {
+        groupDebateState.set(chatIdStr, debate)
+        logger.info({ chatId: chatIdStr, role: debate.myRole, partner: debate.partnerUsername }, 'Debate role parsed')
+      }
+    }
+
     // Add sender context prefix
     rawText = buildGroupPrefix(ctx) + rawText
 
     // Random delay for group messages (natural pacing, prevents race conditions)
     // Skip delay on first message (user's initial prompt) — only delay during active debate
-    const chatState = getGroupState(String(chatId))
     if (chatState && chatState.count > 1) {
       const delayMs = randomGroupDelay()
       const delaySec = Math.round(delayMs / 1000)
@@ -1432,6 +1515,7 @@ export function createBot(): Bot {
     const chatIdStr = String(chatId)
     const state = getGroupState(chatIdStr)
     resetGroupIterations(chatIdStr)
+    resetDebateState(chatIdStr)
     await ctx.reply(`⏹ Діалог зупинено${state ? ` (було ${state.count} ітерацій)` : ''}.`)
   })
 
