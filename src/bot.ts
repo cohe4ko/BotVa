@@ -474,8 +474,16 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
     }
   }
 
-  // Write full text to relay so other bots receive it
-  relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, text)
+  // Write full text to relay so other bots receive it.
+  // Skip relay for answerer's first message (confirmation like "Ready, waiting for questions")
+  // — only the asker's first question should be relayed to start the debate.
+  const chatState = getGroupState(chatIdStr)
+  const isAnswererFirstMsg = debate?.myRole === 'answerer' && chatState && chatState.count <= 1
+  if (!isAnswererFirstMsg) {
+    relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, text)
+  } else {
+    debateLog(chatIdStr, 'RELAY_SKIP_ANSWERER_FIRST', { textPreview: text.slice(0, 80) })
+  }
 }
 
 // --- Main handler ---
