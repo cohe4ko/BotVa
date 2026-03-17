@@ -91,21 +91,23 @@ export function appendToDailyLog(userMsg: string, assistantMsg: string): void {
   }
 }
 
-export async function buildMemoryContext(chatId: string, userMessage: string): Promise<string> {
+export async function buildMemoryContext(chatId: string, userMessage: string, opts?: { skipDiaries?: boolean }): Promise<string> {
   const parts: string[] = []
 
-  // Inject daily diary files
-  const today = memoryDate()
-  const yesterday = prevDate(today)
+  // Inject daily diary files (skip in debate mode — pollutes context with previous attempts)
+  if (!opts?.skipDiaries) {
+    const today = memoryDate()
+    const yesterday = prevDate(today)
 
-  const todayContent = readDailyFile(today)
-  const yesterdayContent = readDailyFile(yesterday)
+    const todayContent = readDailyFile(today)
+    const yesterdayContent = readDailyFile(yesterday)
 
-  if (todayContent) {
-    parts.push(`[Щоденник сьогодні (${today})]\n${todayContent}`)
-  }
-  if (yesterdayContent) {
-    parts.push(`[Щоденник вчора (${yesterday})]\n${yesterdayContent}`)
+    if (todayContent) {
+      parts.push(`[Щоденник сьогодні (${today})]\n${todayContent}`)
+    }
+    if (yesterdayContent) {
+      parts.push(`[Щоденник вчора (${yesterday})]\n${yesterdayContent}`)
+    }
   }
 
   // Short-term memories (from memories table, with decay)
