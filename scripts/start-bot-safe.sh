@@ -77,6 +77,9 @@ promote_stable() {
 
   rm -rf "$DIR/dist.stable/"
   cp -r "$DIR/dist/" "$DIR/dist.stable/"
+  # Clean up artifacts that cp -r copied into stable
+  rm -f "$DIR/dist.stable/.deploy-timestamp"
+  rmdir "$DIR/dist.stable/.promote-lock" 2>/dev/null || true
   rm -f "$ts_file"
   rmdir "$lock" 2>/dev/null || true
 
