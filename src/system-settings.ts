@@ -3,10 +3,12 @@ import { resolve, dirname } from 'path'
 
 interface SystemSettings {
   consolidationHour: number
+  embeddingModel: string
 }
 
 const DEFAULTS: SystemSettings = {
   consolidationHour: 4,
+  embeddingModel: 'intfloat/multilingual-e5-small',
 }
 
 let settingsPath: string | null = null
@@ -39,4 +41,8 @@ export function setSystemSetting<K extends keyof SystemSettings>(key: K, value: 
 
 export function getConsolidationHour(projectRoot?: string): number {
   return getSystemSettings(projectRoot).consolidationHour
+}
+
+export function getEmbeddingModel(projectRoot?: string): string {
+  return getSystemSettings(projectRoot).embeddingModel
 }

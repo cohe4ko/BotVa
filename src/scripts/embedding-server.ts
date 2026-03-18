@@ -22,7 +22,17 @@ const SOCK_PATH = process.env['EMBEDDING_SOCK_PATH'] ?? resolve(STORE_DIR, 'embe
 const PID_FILE = resolve(STORE_DIR, 'embedding.pid')
 const STATS_FILE = resolve(STORE_DIR, 'embedding-stats.json')
 
-const MODEL_NAME = 'intfloat/multilingual-e5-small'
+function getModelName(): string {
+  const settingsPath = resolve(PROJECT_ROOT, 'workspace', 'system-settings.json')
+  try {
+    if (existsSync(settingsPath)) {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'))
+      if (settings.embeddingModel) return settings.embeddingModel
+    }
+  } catch {}
+  return 'intfloat/multilingual-e5-small'
+}
+const MODEL_NAME = process.env['EMBEDDING_MODEL'] ?? getModelName()
 const startTime = Date.now()
 
 let pipeline: any = null

@@ -79,7 +79,26 @@ export async function searchFactsHybrid(
 
         // Sort by score descending
         scored.sort((a, b) => b.score - a.score)
-        vectorResults = scored.slice(0, limit * 2).map(s => s.fact)
+
+        // Dynamic filtering: skip vector results when scores are clustered (not discriminating)
+        if (scored.length >= 2) {
+          const topN = scored.slice(0, Math.min(10, scored.length))
+          const spread = topN[0].score - topN[topN.length - 1].score
+
+          if (spread < 0.05) {
+            // All scores similar — vector search is not useful
+            vectorResults = []
+          } else {
+            // Relative cutoff: keep only results close to the best match
+            const cutoff = scored[0].score * 0.7
+            vectorResults = scored
+              .filter(s => s.score > cutoff)
+              .slice(0, 5)
+              .map(s => s.fact)
+          }
+        } else {
+          vectorResults = scored.slice(0, 5).map(s => s.fact)
+        }
       }
     } catch (err) {
       logger.warn({ err }, 'Vector search failed, using FTS only')

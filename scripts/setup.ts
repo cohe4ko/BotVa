@@ -227,11 +227,30 @@ WantedBy=default.target
 
   // --- Embedding service (semantic search) ---
   console.log(bold('\n🧠 Embedding Service (Semantic Search)\n'))
-  console.log('  Enables semantic search for facts (e.g. "food" finds "had borshch for lunch").')
-  console.log('  Uses ~130MB RAM for multilingual-e5-small model.\n')
+  console.log('  Enables semantic search for facts (e.g. "food" finds "had borshch for lunch").\n')
 
   const installEmbedding = await ask('  Install embedding service? (y/n): ')
   if (installEmbedding.toLowerCase() === 'y') {
+    console.log('\n  Model options:')
+    console.log('    1) e5-small  — 130MB RAM, fast (default)')
+    console.log('    2) e5-base   — 1.1GB RAM, better quality')
+    console.log('    3) e5-large  — 2.2GB RAM, best quality\n')
+    const modelChoice = await ask('  Model size [1]: ')
+    const modelMap: Record<string, string> = {
+      '1': 'intfloat/multilingual-e5-small',
+      '2': 'intfloat/multilingual-e5-base',
+      '3': 'intfloat/multilingual-e5-large',
+    }
+    const chosenModel = modelMap[modelChoice] ?? modelMap['1']
+    // Save model choice to system settings
+    const settingsPath = join(PROJECT_ROOT, 'workspace', 'system-settings.json')
+    mkdirSync(join(PROJECT_ROOT, 'workspace'), { recursive: true })
+    let settings: Record<string, unknown> = {}
+    try { if (existsSync(settingsPath)) settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch {}
+    settings.embeddingModel = chosenModel
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
+    console.log(green(`  Model: ${chosenModel}`))
+
     if (platform === 'darwin') {
       const plistPath = join(
         process.env.HOME ?? '~',

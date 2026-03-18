@@ -10,7 +10,7 @@ import { existsSync, readdirSync, renameSync, readFileSync, openSync } from 'fs'
 import { resolve, join } from 'path'
 import { execSync, spawn } from 'child_process'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
-import { getConsolidationHour, setSystemSetting } from '../../system-settings.js'
+import { getConsolidationHour, getEmbeddingModel, setSystemSetting } from '../../system-settings.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -559,7 +559,7 @@ app.get('/system/embedding/status', async (c) => {
         <div class="stat-number" style="font-size:1.1rem">${uptimeStr}</div>
       </div>
     </div>
-    <div style="margin-top:0.5rem;display:flex;gap:0.5rem">
+    <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
       ${running
         ? html`
           <button hx-post="/system/embedding/stop" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm secondary outline">${icon('square', 11)} ${t('sys.embeddingStop')}</button>
@@ -567,6 +567,16 @@ app.get('/system/embedding/status', async (c) => {
         `
         : html`<button hx-post="/system/embedding/start" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} ${t('sys.embeddingStart')}</button>`
       }
+      <select name="embeddingModel" hx-post="/system/embedding/model" hx-target="#embedding-status" hx-swap="innerHTML"
+        hx-confirm="Changing model will re-embed all facts. Continue?"
+        style="font-size:0.75rem;padding:0.25rem 0.5rem;border-radius:6px">
+        ${['intfloat/multilingual-e5-small', 'intfloat/multilingual-e5-base', 'intfloat/multilingual-e5-large'].map(m => {
+          const label = m.replace('intfloat/multilingual-', '')
+          const sizes: Record<string, string> = { 'e5-small': '130MB', 'e5-base': '1.1GB', 'e5-large': '2.2GB' }
+          const currentModel = getEmbeddingModel(getProjectRoot())
+          return html`<option value="${m}" ${m === currentModel ? 'selected' : ''}>${label} (${sizes[label] ?? ''})</option>`
+        })}
+      </select>
     </div>
   `)
 })
@@ -624,6 +634,93 @@ app.post('/system/embedding/stop', (c) => {
     <div style="margin-top:0.5rem">
       <button hx-post="/system/embedding/start" hx-target="#embedding-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} ${t('sys.embeddingStart')}</button>
     </div>
+  `)
+})
+
+// Change embedding model
+app.post('/system/embedding/model', async (c) => {
+  const t: TFunc = c.get('t')
+  const body = await c.req.parseBody()
+  const model = String(body['embeddingModel'] ?? '')
+  const validModels = ['intfloat/multilingual-e5-small', 'intfloat/multilingual-e5-base', 'intfloat/multilingual-e5-large']
+  if (!validModels.includes(model)) {
+    return c.html(html`<div class="alert alert-error">Invalid model</div>`)
+  }
+
+  const currentModel = getEmbeddingModel(getProjectRoot())
+  if (model === currentModel) {
+    // No change, just refresh status
+    return c.html(html`<div hx-get="/system/embedding/status" hx-trigger="load" hx-target="#embedding-status" hx-swap="innerHTML"></div>`)
+  }
+
+  // 1. Save new model
+  setSystemSetting('embeddingModel', model)
+
+  // 2. Stop embedding server
+  const pid = readPidFile(getEmbeddingPidPath())
+  if (pid && isPidAlive(pid)) {
+    try { process.kill(pid, 'SIGTERM') } catch {}
+  }
+
+  // 3. Clear all embeddings (model changed, old vectors incompatible)
+  const botNames = getBotNames()
+  for (const botName of botNames) {
+    const dbPath = resolve(getBotDir(botName), 'store', 'botva.db')
+    if (existsSync(dbPath)) {
+      try {
+        const { DatabaseSync } = await import('node:sqlite')
+        const db = new DatabaseSync(dbPath)
+        db.exec('UPDATE facts SET embedding = NULL')
+        db.close()
+      } catch {}
+    }
+  }
+
+  // 4. Start embedding server + re-embed in background
+  // Use a shell script that waits for server readiness before re-embedding
+  const root = getProjectRoot()
+  const logPath = '/tmp/botva-embedding.log'
+  const logFd = openSync(logPath, 'a')
+
+  const child = spawn('node', ['dist/scripts/embedding-server.js'], {
+    cwd: root,
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+  })
+  child.unref()
+
+  // Wait for server to be ready, then re-embed
+  const reembed = spawn('bash', ['-c', `
+    for i in $(seq 1 60); do
+      node -e "
+        const net = require('net');
+        const sock = net.connect('${resolve(root, 'store', 'embedding.sock')}');
+        sock.on('connect', () => { sock.write(JSON.stringify({action:'health'})+'\\n'); });
+        sock.on('data', d => { const h = JSON.parse(d.toString().trim()); process.exit(h.ready ? 0 : 1); });
+        sock.on('error', () => process.exit(1));
+        setTimeout(() => process.exit(1), 3000);
+      " 2>/dev/null && break
+      sleep 2
+    done
+    node dist/scripts/migrate-embeddings.js --force
+  `], {
+    cwd: root,
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+  })
+  reembed.unref()
+
+  const label = model.replace('intfloat/multilingual-', '')
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${t('sys.embeddingStatus')}</div>
+        <div class="stat-number" style="font-size:1.1rem">
+          <span class="badge" style="background:var(--mc-warning);color:#000">${icon('loader', 11)} Switching to ${label}...</span>
+        </div>
+      </div>
+    </div>
+    <div hx-get="/system/embedding/status" hx-trigger="load delay:5s" hx-target="#embedding-status" hx-swap="innerHTML"></div>
   `)
 })
 

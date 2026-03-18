@@ -145,7 +145,7 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
     // Always search for preferences (they're directives, always relevant)
     // Skip regular facts for very short messages (< 3 words) — too vague, returns noise
     const facts = wordCount >= 3
-      ? await searchFactsHybrid(chatId, userMessage, 15, undefined, { preferenceThreshold: 0.3 })
+      ? await searchFactsHybrid(chatId, userMessage, 7, undefined, { preferenceThreshold: 0.3 })
       : []
 
     // Also load preferences via a broad search if short message skipped them

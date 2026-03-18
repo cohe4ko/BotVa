@@ -50,6 +50,8 @@ function sendRequest(request: object, timeoutMs: number): Promise<EmbedResponse>
   })
 }
 
+const force = process.argv.includes('--force')
+
 async function main(): Promise<void> {
   // Check embedding service
   if (!existsSync(SOCK_PATH)) {
@@ -92,6 +94,11 @@ async function main(): Promise<void> {
 
     // Add embedding column if missing
     try { db.exec('ALTER TABLE facts ADD COLUMN embedding BLOB') } catch { /* already exists */ }
+
+    // Clear embeddings if --force (model changed, need re-embed)
+    if (force) {
+      db.exec('UPDATE facts SET embedding = NULL')
+    }
 
     // Get facts without embeddings
     const facts = db.prepare(
