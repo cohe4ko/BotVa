@@ -34,16 +34,26 @@ export function truncate(s: string, max = 80): string {
 
 export function pagination(currentPage: number, totalPages: number, baseUrl: string): HtmlEscapedString {
   if (totalPages <= 1) return html`` as HtmlEscapedString
-  const pages = []
+
+  const WINDOW = 2
+  const pages: (number | '...')[] = []
+
   for (let i = 1; i <= totalPages; i++) {
-    pages.push(i)
+    if (i === 1 || i === totalPages || (i >= currentPage - WINDOW && i <= currentPage + WINDOW)) {
+      pages.push(i)
+    } else if (pages[pages.length - 1] !== '...') {
+      pages.push('...')
+    }
   }
+
+  const sep = baseUrl.includes('?') ? '&' : '?'
   return html`
     <nav>
       <ul>
-        ${pages.map(p => html`
-          <li><a href="${baseUrl}${baseUrl.includes('?') ? '&' : '?'}page=${p}" ${p === currentPage ? 'aria-current="page"' : ''}>${p}</a></li>
-        `)}
+        ${pages.map(p => p === '...'
+          ? html`<li><span style="padding:0.3rem 0.2rem;color:var(--mc-text-dim)">…</span></li>`
+          : html`<li><a href="${baseUrl}${sep}page=${p}" ${p === currentPage ? 'aria-current="page"' : ''}>${p}</a></li>`
+        )}
       </ul>
     </nav>
   ` as HtmlEscapedString
