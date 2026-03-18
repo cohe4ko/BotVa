@@ -36,14 +36,55 @@ function topicColor(topic: string): string {
 // Track active rebuild processes for cancel
 const activeRebuilds = new Map<string, { abort: AbortController }>()
 
-app.get('/bot/:name/facts', validateBot, (c) => {
+app.get('/bot/:name/facts', validateBot, async (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
   const name = botName(c)
   const q = c.req.query('q') || ''
   const topicFilter = c.req.query('topic') || ''
+  const mode = c.req.query('mode') || ''
   const page = parseInt(c.req.query('page') || '1', 10)
   const offset = (page - 1) * PAGE_SIZE
+
+  // Semantic recall mode
+  let recallResults: { fact: FactRow; score: number }[] | null = null
+  let recallError = ''
+
+  if (mode === 'recall' && q) {
+    try {
+      const { embed, cosineSim, isReady } = await import('../../embeddings.js')
+      if (!(await isReady())) {
+        recallError = t('facts.recallUnavailable')
+      } else {
+        const queryVec = await embed(q, 'query')
+        if (!queryVec) {
+          recallError = t('facts.recallUnavailable')
+        } else {
+          const db = getBotDb(name)
+          let rows: (FactRow & { embedding: Buffer | null })[]
+          if (topicFilter) {
+            rows = db.prepare('SELECT * FROM facts WHERE embedding IS NOT NULL AND topic = ?').all(topicFilter) as unknown as (FactRow & { embedding: Buffer | null })[]
+          } else {
+            rows = db.prepare('SELECT * FROM facts WHERE embedding IS NOT NULL').all() as unknown as (FactRow & { embedding: Buffer | null })[]
+          }
+          const VECTOR_THRESHOLD = 0.4
+          const PREFERENCE_THRESHOLD = 0.3
+          const scored: { fact: FactRow; score: number }[] = []
+          for (const row of rows) {
+            if (!row.embedding) continue
+            const vec = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4)
+            const score = cosineSim(queryVec, vec)
+            const threshold = row.sector === 'preference' ? PREFERENCE_THRESHOLD : VECTOR_THRESHOLD
+            if (score > threshold) scored.push({ fact: row, score })
+          }
+          scored.sort((a, b) => b.score - a.score)
+          recallResults = scored.slice(0, 30)
+        }
+      }
+    } catch (err) {
+      recallError = err instanceof Error ? err.message : String(err)
+    }
+  }
 
   let total = 0
   let facts: ReturnType<typeof getFacts> = []
@@ -85,9 +126,7 @@ app.get('/bot/:name/facts', validateBot, (c) => {
         <input type="search" name="q" value="${q}" placeholder="${t('facts.searchPlaceholder')}">
       </label>
       <button type="submit" class="btn-sm">${icon('search', 13)} ${t('facts.searchBtn')}</button>
-      <button type="button" class="btn-sm outline" hx-get="/bot/${name}/facts/recall" hx-include="closest form" hx-target="#facts-results" hx-swap="innerHTML" hx-indicator="#recall-spinner">
-        ${icon('zap', 13)} ${t('facts.recallBtn')} <span id="recall-spinner" class="htmx-indicator" style="display:inline-block;width:12px;height:12px;border:2px solid var(--mc-text-dim);border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;margin-left:4px"></span>
-      </button>
+      <button type="submit" name="mode" value="recall" class="btn-sm outline">${icon('zap', 13)} ${t('facts.recallBtn')}</button>
       ${(q || topicFilter) ? html`<a href="/bot/${name}/facts" role="button" class="btn-sm outline" style="text-decoration:none">${icon('x', 13)}</a>` : ''}
     </form>
     <div id="rebuild-section" style="margin-bottom:1rem">
@@ -102,8 +141,49 @@ app.get('/bot/:name/facts', validateBot, (c) => {
       }
     </div>
     <div id="facts-alerts"></div>
-    <div id="facts-results">
-    ${facts.length === 0
+    ${recallError ? html`<div class="alert alert-error">${recallError}</div>` : ''}
+    ${recallResults !== null ? (recallResults.length === 0
+      ? html`<div class="alert alert-info">${t('facts.recallNoResults')}</div>`
+      : html`
+        <div style="margin-bottom:0.5rem"><small style="color:var(--mc-text-dim)">${t('facts.recallResults', { count: String(recallResults.length) })}</small></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:30px" class="hide-mobile"></th>
+              <th style="width:80px">${t('facts.topic')}</th>
+              <th>${t('facts.content')}</th>
+              <th style="width:50px" class="hide-mobile">Score</th>
+              <th style="width:40px"></th>
+            </tr></thead>
+            <tbody>
+              ${recallResults.map(({ fact: f, score }) => {
+                const sectorIcon = f.sector === 'preference' ? 'star' : f.sector === 'semantic' ? 'bookmark' : 'calendar'
+                const sectorTitle = f.sector === 'preference' ? 'preference' : f.sector === 'semantic' ? 'fact' : 'event'
+                const tags = f.tags ? f.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
+                return html`
+                <tr id="fact-${f.id}">
+                  <td class="hide-mobile" title="${sectorTitle}">${icon(sectorIcon, 14)}</td>
+                  <td><span style="font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:10px;background:${topicColor(f.topic)};color:#1a1a2e">${f.topic}</span></td>
+                  <td>
+                    <span style="font-size:0.8rem">${f.content}</span>
+                    ${tags.length > 0 ? html`
+                      <div style="margin-top:0.25rem;display:flex;flex-wrap:wrap;gap:0.2rem">
+                        ${tags.map((tag: string) => html`<span style="font-size:0.6rem;padding:0.1rem 0.35rem;border-radius:8px;background:var(--mc-surface);color:var(--mc-text-dim);border:1px solid var(--mc-border)">${tag}</span>`)}
+                      </div>
+                    ` : ''}
+                  </td>
+                  <td class="hide-mobile"><small style="color:var(--mc-text-dim)">${(score * 100).toFixed(0)}%</small></td>
+                  <td>
+                    <button hx-post="/bot/${name}/facts/${f.id}/delete" hx-target="#fact-${f.id}" hx-swap="outerHTML"
+                      hx-confirm="${t('facts.deleteConfirm')}" class="danger btn-sm">${icon('trash-2', 12)}</button>
+                  </td>
+                </tr>
+              `})}
+            </tbody>
+          </table>
+        </div>
+      `) : ''}
+    ${recallResults === null ? (facts.length === 0
       ? html`<div class="empty-state"><div class="empty-icon">${icon('database', 32)}</div><p>${t('facts.noFacts')}</p></div>`
       : html`
         <div class="table-wrap">
@@ -158,106 +238,9 @@ app.get('/bot/:name/facts', validateBot, (c) => {
         </div>
         ${pagination(page, totalPages, baseUrl)}
       `
-    }
-    </div>
+    ) : ''}
   `
   return c.html(layout(`${name} ${t('facts.title')}`, content, `/bot/${name}/facts`, t, lang))
-})
-
-// Semantic recall via embeddings (same mechanism as bot's SearchMemory)
-app.get('/bot/:name/facts/recall', validateBot, async (c) => {
-  const t: TFunc = c.get('t')
-  const name = botName(c)
-  const q = c.req.query('q')?.trim() || ''
-  const topicFilter = c.req.query('topic') || ''
-
-  if (!q) {
-    return c.html(html`<div class="alert alert-error">${t('facts.recallNoQuery')}</div>`)
-  }
-
-  try {
-    const { embed, cosineSim, isReady } = await import('../../embeddings.js')
-
-    if (!(await isReady())) {
-      return c.html(html`<div class="alert alert-error">${t('facts.recallUnavailable')}</div>`)
-    }
-
-    const queryVec = await embed(q, 'query')
-    if (!queryVec) {
-      return c.html(html`<div class="alert alert-error">${t('facts.recallUnavailable')}</div>`)
-    }
-
-    const db = getBotDb(name)
-    let rows: (FactRow & { embedding: Buffer | null })[]
-    if (topicFilter) {
-      rows = db.prepare('SELECT * FROM facts WHERE embedding IS NOT NULL AND topic = ?').all(topicFilter) as unknown as (FactRow & { embedding: Buffer | null })[]
-    } else {
-      rows = db.prepare('SELECT * FROM facts WHERE embedding IS NOT NULL').all() as unknown as (FactRow & { embedding: Buffer | null })[]
-    }
-
-    const VECTOR_THRESHOLD = 0.4
-    const PREFERENCE_THRESHOLD = 0.3
-    const scored: { fact: FactRow; score: number }[] = []
-    for (const row of rows) {
-      if (!row.embedding) continue
-      const vec = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4)
-      const score = cosineSim(queryVec, vec)
-      const threshold = row.sector === 'preference' ? PREFERENCE_THRESHOLD : VECTOR_THRESHOLD
-      if (score > threshold) {
-        scored.push({ fact: row, score })
-      }
-    }
-
-    scored.sort((a, b) => b.score - a.score)
-    const results = scored.slice(0, 30)
-
-    if (results.length === 0) {
-      return c.html(html`<div class="alert alert-info">${t('facts.recallNoResults')}</div>`)
-    }
-
-    return c.html(html`
-      <div style="margin-bottom:0.5rem"><small style="color:var(--mc-text-dim)">${t('facts.recallResults', { count: String(results.length) })}</small></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th style="width:30px" class="hide-mobile"></th>
-            <th style="width:80px">${t('facts.topic')}</th>
-            <th>${t('facts.content')}</th>
-            <th style="width:50px" class="hide-mobile">Score</th>
-            <th style="width:40px"></th>
-          </tr></thead>
-          <tbody>
-            ${results.map(({ fact: f, score }) => {
-              const sectorIcon = f.sector === 'preference' ? 'star' : f.sector === 'semantic' ? 'bookmark' : 'calendar'
-              const sectorTitle = f.sector === 'preference' ? 'preference' : f.sector === 'semantic' ? 'fact' : 'event'
-              const tags = f.tags ? f.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
-              return html`
-              <tr id="fact-${f.id}">
-                <td class="hide-mobile" title="${sectorTitle}">${icon(sectorIcon, 14)}</td>
-                <td><span style="font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:10px;background:${topicColor(f.topic)};color:#1a1a2e">${f.topic}</span></td>
-                <td>
-                  <span style="font-size:0.8rem">${f.content}</span>
-                  ${tags.length > 0 ? html`
-                    <div style="margin-top:0.25rem;display:flex;flex-wrap:wrap;gap:0.2rem">
-                      ${tags.map((tag: string) => html`<span style="font-size:0.6rem;padding:0.1rem 0.35rem;border-radius:8px;background:var(--mc-surface);color:var(--mc-text-dim);border:1px solid var(--mc-border)">${tag}</span>`)}
-                    </div>
-                  ` : ''}
-                </td>
-                <td class="hide-mobile"><small style="color:var(--mc-text-dim)">${(score * 100).toFixed(0)}%</small></td>
-                <td>
-                  <button hx-post="/bot/${name}/facts/${f.id}/delete" hx-target="#fact-${f.id}" hx-swap="outerHTML"
-                    hx-confirm="${t('facts.deleteConfirm')}" class="danger btn-sm">${icon('trash-2', 12)}</button>
-                </td>
-              </tr>
-            `})}
-          </tbody>
-        </table>
-      </div>
-    `)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return c.html(html`<div class="alert alert-error">Recall error: ${msg}</div>`)
-  }
 })
 
 app.put('/bot/:name/facts/:id', validateBot, async (c) => {
