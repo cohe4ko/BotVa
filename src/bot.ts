@@ -1544,8 +1544,16 @@ export function createBot(): Bot {
   // --- /new (session clear) + aliases ---
   const clearSessionHandler = async (ctx: Context) => {
     const chatIdStr = String(ctx.chat!.id)
+    const oldSessionId = getSession(chatIdStr)
     clearSession(chatIdStr)
     logAudit(chatIdStr, 'session_clear')
+    // Fire-and-forget: consolidate previous session in background
+    if (oldSessionId) {
+      import('./consolidate.js').then(({ consolidateSession }) =>
+        consolidateSession(oldSessionId, chatIdStr, BOT_DIR)
+          .catch(err => logger.warn({ err, oldSessionId }, 'Session consolidation on /new failed'))
+      )
+    }
     await ctx.reply(chatT(chatIdStr)('cmd.newchat'))
   }
   bot.command('new', clearSessionHandler)
