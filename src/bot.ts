@@ -762,17 +762,6 @@ async function handleMessage(
         fullMessage += '\n\n[Session has no title yet. Call NameSession now with a short 3-5 word title.]'
       }
 
-      // Debug: save full context to file
-      if (DEBUG_CONTEXT) {
-        try {
-          const { writeFileSync } = await import('fs')
-          const { resolve: pathRes } = await import('path')
-          const debugPath = pathRes(BOT_DIR, 'store', 'debug-context.txt')
-          const ts = new Date().toISOString()
-          writeFileSync(debugPath, `# Debug Context — ${ts}\n# Session: ${sessionId ?? 'new'}\n# Chat: ${chatIdStr}\n\n${fullMessage}`, 'utf-8')
-        } catch { /* ignore */ }
-      }
-
       // Start typing
       const sendTyping = () => ctx.api.sendChatAction(chatId, 'typing').catch(() => {})
       await sendTyping()
@@ -906,6 +895,17 @@ async function handleMessage(
             pendingPermissions.set(chatIdStr, { resolve, timeout })
           })
         } : undefined
+
+        // Debug: save full context to file right before agent call
+        if (DEBUG_CONTEXT) {
+          try {
+            const { writeFileSync } = await import('fs')
+            const { resolve: pathRes } = await import('path')
+            const debugPath = pathRes(BOT_DIR, 'store', 'debug-context.txt')
+            const ts = new Date().toISOString()
+            writeFileSync(debugPath, `# Debug Context — ${ts}\n# Session: ${sessionId ?? 'new'}\n# Chat: ${chatIdStr}\n\n${fullMessage}`, 'utf-8')
+          } catch { /* ignore */ }
+        }
 
         const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest)
         text = result.text
