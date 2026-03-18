@@ -61,6 +61,13 @@ const pendingPermissions = new Map<string, {
   timeout: ReturnType<typeof setTimeout>
 }>()
 
+// --- Pending voice confirmations ---
+const pendingVoiceConfirms = new Map<string, {
+  transcript: string
+  messageId: number
+  timeout: ReturnType<typeof setTimeout>
+}>()
+
 // --- Formatting ---
 
 export function formatForTelegram(text: string): string {
@@ -1015,6 +1022,7 @@ export function createBot(): Bot {
   function buildSettingsMessage(chatId: string) {
     const t = chatT(chatId)
     const voiceOn = getChatSetting(chatId, 'voice') === '1'
+    const voiceConfirmOn = getChatSetting(chatId, 'voice_confirm') === '1'
     const statsOn = getChatSetting(chatId, 'stats') === '1'
     const factsOn = getChatSetting(chatId, 'fact_notify') !== '0' // ON by default
     const lang = getChatLang(chatId)
@@ -1031,6 +1039,7 @@ export function createBot(): Bot {
 
     const keyboard = [
       [{ text: t(voiceOn ? 'settings.voice.on' : 'settings.voice.off'), callback_data: 'settings:voice' }],
+      [{ text: t(voiceConfirmOn ? 'settings.voice_confirm.on' : 'settings.voice_confirm.off'), callback_data: 'settings:voice_confirm' }],
       [{ text: t(statsOn ? 'settings.stats.on' : 'settings.stats.off'), callback_data: 'settings:stats' }],
       [{ text: t(factsOn ? 'settings.facts.on' : 'settings.facts.off'), callback_data: 'settings:facts' }],
       [{ text: t('settings.agent', { label: agentLabel }), callback_data: 'settings:agent_mode' }],
@@ -1044,6 +1053,7 @@ export function createBot(): Bot {
       `⚙️ <b>${t('cmd.settings.title')}</b>`,
       '',
       `🗣 <b>${voiceOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.voice')}`,
+      `🎤 <b>${voiceConfirmOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.voice_confirm')}`,
       `📊 <b>${statsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.stats')}`,
       `🧠 <b>${factsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.facts')}`,
       `🤖 <b>${agentLabel}</b> — ${t('settings.desc.agent')}`,
@@ -1259,6 +1269,36 @@ export function createBot(): Bot {
       }
       return // don't pass to next middleware
     }
+    // Voice confirm callback
+    if (ctx.callbackQuery?.data?.startsWith('vc:')) {
+      const chatIdStr = String(ctx.chat?.id)
+      if (!isAuthorised(ctx.chat!.id)) return
+      const action = ctx.callbackQuery.data.split(':')[1] // 'ok' or 'cancel'
+      const pending = pendingVoiceConfirms.get(chatIdStr)
+      const _t = chatT(chatIdStr)
+
+      if (!pending) {
+        await ctx.answerCallbackQuery({ text: _t('cb.voiceExpired') })
+        return
+      }
+
+      clearTimeout(pending.timeout)
+      pendingVoiceConfirms.delete(chatIdStr)
+
+      if (action === 'ok') {
+        await ctx.answerCallbackQuery({ text: '✅' })
+        try {
+          await ctx.editMessageText(`🎤 ${pending.transcript}\n\n${_t('voice.confirm.ok')}`)
+        } catch {}
+        await handleMessage(ctx, `[Voice transcribed]: ${pending.transcript}`, true)
+      } else {
+        await ctx.answerCallbackQuery({ text: '❌' })
+        try {
+          await ctx.editMessageText(`<code>${pending.transcript}</code>\n\n${_t('voice.confirm.cancelled')}`, { parse_mode: 'HTML' })
+        } catch {}
+      }
+      return
+    }
     // Settings callback (unified handler for all settings toggles/cycles)
     if (ctx.callbackQuery?.data?.startsWith('settings:')) {
       const chatIdStr = String(ctx.chat?.id)
@@ -1269,6 +1309,10 @@ export function createBot(): Bot {
         case 'voice':
           if (getChatSetting(chatIdStr, 'voice') === '1') deleteChatSetting(chatIdStr, 'voice')
           else setChatSetting(chatIdStr, 'voice', '1')
+          break
+        case 'voice_confirm':
+          if (getChatSetting(chatIdStr, 'voice_confirm') === '1') deleteChatSetting(chatIdStr, 'voice_confirm')
+          else setChatSetting(chatIdStr, 'voice_confirm', '1')
           break
         case 'stats':
           if (getChatSetting(chatIdStr, 'stats') === '1') deleteChatSetting(chatIdStr, 'stats')
@@ -1744,8 +1788,47 @@ export function createBot(): Bot {
       const file = await ctx.getFile()
       const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, file.file_id, 'voice.oga')
       const transcript = await transcribeAudio(localPath)
-      await ctx.reply(`[voice]: ${transcript}`)
-      await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true)
+
+      // Voice confirm mode: show transcript with confirm/cancel buttons
+      if (getChatSetting(String(chatId), 'voice_confirm') === '1') {
+        // Cancel any previous pending voice confirm for this chat
+        const prevPending = pendingVoiceConfirms.get(String(chatId))
+        if (prevPending) {
+          clearTimeout(prevPending.timeout)
+          pendingVoiceConfirms.delete(String(chatId))
+          try {
+            await bot.api.editMessageText(chatId, prevPending.messageId, `<code>${prevPending.transcript}</code>\n\n⏱`, { parse_mode: 'HTML' })
+          } catch {}
+        }
+
+        const confirmMsg = await ctx.reply(
+          `${t('voice.confirm.prompt')}\n\n${transcript}`,
+          {
+            reply_markup: {
+              inline_keyboard: [[
+                { text: t('voice.confirm.btn.ok'), callback_data: `vc:ok:${chatId}` },
+                { text: t('voice.confirm.btn.cancel'), callback_data: `vc:cancel:${chatId}` },
+              ]]
+            }
+          }
+        )
+
+        const timeout = setTimeout(() => {
+          pendingVoiceConfirms.delete(String(chatId))
+          bot.api.editMessageText(chatId, confirmMsg.message_id, `<code>${transcript}</code>\n\n⏱ ${t('cb.voiceExpired')}`, { parse_mode: 'HTML' })
+            .catch(() => {})
+        }, 120_000)
+
+        pendingVoiceConfirms.set(String(chatId), {
+          transcript,
+          messageId: confirmMsg.message_id,
+          timeout,
+        })
+      } else {
+        // Default: send directly
+        await ctx.reply(`[voice]: ${transcript}`)
+        await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true)
+      }
     } catch (err) {
       logger.error({ err }, 'Voice processing failed')
       await ctx.reply(t('cmd.voice.fail'))
