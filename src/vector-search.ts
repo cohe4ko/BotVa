@@ -39,7 +39,8 @@ function setCachedQuery(key: string, vec: Float32Array): void {
 const VECTOR_THRESHOLD = 0.4
 
 export async function searchFactsHybrid(
-  chatId: string, query: string, limit = 10, topic?: string
+  chatId: string, query: string, limit = 10, topic?: string,
+  opts?: { preferenceThreshold?: number }
 ): Promise<Fact[]> {
   // 1. FTS5 search (always runs)
   const ftsResults = searchFacts(chatId, query, limit * 2, topic)
@@ -68,7 +69,10 @@ export async function searchFactsHybrid(
           if (!f.embedding) continue
           const vec = new Float32Array(f.embedding.buffer, f.embedding.byteOffset, f.embedding.byteLength / 4)
           const score = cosineSim(queryVec, vec)
-          if (score > VECTOR_THRESHOLD) {
+          const threshold = f.sector === 'preference'
+            ? (opts?.preferenceThreshold ?? 0.3)
+            : VECTOR_THRESHOLD
+          if (score > threshold) {
             scored.push({ fact: f, score })
           }
         }

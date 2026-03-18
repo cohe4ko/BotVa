@@ -113,8 +113,8 @@ app.get('/bot/:name/facts', validateBot, (c) => {
             </tr></thead>
             <tbody>
               ${facts.map(f => {
-                const sectorIcon = f.sector === 'semantic' ? 'bookmark' : 'calendar'
-                const sectorTitle = f.sector === 'semantic' ? 'fact' : 'event'
+                const sectorIcon = f.sector === 'preference' ? 'star' : f.sector === 'semantic' ? 'bookmark' : 'calendar'
+                const sectorTitle = f.sector === 'preference' ? 'preference' : f.sector === 'semantic' ? 'fact' : 'event'
                 const dateStr = new Date(f.created_at * 1000).toISOString().slice(0, 10)
                 const tags = f.tags ? f.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
                 return html`
@@ -412,7 +412,7 @@ Return ONLY the JSON array.`
         db.exec('BEGIN')
         try {
           for (const f of facts) {
-            const sector = f.sector === 'episodic' ? 'episodic' : 'semantic'
+            const sector = f.sector === 'episodic' ? 'episodic' : f.sector === 'preference' ? 'preference' : 'semantic'
             stmt.run('admin', f.topic || 'general', f.content, f.tags || '', `rebuild:${file.name}`, sector, now, now)
           }
           db.exec('COMMIT')

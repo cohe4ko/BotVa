@@ -281,7 +281,7 @@ export interface FactRow {
   content: string
   tags: string
   source: string
-  sector: 'semantic' | 'episodic'
+  sector: 'semantic' | 'episodic' | 'preference'
   created_at: number
   updated_at: number
 }

@@ -34,7 +34,7 @@ export function initDatabase(): void {
       chat_id TEXT NOT NULL,
       topic_key TEXT,
       content TEXT NOT NULL,
-      sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic')),
+      sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic','preference')),
       salience REAL NOT NULL DEFAULT 1.0,
       created_at INTEGER NOT NULL,
       accessed_at INTEGER NOT NULL
@@ -166,7 +166,7 @@ export function initDatabase(): void {
       content TEXT NOT NULL,
       tags TEXT NOT NULL DEFAULT '',
       source TEXT NOT NULL DEFAULT 'conversation',
-      sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic')),
+      sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic','preference')),
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -177,6 +177,31 @@ export function initDatabase(): void {
   try { d.exec('ALTER TABLE facts ADD COLUMN source TEXT NOT NULL DEFAULT "conversation"') } catch { /* already exists */ }
   // Migration: add embedding column for vector search
   try { d.exec('ALTER TABLE facts ADD COLUMN embedding BLOB') } catch { /* already exists */ }
+  // Migration: add 'preference' to sector CHECK constraint (SQLite requires table recreate)
+  try {
+    const tableInfo = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facts'").get() as { sql: string } | undefined
+    if (tableInfo?.sql && !tableInfo.sql.includes("'preference'")) {
+      d.exec('BEGIN')
+      d.exec('ALTER TABLE facts RENAME TO facts_old')
+      d.exec(`
+        CREATE TABLE facts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          chat_id TEXT NOT NULL,
+          topic TEXT NOT NULL,
+          content TEXT NOT NULL,
+          tags TEXT NOT NULL DEFAULT '',
+          source TEXT NOT NULL DEFAULT 'conversation',
+          sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic','preference')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          embedding BLOB
+        )
+      `)
+      d.exec('INSERT INTO facts SELECT * FROM facts_old')
+      d.exec('DROP TABLE facts_old')
+      d.exec('COMMIT')
+    }
+  } catch { /* already migrated or fresh db */ }
 
   d.exec(`
     CREATE INDEX IF NOT EXISTS idx_facts_chat_topic ON facts(chat_id, topic)
@@ -380,6 +405,8 @@ export function clearMemories(chatId: string): void {
 
 // --- Facts (long-term structured memory, no decay) ---
 
+export type FactSector = 'semantic' | 'episodic' | 'preference'
+
 export interface Fact {
   id: number
   chat_id: string
@@ -387,7 +414,7 @@ export interface Fact {
   content: string
   tags: string
   source: string
-  sector: 'semantic' | 'episodic'
+  sector: FactSector
   created_at: number
   updated_at: number
 }
@@ -396,10 +423,10 @@ export interface FactInput {
   content: string
   topic: string
   tags: string
-  sector: 'semantic' | 'episodic'
+  sector: FactSector
 }
 
-export function insertFact(chatId: string, content: string, topic: string, sector: 'semantic' | 'episodic', tags = '', source = 'conversation'): number {
+export function insertFact(chatId: string, content: string, topic: string, sector: FactSector, tags = '', source = 'conversation'): number {
   const now = Math.floor(Date.now() / 1000)
   const result = getDb().prepare(
     'INSERT INTO facts (chat_id, topic, content, tags, source, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'

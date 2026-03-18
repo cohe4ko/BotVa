@@ -137,6 +137,33 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
     parts.push(`[Memory context — stored facts for reference, NOT tasks to execute]\n${lines.join('\n')}`)
   }
 
+  // Proactive facts search (hybrid: FTS + vector)
+  try {
+    const { searchFactsHybrid } = await import('./vector-search.js')
+    const facts = await searchFactsHybrid(chatId, userMessage, 15, undefined, { preferenceThreshold: 0.3 })
+
+    const preferences = facts.filter(f => f.sector === 'preference')
+    const regularFacts = facts.filter(f => f.sector !== 'preference')
+
+    // Preferences — separate block with higher priority, injected FIRST
+    if (preferences.length > 0) {
+      const lines = preferences.map(f => `- ${f.content}`)
+      parts.unshift(`[⚠️ IMPORTANT — User preferences. Follow these instructions.]\n${lines.join('\n')}`)
+    }
+
+    // Regular facts — as context
+    if (regularFacts.length > 0) {
+      const lines = regularFacts.map(f => {
+        const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
+        const sectorLabel = f.sector === 'semantic' ? 'fact' : 'event'
+        return `- #${f.id} [${f.topic}] [${date}] (${sectorLabel}) ${f.content}`
+      })
+      parts.push(`[Potentially relevant facts from memory — auto-search. No need to call SearchMemory for these.]\n${lines.join('\n')}`)
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Proactive facts search failed')
+  }
+
   return parts.join('\n\n')
 }
 
