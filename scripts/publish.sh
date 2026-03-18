@@ -15,7 +15,7 @@ for d in "$PROJECT_DIR"/bots/*/.env; do ENV_CANDIDATES+=("$d"); done
 ENV_CANDIDATES+=("$PROJECT_DIR/.env")
 
 for envfile in "${ENV_CANDIDATES[@]}"; do
-    if [ -f "$envfile" ]; then
+    if [ -f "$envfile" ] && grep -q 'PUBLISH_REMOTE_DIR' "$envfile" 2>/dev/null; then
         set -a
         source "$envfile"
         set +a
