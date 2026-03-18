@@ -119,6 +119,22 @@ app.get('/bot/:name/logs', validateBot, (c) => {
       `
     }
 
+    <!-- Debug context -->
+    ${(() => {
+      const ctxFile = join(getBotDir(name), 'store', 'debug-context.txt')
+      if (!existsSync(ctxFile)) return ''
+      const ctxContent = readFileSync(ctxFile, 'utf-8')
+      const ctxStat = statSync(ctxFile)
+      const ctxTime = new Date(ctxStat.mtimeMs).toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' })
+      return html`
+        <div class="section-header" style="margin-top:2rem">
+          <h3 style="margin:0">${icon('bug')} Agent Context (DEBUG)</h3>
+          <small style="font-family:'SF Mono',monospace;font-size:0.72rem">${ctxTime}</small>
+        </div>
+        <pre class="log-viewer" style="max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-word">${escapeHtml(ctxContent)}</pre>
+      `
+    })()}
+
     <!-- File log -->
     <div class="section-header" style="margin-top:2rem">
       <h3 style="margin:0">${icon('file-text')} ${t('logs.title')}</h3>

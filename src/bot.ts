@@ -7,6 +7,7 @@ import {
   TELEGRAPH_ENABLED,
   BOT_NAME,
   BOT_DIR,
+  DEBUG_CONTEXT,
 } from './config.js'
 import { getSession, setSession, clearSession, getAllMemories, logUsage, getUsageSince, getChatSetting, setChatSetting, deleteChatSetting, logAudit } from './db.js'
 import { runAgent, type UsageStats } from './agent.js'
@@ -759,6 +760,17 @@ async function handleMessage(
       // Nudge LLM to name untitled sessions
       if (sessionId && !hasSessionTitle(sessionId)) {
         fullMessage += '\n\n[Session has no title yet. Call NameSession now with a short 3-5 word title.]'
+      }
+
+      // Debug: save full context to file
+      if (DEBUG_CONTEXT) {
+        try {
+          const { writeFileSync } = await import('fs')
+          const { resolve: pathRes } = await import('path')
+          const debugPath = pathRes(BOT_DIR, 'store', 'debug-context.txt')
+          const ts = new Date().toISOString()
+          writeFileSync(debugPath, `# Debug Context — ${ts}\n# Session: ${sessionId ?? 'new'}\n# Chat: ${chatIdStr}\n\n${fullMessage}`, 'utf-8')
+        } catch { /* ignore */ }
       }
 
       // Start typing

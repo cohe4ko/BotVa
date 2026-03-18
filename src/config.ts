@@ -61,3 +61,6 @@ export const ASSISTANT_PREVIEW_LEN = parseInt(env['ASSISTANT_PREVIEW_LEN'] ?? '3
 export const MIN_MSG_LEN_TO_SAVE = parseInt(env['MIN_MSG_LEN_TO_SAVE'] ?? '20', 10)
 export const MIN_ASSISTANT_LEN_TO_SAVE = parseInt(env['MIN_ASSISTANT_LEN_TO_SAVE'] ?? '50', 10)
 export const MAX_ASSISTANT_MEMORY_LEN = parseInt(env['MAX_ASSISTANT_MEMORY_LEN'] ?? '500', 10)
+
+// Debug
+export const DEBUG_CONTEXT = (env['DEBUG_CONTEXT'] ?? '') === 'true'
