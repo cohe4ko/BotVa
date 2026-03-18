@@ -1445,13 +1445,13 @@ Do NOT use for simple text/buttons — use AskUser for that.`,
 function makeSaveFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpToolDefinition<any> {
   return tool(
     'SaveFact',
-    'Save facts to PERMANENT memory (never decays). ALWAYS SearchMemory first to avoid duplicates — if fact exists and changed, DeleteFact old + SaveFact new. Use PROACTIVELY when user shares: dates, names, preferences, health info, decisions, contacts. Also save important results from tool calls (WebSearch, CRM, stagehand) if they answer a specific question and will be useful in future conversations. Batch supported. Tags must include synonyms and translations for better search. IMPORTANT: For semantic/episodic — write as STATEMENTS ("User\'s token is X", "CreateBot failed on 14.03"). For preference — write as INSTRUCTIONS ("Always reply in Ukrainian", "Coffee without sugar", "Never suggest gluten foods").',
+    'Save facts to PERMANENT memory (never decays). ALWAYS SearchMemory first to avoid duplicates — if fact exists and changed, DeleteFact old + SaveFact new. Use PROACTIVELY when user shares: dates, names, preferences, health info, decisions, contacts. Also save important results from tool calls (WebSearch, CRM, stagehand) if they answer a specific question and will be useful in future conversations. Batch supported. Tags must include synonyms and translations for better search.\n\nSECTOR RULES:\n- User says "запам\'ятай", "remember", "завжди", "always", "ніколи", "never", "я люблю", "я не люблю", "I like", "I don\'t like" → sector MUST be "preference", content as INSTRUCTION\n- Permanent fact (birthday, contact, diagnosis) → "semantic", content as STATEMENT\n- One-time event/decision → "episodic", content as STATEMENT',
     {
       facts: z.array(z.object({
         content: z.string().describe('Clean, concise statement. E.g.: "Birthday: March 5, 1990" or "Allergic to penicillin"'),
         topic: z.string().describe('Topic (lowercase): health, work, family, preferences, finance, travel, goals, projects, contacts, food, hobbies'),
         tags: z.string().describe('Comma-separated search tags: synonyms, translations, related terms. MORE is better. E.g. for allergy fact: "алергія, алергічний, allergy, penicillin, пеніцилін, антибіотик, ліки"'),
-        sector: z.enum(['semantic', 'episodic', 'preference']).describe('"semantic" = permanent fact. "episodic" = event/decision. "preference" = directive for the agent, write as INSTRUCTION not description (e.g. "Always reply in Ukrainian", "Coffee without sugar"). Use for "remember that...", "always/never do X", "I like/don\'t like"'),
+        sector: z.enum(['semantic', 'episodic', 'preference']).describe('MUST be "preference" when user says запам\'ятай/remember/завжди/always/ніколи/never/люблю/like. "semantic" for permanent facts. "episodic" for events. When in doubt between semantic and preference → choose preference.'),
       })).describe('Array of facts to save (batch)'),
     },
     async (args) => {
