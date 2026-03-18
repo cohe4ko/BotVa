@@ -398,7 +398,7 @@ button[type="submit"], button.primary {
 }
 button[type="submit"]:hover, button.primary:hover { background: var(--mc-accent-hover); border-color: var(--mc-accent-hover); }
 
-button.outline { background: transparent; }
+button.outline { background: transparent; color: var(--mc-text); border-color: var(--mc-border); }
 button.contrast.outline { color: var(--mc-yellow); border-color: #fcd34d; }
 button.contrast.outline:hover { background: var(--mc-yellow-light); }
 button.secondary.outline { color: var(--mc-red); border-color: #fca5a5; }
