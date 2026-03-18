@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, renameSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, renameSync, mkdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { BOT_DIR, BOT_NAME, ALLOWED_CHAT_ID } from './config.js'
 import { runAgent } from './agent.js'
@@ -280,4 +280,110 @@ async function migrateKeyEvents(): Promise<void> {
   } catch (err) {
     logger.error({ err }, 'KEY_EVENTS.md migration failed (will retry next run)')
   }
+}
+
+// --- Session consolidation ---
+
+const MIN_SESSION_SIZE = 2000 // ~2-3 turns
+
+function extractMessageText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block?.type === 'text' && typeof block.text === 'string') return block.text
+    }
+  }
+  return ''
+}
+
+/**
+ * Extract facts from a completed session (fire-and-forget, non-blocking).
+ * Skips small sessions, already-consolidated sessions, and sessions with unchanged size.
+ */
+export async function consolidateSession(
+  oldSessionId: string,
+  chatId: string,
+  botDir: string
+): Promise<void> {
+  const { getClaudeProjectDir } = await import('./disk-sessions.js')
+  const projectDir = getClaudeProjectDir(botDir)
+  const jsonlPath = join(projectDir, `${oldSessionId}.jsonl`)
+
+  if (!existsSync(jsonlPath)) return
+
+  const fileSize = statSync(jsonlPath).size
+  if (fileSize < MIN_SESSION_SIZE) return
+
+  const { isSessionConsolidated, markSessionConsolidated } = await import('./db.js')
+  if (isSessionConsolidated(oldSessionId, fileSize)) return
+
+  logger.info({ oldSessionId, fileSize }, 'Starting session consolidation')
+
+  // Read and extract conversation
+  const content = readFileSync(jsonlPath, 'utf-8')
+  const lines = content.split('\n')
+  const turns: string[] = []
+
+  for (const line of lines) {
+    if (!line.trim()) continue
+    try {
+      const entry = JSON.parse(line)
+      if (entry.type === 'user' && entry.message?.content) {
+        let text = extractMessageText(entry.message.content)
+        // Strip injected memory context
+        text = text.replace(/^\[.*?context.*?\][\s\S]*?\n\n/im, '').trim()
+        if (text) turns.push(`**User:** ${text.slice(0, 500)}`)
+      }
+      if (entry.type === 'assistant' && entry.message?.content) {
+        const text = extractMessageText(entry.message.content)
+        if (text) turns.push(`**Assistant:** ${text.slice(0, 500)}`)
+      }
+    } catch { /* skip malformed lines */ }
+  }
+
+  if (turns.length < 4) { // at least 2 full turns
+    markSessionConsolidated(oldSessionId, fileSize)
+    return
+  }
+
+  // Take last ~4000 chars of conversation
+  let transcript = turns.join('\n\n')
+  if (transcript.length > 4000) {
+    transcript = '...\n\n' + transcript.slice(-4000)
+  }
+
+  const prompt = `Ти — система консолідації пам'яті ${BOT_NAME}.
+
+## Завдання: витягни факти з завершеної сесії
+
+Нижче — розмова з попередньої сесії. Проаналізуй і збережи ТІЛЬКИ важливі факти.
+
+### Розмова:
+${transcript}
+
+### Правила:
+- Перед КОЖНИМ SaveFact — SearchMemory (2-3 запити різними словами)
+- Якщо факт вже є (>70% збігається) — НЕ зберігай
+- Тест: "Чи буде це корисно через 3 місяці?"
+- Якщо факт змінився — DeleteFact(old) + SaveFact(new)
+
+### Зберігай:
+- Нові контакти, імена, дні народження
+- Рішення з наслідками
+- Здоров'я: діагнози, ліки, аналізи
+- Вподобання → sector=preference, формат ІНСТРУКЦІЇ ("Каву без цукру", не "Любить каву без цукру")
+- Нові credentials (логін/сервіс)
+
+### НЕ зберігай:
+- Одноразові події, технічні деталі, прогрес задач
+- File inventory, тимчасові дані, загальновідоме
+- Що вже є в CLAUDE.md
+
+Очікуваний результат: 0-3 факти. Пиши українською.`
+
+  const { server } = createConsolidationMcpServer(Number(chatId))
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
+
+  markSessionConsolidated(oldSessionId, fileSize)
+  logger.info({ oldSessionId, result: result.text?.slice(0, 100) }, 'Session consolidation done')
 }

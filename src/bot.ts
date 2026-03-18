@@ -906,7 +906,15 @@ async function handleMessage(
 
       // Update session
       if (newSessionId) {
+        const oldSessionId = sessionId
         setSession(chatIdStr, newSessionId)
+        // Fire-and-forget: consolidate previous session in background
+        if (oldSessionId && oldSessionId !== newSessionId) {
+          import('./consolidate.js').then(({ consolidateSession }) =>
+            consolidateSession(oldSessionId, chatIdStr, BOT_DIR)
+              .catch(err => logger.warn({ err, oldSessionId }, 'Session consolidation failed'))
+          )
+        }
       }
 
       // Check for follow-up BEFORE cleanup — reuse reporter if continuing

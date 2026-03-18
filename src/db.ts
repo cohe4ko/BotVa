@@ -258,6 +258,15 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_saved_sessions_chat ON saved_sessions(chat_id, updated_at DESC)
   `)
 
+  // Consolidated sessions tracking (prevent re-consolidation)
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS consolidated_sessions (
+      session_id TEXT PRIMARY KEY,
+      file_size INTEGER NOT NULL,
+      consolidated_at INTEGER NOT NULL
+    )
+  `)
+
   logger.info('Database initialized')
 }
 
@@ -277,6 +286,22 @@ export function setSession(chatId: string, sessionId: string): void {
 
 export function clearSession(chatId: string): void {
   getDb().prepare('DELETE FROM sessions WHERE chat_id = ?').run(chatId)
+}
+
+// --- Session Consolidation Tracking ---
+
+export function isSessionConsolidated(sessionId: string, currentSize: number): boolean {
+  const row = getDb().prepare(
+    'SELECT file_size FROM consolidated_sessions WHERE session_id = ?'
+  ).get(sessionId) as { file_size: number } | undefined
+  if (!row) return false
+  return Math.abs(row.file_size - currentSize) < 200
+}
+
+export function markSessionConsolidated(sessionId: string, fileSize: number): void {
+  getDb().prepare(
+    'INSERT OR REPLACE INTO consolidated_sessions (session_id, file_size, consolidated_at) VALUES (?, ?, ?)'
+  ).run(sessionId, fileSize, Math.floor(Date.now() / 1000))
 }
 
 // --- Saved Sessions (multi-session support) ---
