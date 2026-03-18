@@ -768,6 +768,9 @@ async function handleMessage(
 
       // Create askUser callback for AskUser builtin tool
       const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply' | 'poll', customText?: string, customParseMode?: 'HTML' | 'MarkdownV2' | 'Markdown', multiple?: boolean) => {
+        // Legacy: reply keyboard breaks agent flow, convert to inline
+        if (keyboardMode === 'reply') keyboardMode = 'inline'
+
         // Poll mode: native Telegram poll
         if (keyboardMode === 'poll') {
           const pollOptions = options.map(o => o.label)

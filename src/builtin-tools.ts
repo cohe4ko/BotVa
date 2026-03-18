@@ -127,7 +127,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
 export type AskUserCallback = (
   question: string,
   options: { label: string; description?: string }[],
-  keyboard: 'inline' | 'reply' | 'poll',
+  keyboard: 'inline' | 'reply' | 'poll',  // reply kept for legacy bot CLAUDE.md compatibility (converted to inline at runtime)
   text?: string,
   parseMode?: 'HTML' | 'MarkdownV2' | 'Markdown',
   multiple?: boolean
@@ -1054,7 +1054,9 @@ Use RunPython instead of manual calculation when: percentages, currency conversi
       'AskUser',
       `Present choices to the user via Telegram buttons and wait for their response.
 
-IMPORTANT: AskUser is a STEP within your workflow, not an interruption. Call it mid-task when you need user input, get the answer, and continue working. Do NOT stop or summarize — just ask and proceed with the chosen option.
+CRITICAL RULE: If your response contains a question to the user ("?"), you MUST call AskUser instead of writing the question as plain text. A text question without AskUser is ALWAYS wrong. Even "Yes/No" questions MUST use AskUser with buttons.
+
+AskUser is a STEP within your workflow, not an interruption. Call it mid-task when you need user input, get the answer, and continue working. Do NOT stop or summarize — just ask and proceed with the chosen option.
 
 WHEN TO USE:
 - The user's request can be fulfilled in several different ways and you need them to choose
@@ -1063,36 +1065,23 @@ WHEN TO USE:
 - Yes/no confirmation before a risky or costly action
 
 WHEN NOT TO USE:
-- The choice is obvious from context or user already specified what they want
+- User already specified what they want (choice is made)
 - You need free-form input (name, description, long text) — just ask in text
-- Only one valid option exists
+- Truly only one action with no alternative (NOTE: "Continue?" is Yes/No = 2 options = USE AskUser!)
 - User said "just do it" or similar
 
 KEYBOARD MODES:
-- 'inline' (default): buttons under message. Short labels only (1-4 words, max ~20 chars). Buttons disappear after click. Has "Other" option automatically.
-- 'reply': buttons replace the keyboard. Supports longer labels (full sentences OK). Answer appears as text in chat. Best for: yes/no, confirmations, options with long descriptions. No "Other" option.
-- 'poll': native Telegram poll. Best for: multi-select (user picks several options), surveys, voting. Set multiple=true for checkboxes, false for single-choice radio. No "Other" option.
+- 'inline' (default): buttons under message. Labels up to ~40 chars. Buttons disappear after click. Has "Other" option automatically. Use for most cases: yes/no, confirmations, single-choice from options.
+- 'poll': native Telegram poll. Use ONLY for: multi-select (user picks SEVERAL options, multiple=true) OR when labels are very long (full sentences). No "Other" option.
 
-Use 'reply' when:
-- Yes/no or confirmation (Так/Ні)
-- Labels are longer than 4 words
-- You want the answer visible in chat history
-
-Use 'inline' when:
-- Short labels (1-4 words)
-- Multiple options (4+)
-- You want "Other" as fallback
-
-Use 'poll' when:
-- User needs to select multiple options from a list (set multiple=true)
-- Survey-style question with native Telegram poll UI
-- Single-choice poll with radio buttons (multiple=false)
+Use 'inline' for single-choice (including long lists).
+Use 'poll' for multi-select or very long labels.
 
 EXAMPLES:
-- "Знайди рецепт борщу" (3 results) → AskUser: "Який?", options=["Класичний", "Полтавський", "Вегетаріанський"], keyboard='inline'
-- "Видали файл" → AskUser: "Точно видалити?", options=["Так, видалити", "Ні, залишити"], keyboard='reply'
-- "Надішли email" → AskUser: "Надіслати цей лист Олені?", options=["Так, надіслати", "Ні, ще відредагую"], keyboard='reply'
-- Complex choice → AskUser: "Який формат?", options=["Детальний звіт з графіками", "Коротке резюме на 1 сторінку", "Таблиця з даними"], keyboard='reply'
+- "Видали файл" → AskUser: "Точно видалити?", options=["Так, видалити", "Ні, залишити"], keyboard='inline'
+- "Надішли email" → AskUser: "Надіслати?", options=["Так, надіслати", "Ні, ще відредагую"], keyboard='inline'
+- "Знайди рецепт борщу" (3 results) → AskUser: "Який рецепт?", options=["Класичний", "Полтавський", "Вегетаріанський"], keyboard='inline'
+- Complex choice → AskUser: "Який формат?", options=["Детальний звіт з графіками", "Коротке резюме на 1 сторінку", "Таблиця з даними"], keyboard='inline'
 - Multi-select → AskUser: "Які теми?", options=["AI", "Медицина", "Фінанси"], keyboard='poll', multiple=true
 
 2-10 options. Tool blocks until user responds (2 min timeout).`,
@@ -1102,11 +1091,11 @@ EXAMPLES:
           label: z.string().describe('Button/option label'),
           description: z.string().optional().describe('Brief explanation shown under the question (not used in poll mode)'),
         })).min(2).max(10).describe('Available choices (2-10 options)'),
-        keyboard: z.enum(['inline', 'reply', 'poll']).default('inline').describe(
-          'inline = buttons under message (short labels, has "Other"), reply = buttons replace keyboard (long labels OK), poll = native Telegram poll (multi-select with checkboxes)'
+        keyboard: z.enum(['inline', 'poll']).default('inline').describe(
+          'inline = buttons under message (default, use for everything), poll = native Telegram poll (multi-select with checkboxes)'
         ),
         multiple: z.boolean().default(false).describe(
-          'Only for poll mode: true = user can select multiple options (checkboxes), false = single choice (radio). Ignored for inline/reply.'
+          'Only for poll mode: true = user can select multiple options (checkboxes), false = single choice (radio). Ignored for inline.'
         ),
         text: z.string().optional().describe(
           'Custom message text. If provided, replaces the auto-generated message above the buttons. Not used in poll mode.'
