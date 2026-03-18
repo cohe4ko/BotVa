@@ -138,6 +138,11 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
   }
 
   // Proactive facts search (hybrid: FTS + vector)
+  // Skip facts search for very short messages (< 3 words) — too vague, returns noise
+  const wordCount = userMessage.trim().split(/\s+/).length
+  if (wordCount < 3) {
+    return parts.join('\n\n')
+  }
   try {
     const { searchFactsHybrid } = await import('./vector-search.js')
     const facts = await searchFactsHybrid(chatId, userMessage, 15, undefined, { preferenceThreshold: 0.3 })
@@ -167,6 +172,20 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
   return parts.join('\n\n')
 }
 
+// Messages that should NOT be saved to short-term memory (technical noise)
+const SKIP_MEMORY_PATTERNS = [
+  /^(створи|видали|delete|create)\s+(бота|bot)\b/i,
+  /\b[A-Za-z0-9_-]{30,}:[A-Za-z0-9_-]{30,}\b/, // bot tokens (AAF...:...)
+  /\b(gsk_|sk-|AIzaSy|AAF|AAH|AAG|AAE)[A-Za-z0-9_-]{20,}\b/, // API keys
+  /^(які файли|list files|ls |find )/i, // file inventory requests
+  /^\d+ файлів? в /i, // file inventory responses
+  /context\/memories|knowledge\/memories/i, // internal path references
+]
+
+function shouldSkipMemory(text: string): boolean {
+  return SKIP_MEMORY_PATTERNS.some(re => re.test(text))
+}
+
 export async function saveConversationTurn(
   chatId: string,
   userMsg: string,
@@ -175,16 +194,22 @@ export async function saveConversationTurn(
   // Skip short messages and commands
   if (userMsg.length <= MIN_MSG_LEN_TO_SAVE || userMsg.startsWith('/')) return
 
+  // Always append to daily file (diary is consolidated later)
+  appendToDailyLog(userMsg, assistantMsg)
+
+  // Skip saving to short-term memory if message matches noise patterns
+  if (shouldSkipMemory(userMsg)) {
+    logger.debug({ chatId }, 'Skipped noisy message from short-term memory')
+    return
+  }
+
   const sector = SEMANTIC_PATTERN.test(userMsg) ? 'semantic' : 'episodic'
 
   // Save to SQLite
   insertMemory(chatId, userMsg, sector)
-  if (assistantMsg.length > MIN_ASSISTANT_LEN_TO_SAVE) {
+  if (assistantMsg.length > MIN_ASSISTANT_LEN_TO_SAVE && !shouldSkipMemory(assistantMsg)) {
     insertMemory(chatId, assistantMsg.slice(0, MAX_ASSISTANT_MEMORY_LEN), 'episodic')
   }
-
-  // Append to daily file
-  appendToDailyLog(userMsg, assistantMsg)
 
   logger.debug({ chatId, sector }, 'Saved conversation turn')
 }
