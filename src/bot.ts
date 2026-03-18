@@ -1290,7 +1290,12 @@ export function createBot(): Bot {
         try {
           await ctx.editMessageText(`🎤 ${pending.transcript}\n\n${_t('voice.confirm.ok')}`)
         } catch {}
-        await handleMessage(ctx, `[Voice transcribed]: ${pending.transcript}`, true)
+        // If agent is currently processing, inject as follow-up instead of new request
+        if (isProcessing(chatIdStr)) {
+          await addFollowup(chatIdStr, `[Voice transcribed]: ${pending.transcript}`)
+        } else {
+          await handleMessage(ctx, `[Voice transcribed]: ${pending.transcript}`, true)
+        }
       } else {
         await ctx.answerCallbackQuery({ text: '❌' })
         try {
@@ -1481,6 +1486,11 @@ export function createBot(): Bot {
     if (ctx.message && !ctx.message.text?.startsWith('/')) {
       const chatIdStr = String(ctx.chat?.id)
       if (isProcessing(chatIdStr)) {
+        // Voice + voice_confirm ON: let it through to voice handler for transcription & confirm UI
+        if (ctx.message.voice && getChatSetting(chatIdStr, 'voice_confirm') === '1') {
+          await next()
+          return
+        }
         // Build follow-up text from any message type
         let followupText = ctx.message.text ?? ''
         if (!followupText && ctx.message.caption) followupText = ctx.message.caption
