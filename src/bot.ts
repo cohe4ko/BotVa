@@ -806,25 +806,6 @@ async function handleMessage(
             : `❓ <b>${escapeHtml(question)}</b>`
         }
 
-        if (keyboardMode === 'reply') {
-          const replyKeyboard = options.map(o => [{ text: o.label }])
-          await ctx.api.sendMessage(chatId, msgText, {
-            ...(parseMode ? { parse_mode: parseMode } : {}),
-            reply_markup: { keyboard: replyKeyboard, one_time_keyboard: true, resize_keyboard: true },
-          })
-
-          return new Promise<string>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              pendingReplyKeyboard.delete(chatIdStr)
-              ctx.api.sendMessage(chatId, '⏰', { reply_markup: { remove_keyboard: true } })
-                .then(msg => ctx.api.deleteMessage(chatId, msg.message_id).catch(() => {}))
-                .catch(() => {})
-              reject(new Error('timeout'))
-            }, ASK_USER_TIMEOUT_MS)
-            pendingReplyKeyboard.set(chatIdStr, { resolve, reject, timeout })
-          })
-        }
-
         // Inline keyboard (default)
         const inlineKeyboard = options.map(o => [{ text: o.label, callback_data: `ask:${o.label}` }])
         inlineKeyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
