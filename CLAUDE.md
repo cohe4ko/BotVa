@@ -99,7 +99,8 @@ SaveFact, SearchMemory, DeleteFact,
 CreateBot, DeleteBot, ListBots,
 CurrencyRates, GetCurrentTime,
 CreateReminder, ListReminders, DeleteReminder,
-RunPython, AskUser, TakeScreenshot, NameSession
+RunPython, AskUser, TakeScreenshot, NameSession,
+AskGemini, GeminiSearch
 
 **MCP сервери** (mcp-servers.json):
 - bitrix24 -- CRM: контакти, ліди, угоди, компанії, звіти

@@ -71,6 +71,9 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Image
     { name: 'GenerateImage', icon: 'image', category: 'image', description: 'Generate image from prompt', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
     { name: 'EditImage', icon: 'pen-tool', category: 'image', description: 'Edit image with instruction', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
+    // Gemini LLM
+    { name: 'AskGemini', icon: 'sparkles', category: 'ai', description: 'Ask Gemini (second opinion, brainstorm)', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
+    { name: 'GeminiSearch', icon: 'search-check', category: 'ai', description: 'Gemini + Google Search with citations', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
     // Voice
     { name: 'TextToSpeech', icon: 'volume-2', category: 'voice', description: 'Text to voice message (Edge-TTS)', available: true },
     // Publishing
@@ -119,6 +122,9 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'TakeScreenshot', icon: 'camera', category: 'browser', description: 'Screenshot a webpage or system screen', available: true },
     // Session
     { name: 'NameSession', icon: 'tag', category: 'utility', description: 'Name the current session', available: true },
+    // Workspace files
+    { name: 'ReadWorkspaceFile', icon: 'file-text', category: 'workspace', description: 'Read a workspace config file (SOUL, IDENTITY, USER, etc.)', available: true },
+    { name: 'WriteWorkspaceFile', icon: 'file-edit', category: 'workspace', description: 'Update USER.md or MEMORY.md (persists across sessions)', available: true },
   ]
 
   return defs.map(d => ({ ...d, enabled: config[d.name] !== false }))
@@ -205,6 +211,86 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             logger.error({ err }, 'EditImage tool failed')
+            return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+          }
+        }
+      )
+    )
+
+    // --- Gemini LLM tools (require GOOGLE_API_KEY) ---
+
+    if (isOn('AskGemini')) tools.push(
+      tool(
+        'AskGemini',
+        'Ask Google Gemini a question directly. Use as a second opinion, alternative perspective, or when you want to cross-check your answer with another top-tier LLM. Good for brainstorming, creative tasks, or when user explicitly asks "що скаже Gemini", "спитай гугл", "друга думка". NOT for web search — use GeminiSearch or WebSearch for that.',
+        {
+          prompt: z.string().describe('The question or prompt to send to Gemini'),
+          model: z.string().optional().describe('Model to use (default: gemini-2.5-flash). Options: gemini-2.5-flash, gemini-2.5-pro'),
+        },
+        async (args) => {
+          usedTools.add('AskGemini')
+          try {
+            const { GoogleGenAI } = await import('@google/genai')
+            const ai = new GoogleGenAI({ apiKey: env['GOOGLE_API_KEY']! })
+            const model = args.model || 'gemini-2.5-flash'
+            const response = await ai.models.generateContent({
+              model,
+              contents: args.prompt,
+            })
+            const text = response.text ?? 'No response from Gemini'
+            return { content: [{ type: 'text' as const, text: `[Gemini ${model}]\n\n${text}` }] }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            logger.error({ err }, 'AskGemini tool failed')
+            return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+          }
+        }
+      )
+    )
+
+    if (isOn('GeminiSearch')) tools.push(
+      tool(
+        'GeminiSearch',
+        'Search the web using Gemini with Google Search grounding. Returns an AI-synthesized answer with inline citations and source URLs. Use when you need a well-structured answer backed by fresh web sources, or when WebSearch results need deeper synthesis. Great for comparisons, "best X for Y", technical questions with nuance. User triggers: "пошукай через гугл", "що каже інтернет", "знайди з джерелами". NOT for simple factual lookups — use WebSearch. NOT for questions answerable from memory/context.',
+        {
+          query: z.string().describe('Search query or question to research'),
+          model: z.string().optional().describe('Model to use (default: gemini-2.5-flash)'),
+        },
+        async (args) => {
+          usedTools.add('GeminiSearch')
+          try {
+            const { GoogleGenAI } = await import('@google/genai')
+            const ai = new GoogleGenAI({ apiKey: env['GOOGLE_API_KEY']! })
+            const model = args.model || 'gemini-2.5-flash'
+            const response = await ai.models.generateContent({
+              model,
+              contents: args.query,
+              config: {
+                tools: [{ googleSearch: {} }],
+              },
+            })
+            const text = response.text ?? 'No response'
+
+            // Extract grounding metadata (sources)
+            const groundingMeta = (response as any).candidates?.[0]?.groundingMetadata
+            let sources = ''
+            if (groundingMeta?.groundingChunks) {
+              const chunks = groundingMeta.groundingChunks as Array<{ web?: { uri: string; title: string } }>
+              const uniqueUrls = new Map<string, string>()
+              for (const chunk of chunks) {
+                if (chunk.web?.uri && !uniqueUrls.has(chunk.web.uri)) {
+                  uniqueUrls.set(chunk.web.uri, chunk.web.title || chunk.web.uri)
+                }
+              }
+              if (uniqueUrls.size > 0) {
+                sources = '\n\n---\nДжерела:\n' + [...uniqueUrls.entries()].map(([url, title]) => `- ${title}: ${url}`).join('\n')
+              }
+            }
+
+            return { content: [{ type: 'text' as const, text: `[Gemini Search]\n\n${text}${sources}` }] }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            logger.error({ err }, 'GeminiSearch tool failed')
             return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
           }
         }
@@ -1411,6 +1497,10 @@ Do NOT use for simple text/buttons — use AskUser for that.`,
 
   if (isOn('NameSession')) tools.push(makeNameSessionTool(chatIdStr, usedTools, ctx, chatId))
 
+  // --- Workspace files ---
+  if (isOn('ReadWorkspaceFile')) tools.push(makeReadWorkspaceFileTool(usedTools))
+  if (isOn('WriteWorkspaceFile')) tools.push(makeWriteWorkspaceFileTool(usedTools))
+
   if (tools.length === 0) return null
 
   const server = createSdkMcpServer({
@@ -1578,6 +1668,63 @@ function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>, ctx: Con
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error({ err }, 'NameSession tool failed')
+        return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+      }
+    }
+  )
+}
+
+// --- Workspace file tool factories ---
+
+const WORKSPACE_FILE_NAMES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'ROLE.md', 'MEMORY.md'] as const
+
+function makeReadWorkspaceFileTool(usedTools: Set<string>): SdkMcpToolDefinition<any> {
+  return tool(
+    'ReadWorkspaceFile',
+    'Read one of your workspace configuration files. Available: SOUL.md (personality), IDENTITY.md (name/emoji), USER.md (user profile), TOOLS.md (tool guide), ROLE.md (specialization), MEMORY.md (curated long-term memory).',
+    { filename: z.enum(WORKSPACE_FILE_NAMES).describe('Which workspace file to read') },
+    async (args) => {
+      usedTools.add('ReadWorkspaceFile')
+      try {
+        const { BOT_DIR } = await import('./config.js')
+        const { readWorkspaceFile, hasWorkspaceFiles } = await import('./workspace-files.js')
+        if (!hasWorkspaceFiles(BOT_DIR)) {
+          return { content: [{ type: 'text' as const, text: 'Workspace files not initialized for this bot.' }], isError: true }
+        }
+        const content = readWorkspaceFile(BOT_DIR, args.filename as any)
+        if (content === null) {
+          return { content: [{ type: 'text' as const, text: `File ${args.filename} not found.` }], isError: true }
+        }
+        return { content: [{ type: 'text' as const, text: content || '(empty file)' }] }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.error({ err }, 'ReadWorkspaceFile failed')
+        return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+      }
+    }
+  )
+}
+
+const WRITABLE_FILE_NAMES = ['USER.md', 'MEMORY.md'] as const
+
+function makeWriteWorkspaceFileTool(usedTools: Set<string>): SdkMcpToolDefinition<any> {
+  return tool(
+    'WriteWorkspaceFile',
+    'Update USER.md (user profile) or MEMORY.md (curated long-term insights). Changes persist across sessions and shape future conversations. USER.md: facts about the person you serve (name, preferences, context). MEMORY.md: curated learnings, patterns, decisions that should inform your behavior.',
+    {
+      filename: z.enum(WRITABLE_FILE_NAMES).describe('Which file to write: USER.md or MEMORY.md'),
+      content: z.string().describe('Full new content for the file (replaces existing content)')
+    },
+    async (args) => {
+      usedTools.add('WriteWorkspaceFile')
+      try {
+        const { BOT_DIR } = await import('./config.js')
+        const { writeWorkspaceFile } = await import('./workspace-files.js')
+        writeWorkspaceFile(BOT_DIR, args.filename as any, args.content)
+        return { content: [{ type: 'text' as const, text: `${args.filename} updated successfully. Changes will be reflected in next session.` }] }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.error({ err }, 'WriteWorkspaceFile failed')
         return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
       }
     }

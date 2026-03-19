@@ -96,6 +96,8 @@ const TOOL_ICONS: Record<string, string> = {
   TodoRead: '📋',
   NotebookEdit: '📓',
   Skill: '✨',
+  AskGemini: '💎',
+  GeminiSearch: '💎',
 }
 
 // MCP server icon prefixes
@@ -121,7 +123,7 @@ function toolIcon(name: string): string {
 }
 
 // Regex matching any tool icon (for replacement in progress/result)
-const TOOL_ICON_RE = /^(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐][\uFE0F]?/
+const TOOL_ICON_RE = /^(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐][\uFE0F]?/
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   const i = input
@@ -146,6 +148,10 @@ function toolDetail(name: string, input: Record<string, unknown>): string {
       return String(i.url ?? '').slice(0, 60)
     case 'Agent':
       return String(i.description ?? i.prompt ?? '').slice(0, 60)
+    case 'AskGemini':
+      return String(i.prompt ?? '').slice(0, 60)
+    case 'GeminiSearch':
+      return String(i.query ?? '').slice(0, 60)
     case 'TodoWrite':
     case 'TodoRead':
       return ''
@@ -338,6 +344,7 @@ export class ProgressReporter {
               Agent: 'progress.cute.agent', TodoWrite: 'progress.cute.todowrite',
               TodoRead: 'progress.cute.todoread', NotebookEdit: 'progress.cute.notebookedit',
               Skill: 'progress.cute.skill',
+              AskGemini: 'progress.cute.askgemini', GeminiSearch: 'progress.cute.geminisearch',
             }
             const cuteMcpKeys: Record<string, string> = {
               'bitrix24': 'progress.cute.bitrix24', 'home-assistant': 'progress.cute.homeassistant',
