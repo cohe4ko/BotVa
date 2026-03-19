@@ -119,24 +119,6 @@ export function formatForTelegram(text: string): string {
   processed = processed.replace(/%%CODEBLOCK_(\d+)%%/g, (_, i) => codeBlocks[Number(i)])
   processed = processed.replace(/%%INLINE_(\d+)%%/g, (_, i) => inlineCodes[Number(i)])
 
-  // Expandable blockquotes: >> lines grouped into <blockquote expandable>
-  processed = processed.replace(
-    /(?:^&gt;&gt;\s?(.*)$\n?)+/gm,
-    (match) => {
-      const content = match.trimEnd().replace(/^&gt;&gt;\s?/gm, '')
-      return `<blockquote expandable>${content}</blockquote>`
-    }
-  )
-
-  // Regular blockquotes: > lines grouped into <blockquote>
-  processed = processed.replace(
-    /(?:^&gt;\s?(.*)$\n?)+/gm,
-    (match) => {
-      const content = match.trimEnd().replace(/^&gt;\s?/gm, '')
-      return `<blockquote>${content}</blockquote>`
-    }
-  )
-
   // Headings → bold
   processed = processed.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
 
