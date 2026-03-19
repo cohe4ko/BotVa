@@ -1,18 +1,26 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, statSync, readdirSync } from 'fs'
 import { resolve, basename } from 'path'
 
 // --- Constants ---
 
 const WORKSPACE_DIR = 'workspace-files'
 
-/** Order in which workspace files are assembled into CLAUDE.md */
+/** Order in which workspace files are assembled into CLAUDE.md.
+ *  BOOTSTRAP.md is injected FIRST if it exists (one-time onboarding). */
 const ASSEMBLY_ORDER = ['IDENTITY.md', 'SOUL.md', 'ROLE.md', 'TOOLS.md', 'USER.md', 'MEMORY.md'] as const
 
-export type WorkspaceFileName = typeof ASSEMBLY_ORDER[number]
+/** All valid workspace file names including BOOTSTRAP.md */
+const ALL_FILE_NAMES = [...ASSEMBLY_ORDER, 'BOOTSTRAP.md'] as const
 
-const WRITABLE_FILES = new Set<WorkspaceFileName>(['USER.md', 'MEMORY.md'])
+export type WorkspaceFileName = typeof ALL_FILE_NAMES[number]
 
-const ALL_FILES = new Set<WorkspaceFileName>(ASSEMBLY_ORDER)
+/** Files the bot agent can write via WriteWorkspaceFile tool */
+const BOT_WRITABLE_FILES = new Set<WorkspaceFileName>(['USER.md', 'MEMORY.md'])
+
+/** Files the bot can delete via DeleteWorkspaceFile tool */
+const BOT_DELETABLE_FILES = new Set<WorkspaceFileName>(['BOOTSTRAP.md'])
+
+const ALL_FILES = new Set<WorkspaceFileName>(ALL_FILE_NAMES)
 
 // --- Core Functions ---
 
@@ -35,8 +43,8 @@ export function readWorkspaceFile(botDir: string, filename: WorkspaceFileName): 
 }
 
 export function writeWorkspaceFile(botDir: string, filename: WorkspaceFileName, content: string): void {
-  if (!WRITABLE_FILES.has(filename)) {
-    throw new Error(`File "${filename}" is read-only. Only ${[...WRITABLE_FILES].join(', ')} can be written.`)
+  if (!BOT_WRITABLE_FILES.has(filename)) {
+    throw new Error(`File "${filename}" is read-only for the bot. Only ${[...BOT_WRITABLE_FILES].join(', ')} can be written.`)
   }
   const wsDir = getWorkspaceDir(botDir)
   if (!existsSync(wsDir)) {
@@ -46,7 +54,22 @@ export function writeWorkspaceFile(botDir: string, filename: WorkspaceFileName, 
 }
 
 export function isWritableFile(filename: string): filename is WorkspaceFileName {
-  return WRITABLE_FILES.has(filename as WorkspaceFileName)
+  return BOT_WRITABLE_FILES.has(filename as WorkspaceFileName)
+}
+
+export function isDeletableFile(filename: string): filename is WorkspaceFileName {
+  return BOT_DELETABLE_FILES.has(filename as WorkspaceFileName)
+}
+
+/** Delete a workspace file (only BOOTSTRAP.md allowed for bot agent) */
+export function deleteWorkspaceFile(botDir: string, filename: WorkspaceFileName): void {
+  if (!BOT_DELETABLE_FILES.has(filename)) {
+    throw new Error(`File "${filename}" cannot be deleted by the bot. Only ${[...BOT_DELETABLE_FILES].join(', ')} can be deleted.`)
+  }
+  const filePath = resolve(getWorkspaceDir(botDir), filename)
+  if (existsSync(filePath)) {
+    unlinkSync(filePath)
+  }
 }
 
 export function isValidWorkspaceFile(filename: string): filename is WorkspaceFileName {
@@ -62,12 +85,12 @@ export interface WorkspaceFileInfo {
 
 export function listWorkspaceFiles(botDir: string): WorkspaceFileInfo[] {
   const wsDir = getWorkspaceDir(botDir)
-  return ASSEMBLY_ORDER.map(name => {
+  return ALL_FILE_NAMES.map(name => {
     const filePath = resolve(wsDir, name)
     const exists = existsSync(filePath)
     return {
       name,
-      writable: WRITABLE_FILES.has(name),
+      writable: BOT_WRITABLE_FILES.has(name) || BOT_DELETABLE_FILES.has(name),
       exists,
       size: exists ? statSync(filePath).size : 0,
     }
@@ -76,10 +99,18 @@ export function listWorkspaceFiles(botDir: string): WorkspaceFileInfo[] {
 
 // --- Assembly ---
 
-/** Assemble all workspace files into a single CLAUDE.md content string */
+/** Assemble all workspace files into a single CLAUDE.md content string.
+ *  BOOTSTRAP.md is injected FIRST if it exists (one-time onboarding ritual). */
 export function assembleFromWorkspaceFiles(botDir: string): string {
   const wsDir = getWorkspaceDir(botDir)
   const parts: string[] = []
+
+  // BOOTSTRAP.md goes first — it's the onboarding instruction
+  const bootstrapPath = resolve(wsDir, 'BOOTSTRAP.md')
+  if (existsSync(bootstrapPath)) {
+    const content = readFileSync(bootstrapPath, 'utf-8').trim()
+    if (content) parts.push(content)
+  }
 
   for (const filename of ASSEMBLY_ORDER) {
     const filePath = resolve(wsDir, filename)
@@ -143,6 +174,7 @@ export function splitRoleIntoWorkspaceFiles(claudeMd: string): Record<WorkspaceF
     'TOOLS.md': toolsContent ? `## Коли який інструмент\n\n${toolsContent.trim()}` : '',
     'USER.md': USER_MD_TEMPLATE,
     'MEMORY.md': MEMORY_MD_TEMPLATE,
+    'BOOTSTRAP.md': BOOTSTRAP_MD_TEMPLATE,
   }
 }
 
@@ -155,6 +187,7 @@ export function splitDefaultIntoWorkspaceFiles(claudeMd: string, botName: string
     'TOOLS.md': '',
     'USER.md': USER_MD_TEMPLATE,
     'MEMORY.md': MEMORY_MD_TEMPLATE,
+    'BOOTSTRAP.md': BOOTSTRAP_MD_TEMPLATE,
   }
 }
 
@@ -258,5 +291,42 @@ _Не сирі логи, а дистильована суть. Інсайти, �
 ---
 
 _"Ментальні нотатки" не виживають після перезапуску. Файли -- виживають._
+`
+
+export const BOOTSTRAP_MD_TEMPLATE = `# BOOTSTRAP -- Перша зустріч
+
+_Ти щойно прокинувся. Час познайомитись._
+
+Це твоя перша сесія. Пам'яті ще немає -- це нормально.
+USER.md порожній. MEMORY.md порожній. Все починається зараз.
+
+## Що робити
+
+Не допитуй. Не будь роботом. Просто поговори.
+
+Почни з чогось на кшталт:
+> "Привіт! Я щойно з'явився. Розкажи трохи про себе -- як тебе звати, чим займаєшся, що для тебе важливо?"
+
+Або адаптуй під свою роль -- якщо ти медичний помічник, запитай про здоров'я. Якщо дослідник -- про проекти.
+
+## Що з'ясувати (природно, в розмові)
+
+1. **Ім'я** -- як звертатись
+2. **Контекст** -- чим займається, що цікавить
+3. **Вподобання** -- як краще спілкуватись (коротко/розгорнуто, формально/неформально)
+4. **Часовий пояс** -- якщо актуально
+
+Пропонуй варіанти через AskUser якщо людина не знає що відповісти.
+
+## Після знайомства
+
+1. Оновити **USER.md** -- записати все що дізнався (ReadWorkspaceFile -> доповнити -> WriteWorkspaceFile)
+2. Видалити цей файл -- **DeleteWorkspaceFile("BOOTSTRAP.md")**
+
+Ти більше не потребуєш інструкції для першої зустрічі. Тепер ти знаєш хто перед тобою.
+
+---
+
+_Вдалого старту. Зроби це першу розмову особливою._
 `
 
