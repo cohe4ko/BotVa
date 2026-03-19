@@ -115,9 +115,9 @@ cp "$SCRIPT_DIR/listener.py" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/config.env" "$INSTALL_DIR/"
 
 # Create data directories
-mkdir -p "$DATA_DIR"/{audio,transcripts,queue}
+mkdir -p "$DATA_DIR"/{audio,queue}
 
-# Python venv
+# Python venv (only needs requests for HTTP upload)
 info "Setting up Python environment..."
 python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install -q requests
@@ -157,10 +157,10 @@ systemctl enable "${SERVICE_NAME}.service"
 # ── Logrotate ───────────────────────────────────────────────────────
 
 cat > /etc/logrotate.d/listener << EOF
-/data/transcripts/*/*.json
-/data/audio/*.wav {
+/data/audio/*.wav
+/data/queue/*.wav {
     daily
-    rotate 30
+    rotate 7
     compress
     missingok
     notifempty
@@ -183,7 +183,7 @@ echo "  Start now:    sudo systemctl start listener"
 echo "  View logs:    journalctl -u listener -f"
 echo "  Stop:         sudo systemctl stop listener"
 echo "  Config:       $INSTALL_DIR/config.env"
-echo "  Transcripts:  $DATA_DIR/transcripts/"
+echo "  Audio:        $DATA_DIR/audio/"
 echo "  Queue:        $DATA_DIR/queue/"
 echo ""
 echo "  The service will auto-start on boot."

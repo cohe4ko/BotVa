@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """
-Orange Pi Listener — always-on room microphone with transcription.
-Records audio in chunks, filters silence, transcribes via API, uploads results.
+Orange Pi Listener — record & upload.
+Records audio in chunks, filters silence (VAD), uploads WAV to server.
+All transcription and analysis happens server-side.
 """
 
 import os
 import sys
 import time
-import json
 import wave
 import struct
 import subprocess
 import logging
-import hashlib
+import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 import requests
 
@@ -24,9 +23,6 @@ import requests
 def load_config():
     """Load config from environment (set by systemd EnvironmentFile)."""
     return {
-        "stt_provider": os.getenv("STT_PROVIDER", "groq"),
-        "groq_api_key": os.getenv("GROQ_API_KEY", ""),
-        "xai_api_key": os.getenv("XAI_API_KEY", ""),
         "chunk_duration": int(os.getenv("CHUNK_DURATION", "300")),
         "silence_threshold": int(os.getenv("SILENCE_THRESHOLD", "3")),
         "min_speech_pct": int(os.getenv("MIN_SPEECH_PCT", "15")),
@@ -37,10 +33,9 @@ def load_config():
         "retry_interval": int(os.getenv("RETRY_INTERVAL", "60")),
         "max_retries": int(os.getenv("MAX_RETRIES", "50")),
         "audio_dir": Path(os.getenv("AUDIO_DIR", "/data/audio")),
-        "transcript_dir": Path(os.getenv("TRANSCRIPT_DIR", "/data/transcripts")),
         "queue_dir": Path(os.getenv("QUEUE_DIR", "/data/queue")),
-        "keep_audio": os.getenv("KEEP_AUDIO", "false").lower() == "true",
-        "max_storage_mb": int(os.getenv("MAX_STORAGE_MB", "2000")),
+        "max_storage_mb": int(os.getenv("MAX_STORAGE_MB", "4000")),
+        "device_id": os.getenv("DEVICE_ID", "opi-1"),
     }
 
 # ── Logging ─────────────────────────────────────────────────────────
@@ -88,7 +83,6 @@ def detect_speech_percentage(wav_path: Path, threshold: int) -> float:
     """
     try:
         with wave.open(str(wav_path), "rb") as wf:
-            n_frames = wf.getnframes()
             sample_rate = wf.getframerate()
             n_channels = wf.getnchannels()
 
@@ -101,11 +95,8 @@ def detect_speech_percentage(wav_path: Path, threshold: int) -> float:
                 if len(raw) < frame_size * 2 * n_channels:
                     break
 
-                # Calculate RMS energy
                 samples = struct.unpack(f"<{frame_size * n_channels}h", raw[:frame_size * 2 * n_channels])
                 rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
-
-                # Normalize to 0-100 scale (16-bit audio max ~32768)
                 energy = rms / 327.68  # 0-100 scale
 
                 total_frames += 1
@@ -119,179 +110,88 @@ def detect_speech_percentage(wav_path: Path, threshold: int) -> float:
         log.error(f"VAD error: {e}")
         return 100.0  # On error, assume speech (don't skip)
 
-# ── Transcription ───────────────────────────────────────────────────
+# ── Upload WAV with Retry ──────────────────────────────────────────
 
-def transcribe_groq(wav_path: Path, api_key: str) -> Optional[str]:
-    """Transcribe audio using Groq Whisper API."""
-    url = "https://api.groq.com/openai/v1/audio/transcriptions"
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    try:
-        with open(wav_path, "rb") as f:
-            files = {"file": (wav_path.name, f, "audio/wav")}
-            data = {
-                "model": "whisper-large-v3",
-                "language": "uk",  # Ukrainian primary, auto-detects others
-                "response_format": "verbose_json",
-            }
-            response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
-
-        if response.status_code == 200:
-            result = response.json()
-            text = result.get("text", "").strip()
-            return text if text else None
-        else:
-            log.error(f"Groq API error {response.status_code}: {response.text[:200]}")
-            return None
-    except Exception as e:
-        log.error(f"Groq transcription error: {e}")
-        return None
-
-
-def transcribe_xai(wav_path: Path, api_key: str) -> Optional[str]:
-    """
-    Transcribe audio using xAI STT API.
-    NOTE: As of March 2026, xAI has only Voice Agent WebSocket API.
-    This function is a placeholder for their upcoming standalone STT endpoint.
-    When released, it will likely be compatible with OpenAI's format:
-    POST https://api.x.ai/v1/audio/transcriptions
-    """
-    url = "https://api.x.ai/v1/audio/transcriptions"
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    try:
-        with open(wav_path, "rb") as f:
-            files = {"file": (wav_path.name, f, "audio/wav")}
-            data = {
-                "model": "grok-2-audio",  # placeholder model name
-                "language": "uk",
-                "response_format": "verbose_json",
-            }
-            response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
-
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("text", "").strip() or None
-        else:
-            log.error(f"xAI API error {response.status_code}: {response.text[:200]}")
-            return None
-    except Exception as e:
-        log.error(f"xAI transcription error: {e}")
-        return None
-
-
-def transcribe(wav_path: Path, config: dict) -> Optional[str]:
-    """Transcribe audio using configured provider."""
-    provider = config["stt_provider"]
-
-    if provider == "groq":
-        return transcribe_groq(wav_path, config["groq_api_key"])
-    elif provider == "xai":
-        return transcribe_xai(wav_path, config["xai_api_key"])
-    else:
-        log.error(f"Unknown STT provider: {provider}")
-        return None
-
-# ── Upload with Retry ───────────────────────────────────────────────
-
-def save_transcript_local(transcript: str, timestamp: str, config: dict) -> Path:
-    """Save transcript to local file."""
-    date_str = timestamp[:10]
-    dir_path = config["transcript_dir"] / date_str
-    dir_path.mkdir(parents=True, exist_ok=True)
-
-    filename = f"{timestamp}.json"
-    file_path = dir_path / filename
-
-    data = {
-        "timestamp": timestamp,
-        "text": transcript,
-        "provider": config["stt_provider"],
-        "uploaded": False,
-    }
-
-    file_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-    log.info(f"Transcript saved: {file_path}")
-    return file_path
-
-
-def upload_transcript(transcript_path: Path, config: dict) -> bool:
-    """Upload transcript to remote server. Returns True if successful."""
+def upload_audio(wav_path: Path, config: dict) -> bool:
+    """Upload WAV file to server. Returns True if successful."""
     if not config["upload_url"]:
-        log.debug("No upload URL configured, skipping upload")
-        return True  # Not an error, just not configured
+        log.warning("No UPLOAD_URL configured!")
+        return False
 
     try:
-        data = json.loads(transcript_path.read_text())
-        headers = {
-            "Content-Type": "application/json",
-        }
+        headers = {}
         if config["upload_token"]:
             headers["Authorization"] = f"Bearer {config['upload_token']}"
 
-        response = requests.post(
-            config["upload_url"],
-            json=data,
-            headers=headers,
-            timeout=30,
-        )
+        with open(wav_path, "rb") as f:
+            files = {"file": (wav_path.name, f, "audio/wav")}
+            data = {
+                "device_id": config["device_id"],
+                "timestamp": wav_path.stem,  # filename is the timestamp
+            }
+            response = requests.post(
+                config["upload_url"],
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120,  # WAV files can be large
+            )
 
         if response.status_code in (200, 201):
-            # Mark as uploaded
-            data["uploaded"] = True
-            transcript_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-            log.info(f"Uploaded: {transcript_path.name}")
+            log.info(f"Uploaded: {wav_path.name}")
             return True
         else:
-            log.warning(f"Upload failed ({response.status_code}): {response.text[:100]}")
+            log.warning(f"Upload failed ({response.status_code}): {response.text[:200]}")
             return False
     except Exception as e:
         log.warning(f"Upload error: {e}")
         return False
 
 
-def queue_for_retry(transcript_path: Path, config: dict):
-    """Move transcript to retry queue."""
+def queue_for_retry(wav_path: Path, config: dict):
+    """Copy WAV to retry queue."""
     queue_dir = config["queue_dir"]
     queue_dir.mkdir(parents=True, exist_ok=True)
-
-    dest = queue_dir / transcript_path.name
-    # Copy, don't move (keep local copy)
-    dest.write_text(transcript_path.read_text())
+    dest = queue_dir / wav_path.name
+    shutil.copy2(wav_path, dest)
     log.info(f"Queued for retry: {dest.name}")
 
 
 def process_retry_queue(config: dict):
-    """Try to upload all items in the retry queue."""
+    """Try to upload all WAV files in the retry queue."""
     queue_dir = config["queue_dir"]
     if not queue_dir.exists():
         return
 
-    for item in sorted(queue_dir.glob("*.json")):
-        if upload_transcript(item, config):
+    items = sorted(queue_dir.glob("*.wav"))
+    if not items:
+        return
+
+    log.info(f"Retry queue: {len(items)} files")
+    for item in items:
+        if upload_audio(item, config):
             item.unlink()
-            log.info(f"Retry successful, removed from queue: {item.name}")
+            log.info(f"Retry OK: {item.name}")
         else:
-            break  # If one fails, likely all will fail (network issue)
+            log.info("Retry failed, will try again later")
+            break  # If one fails, likely all will (network issue)
 
 # ── Storage Management ──────────────────────────────────────────────
 
 def cleanup_storage(config: dict):
-    """Remove old files if storage exceeds limit."""
+    """Remove oldest files if storage exceeds limit."""
     max_bytes = config["max_storage_mb"] * 1024 * 1024
 
     all_files = []
-    for dir_path in [config["audio_dir"], config["transcript_dir"], config["queue_dir"]]:
+    for dir_path in [config["audio_dir"], config["queue_dir"]]:
         if dir_path.exists():
-            all_files.extend(dir_path.rglob("*"))
+            all_files.extend(f for f in dir_path.rglob("*") if f.is_file())
 
-    all_files = [f for f in all_files if f.is_file()]
     total_size = sum(f.stat().st_size for f in all_files)
 
     if total_size <= max_bytes:
         return
 
-    # Sort by modification time, oldest first
     all_files.sort(key=lambda f: f.stat().st_mtime)
 
     while total_size > max_bytes and all_files:
@@ -299,27 +199,34 @@ def cleanup_storage(config: dict):
         size = oldest.stat().st_size
         oldest.unlink()
         total_size -= size
-        log.info(f"Cleaned up: {oldest} ({size} bytes)")
+        log.info(f"Cleaned up: {oldest.name} ({size // 1024} KB)")
+
+
+def get_disk_usage_mb(config: dict) -> float:
+    """Get total disk usage in MB."""
+    total = 0
+    for dir_path in [config["audio_dir"], config["queue_dir"]]:
+        if dir_path.exists():
+            total += sum(f.stat().st_size for f in dir_path.rglob("*") if f.is_file())
+    return total / (1024 * 1024)
 
 # ── Main Loop ───────────────────────────────────────────────────────
 
 def main():
     config = load_config()
 
-    # Validate config
-    if config["stt_provider"] == "groq" and not config["groq_api_key"]:
-        log.error("GROQ_API_KEY is required when STT_PROVIDER=groq")
-        sys.exit(1)
-    if config["stt_provider"] == "xai" and not config["xai_api_key"]:
-        log.error("XAI_API_KEY is required when STT_PROVIDER=xai")
+    if not config["upload_url"]:
+        log.error("UPLOAD_URL is required. Set it in config.env")
         sys.exit(1)
 
     # Create directories
-    for d in [config["audio_dir"], config["transcript_dir"], config["queue_dir"]]:
+    for d in [config["audio_dir"], config["queue_dir"]]:
         d.mkdir(parents=True, exist_ok=True)
 
-    log.info(f"Listener started. Provider: {config['stt_provider']}, chunk: {config['chunk_duration']}s")
-    log.info(f"Audio: {config['audio_dir']}, Transcripts: {config['transcript_dir']}")
+    log.info(f"=== Listener started ===")
+    log.info(f"Device: {config['device_id']}")
+    log.info(f"Chunk: {config['chunk_duration']}s, Upload: {config['upload_url']}")
+    log.info(f"Audio dir: {config['audio_dir']}, Queue: {config['queue_dir']}")
 
     chunk_count = 0
 
@@ -329,7 +236,7 @@ def main():
             wav_path = config["audio_dir"] / f"{timestamp}.wav"
 
             # 1. Record
-            log.info(f"Recording chunk ({config['chunk_duration']}s)...")
+            log.info(f"Recording ({config['chunk_duration']}s)...")
             if not record_chunk(wav_path, config["chunk_duration"], config["sample_rate"], config["channels"]):
                 log.warning("Recording failed, retrying in 10s...")
                 time.sleep(10)
@@ -347,35 +254,23 @@ def main():
                 wav_path.unlink()
                 continue
 
-            # 3. Transcribe
-            log.info("Transcribing...")
-            text = transcribe(wav_path, config)
-
-            if not text:
-                log.warning("Transcription returned empty, skipping")
-                if not config["keep_audio"]:
-                    wav_path.unlink()
-                continue
-
-            log.info(f"Transcribed ({len(text)} chars): {text[:100]}...")
-
-            # 4. Save locally
-            transcript_path = save_transcript_local(text, timestamp, config)
-
-            # 5. Upload (with retry queue)
-            if not upload_transcript(transcript_path, config):
-                queue_for_retry(transcript_path, config)
-
-            # 6. Cleanup audio
-            if not config["keep_audio"]:
+            # 3. Upload to server
+            if upload_audio(wav_path, config):
                 wav_path.unlink()
-                log.debug(f"Audio deleted: {wav_path.name}")
+            else:
+                # Failed -- move to retry queue, delete from audio dir
+                queue_for_retry(wav_path, config)
+                wav_path.unlink()
 
-            # 7. Process retry queue (every 5 chunks)
+            # 4. Process retry queue + cleanup (every 3 chunks)
             chunk_count += 1
-            if chunk_count % 5 == 0:
+            if chunk_count % 3 == 0:
                 process_retry_queue(config)
                 cleanup_storage(config)
+
+                usage_mb = get_disk_usage_mb(config)
+                queue_count = len(list(config["queue_dir"].glob("*.wav")))
+                log.info(f"Status: {chunk_count} chunks, {usage_mb:.1f} MB used, {queue_count} in queue")
 
         except KeyboardInterrupt:
             log.info("Shutting down...")
