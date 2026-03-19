@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from '
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { deleteBot, removeFromTeamJson, getAvailableRoles, buildClaudeMd, buildRoleMd, assembleClaudeMd } from '../../bot-manager.js'
+import { hasWorkspaceFiles, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, isWritableFile, splitRoleIntoWorkspaceFiles, createWorkspaceFiles, type WorkspaceFileName } from '../../workspace-files.js'
 
 function getModelLabels(t: TFunc) {
   return [
@@ -120,6 +121,49 @@ app.get('/bot/:name/config', validateBot, (c) => {
       <textarea name="claude" class="code" rows="20">${claudeContent}</textarea>
       <button type="submit">${icon('save', 13)} ${t('config.saveClaude')}</button>
     </form>
+
+    <h3 class="section-title">${icon('files')} Workspace Files</h3>
+    ${(() => {
+      const dir = getBotDir(name)
+      const hasWs = hasWorkspaceFiles(dir)
+      if (!hasWs) {
+        return html`
+          <div class="form-section">
+            <p style="color:var(--mc-muted)">Workspace files не ініціалізовані. Бот використовує legacy CLAUDE.md.</p>
+            <button type="button" hx-post="/bot/${name}/config/migrate-workspace" hx-target="#config-alerts" hx-swap="innerHTML"
+              hx-confirm="Створити workspace files з поточного CLAUDE.md? Це не видаляє існуючий файл."
+              class="outline">${icon('folder-plus', 13)} Migrate to Workspace Files</button>
+          </div>
+        `
+      }
+      const files = listWorkspaceFiles(dir)
+      return html`
+        <div class="form-section">
+          ${files.filter(f => f.exists).map(f => {
+            const content = readWorkspaceFile(dir, f.name) ?? ''
+            const readonly = !f.writable
+            const rows = Math.min(Math.max(content.split('\n').length + 2, 6), 20)
+            return html`
+              <details ${f.writable ? 'open' : ''} style="margin-bottom:0.75rem">
+                <summary style="display:flex;align-items:center;gap:0.5rem">
+                  ${icon(f.writable ? 'file-edit' : 'file-text', 14)}
+                  <b>${f.name}</b>
+                  ${f.writable
+                    ? html`<span class="badge badge-running" style="font-size:0.7rem">writable</span>`
+                    : html`<span class="badge badge-stopped" style="font-size:0.7rem">read-only</span>`}
+                  <small style="color:var(--mc-muted)">${(f.size / 1024).toFixed(1)} KB</small>
+                </summary>
+                <form hx-post="/bot/${name}/config/workspace-file" hx-target="#config-alerts" hx-swap="innerHTML" style="margin-top:0.5rem">
+                  <input type="hidden" name="filename" value="${f.name}">
+                  <textarea name="content" class="code" rows="${rows}" ${readonly ? 'readonly style="opacity:0.7;cursor:not-allowed"' : ''}>${content}</textarea>
+                  ${f.writable ? html`<button type="submit" style="margin-top:0.25rem">${icon('save', 13)} Save ${f.name}</button>` : ''}
+                </form>
+              </details>
+            `
+          })}
+        </div>
+      `
+    })()}
 
     <div style="display:flex;flex-direction:column;gap:0.5rem;margin-top:1.5rem">
       <details>
@@ -262,6 +306,54 @@ app.post('/bot/:name/config/claude', validateBot, async (c) => {
     writeClaudeMd(name, content)
   }
   return c.html(alert('success', t('config.claudeSaved')))
+})
+
+// --- Workspace files endpoints ---
+
+app.post('/bot/:name/config/workspace-file', validateBot, async (c) => {
+  const name = botName(c)
+  const body = await c.req.parseBody()
+  const filename = String(body['filename'] ?? '')
+  const content = String(body['content'] ?? '')
+  const dir = getBotDir(name)
+
+  if (!isWritableFile(filename)) {
+    return c.html(alert('error', `${filename} is read-only`))
+  }
+
+  try {
+    writeWorkspaceFile(dir, filename as WorkspaceFileName, content)
+    return c.html(alert('success', `${filename} saved`))
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return c.html(alert('error', msg))
+  }
+})
+
+app.post('/bot/:name/config/migrate-workspace', validateBot, async (c) => {
+  const name = botName(c)
+  const dir = getBotDir(name)
+
+  if (hasWorkspaceFiles(dir)) {
+    return c.html(alert('warning', 'Workspace files already exist'))
+  }
+
+  try {
+    const claudeMdPath = resolve(dir, 'CLAUDE.md')
+    if (!existsSync(claudeMdPath)) {
+      return c.html(alert('error', 'CLAUDE.md not found'))
+    }
+    const claudeMd = readFileSync(claudeMdPath, 'utf-8')
+    const wsFiles = splitRoleIntoWorkspaceFiles(claudeMd)
+    createWorkspaceFiles(dir, wsFiles)
+    return c.html(html`
+      ${alert('success', 'Workspace files created successfully')}
+      <script>setTimeout(function(){ location.reload(); }, 600);</script>
+    `)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return c.html(alert('error', msg))
+  }
 })
 
 app.post('/bot/:name/rename', validateBot, async (c) => {

@@ -219,6 +219,11 @@ SMTP_SIGNATURE=**Ім'я**\nПосада, Компанія
 - **OpenWebApp** -- інтерактивні Mini App (HTML) в Telegram
 - **AskUser** -- вибір з варіантів через кнопки (inline, reply, poll)
 
+### Workspace Files
+
+- **ReadWorkspaceFile** -- прочитати workspace файл бота (SOUL.md, IDENTITY.md, USER.md, TOOLS.md, ROLE.md, MEMORY.md)
+- **WriteWorkspaceFile** -- оновити USER.md (профіль користувача) або MEMORY.md (курована пам'ять). Зберігається між сесіями
+
 ### Публікація файлів
 
 - **Telegraph** -- довгі відповіді автоматично публікуються як Telegraph-статті
@@ -233,7 +238,14 @@ scripts/publish.sh /path/to/file.html [subfolder]
 ```
 bots/<name>/
 ├── .env                         # Токени та API-ключі
-├── CLAUDE.md                    # Інструкції для AI (генерується з ролі)
+├── CLAUDE.md                    # Інструкції для AI (збирається з workspace-files/)
+├── workspace-files/             # Модульні workspace файли (натхнено OpenClaw)
+│   ├── IDENTITY.md              # Ім'я, emoji, опис ролі
+│   ├── SOUL.md                  # Душа: правила, інструменти, стиль (read-only)
+│   ├── ROLE.md                  # Спеціалізація, сценарії (read-only)
+│   ├── TOOLS.md                 # Таблиця "коли який інструмент" (read-only)
+│   ├── USER.md                  # Профіль користувача (бот оновлює)
+│   └── MEMORY.md                # Курована пам'ять (бот оновлює)
 ├── core/
 │   ├── personality.md           # Ідентичність, правила, формат
 │   └── skills.md                # Доступні інструменти та MCP
@@ -247,6 +259,7 @@ bots/<name>/
     └── botva.db                 # SQLite база (сесії, пам'ять, usage)
 ```
 
+- **workspace-files/** -- живі файли бота між сесіями. USER.md і MEMORY.md бот може оновлювати через WriteWorkspaceFile
 - **core/** -- персональність та навички бота (редагуй для кастомізації)
 - **context/** -- що бот знає про тебе (заповнюється автоматично та вручну)
 - **knowledge/** -- файли з предметними знаннями (додавай .md, .txt, .pdf)

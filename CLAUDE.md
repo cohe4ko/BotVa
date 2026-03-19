@@ -100,7 +100,8 @@ CreateBot, DeleteBot, ListBots,
 CurrencyRates, GetCurrentTime,
 CreateReminder, ListReminders, DeleteReminder,
 RunPython, AskUser, TakeScreenshot, NameSession,
-AskGemini, GeminiSearch
+AskGemini, GeminiSearch,
+ReadWorkspaceFile, WriteWorkspaceFile
 
 **MCP сервери** (mcp-servers.json):
 - bitrix24 -- CRM: контакти, ліди, угоди, компанії, звіти
@@ -167,6 +168,7 @@ pptx, ship-learn-next
 
 **ДАНІ (gitignored):**
 - `bots/`, `knowledge/`, `store/` — персональні дані, БД
+- `bots/<name>/workspace-files/` — workspace файли бота (SOUL.md, USER.md, MEMORY.md тощо)
 - `.env`, `.mcp.json`, `mcp-servers.json` — токени, ключі, шляхи
 - `workspace/` — runtime дані ботів
 - `agents/` — agent configs з персональними даними
