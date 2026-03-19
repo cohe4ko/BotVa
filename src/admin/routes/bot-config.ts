@@ -141,7 +141,6 @@ app.get('/bot/:name/config', validateBot, (c) => {
         <div class="form-section">
           ${files.filter(f => f.exists).map(f => {
             const content = readWorkspaceFile(dir, f.name) ?? ''
-            const readonly = !f.writable
             const rows = Math.min(Math.max(content.split('\n').length + 2, 6), 20)
             return html`
               <details ${f.writable ? 'open' : ''} style="margin-bottom:0.75rem">
@@ -149,14 +148,14 @@ app.get('/bot/:name/config', validateBot, (c) => {
                   ${icon(f.writable ? 'file-edit' : 'file-text', 14)}
                   <b>${f.name}</b>
                   ${f.writable
-                    ? html`<span class="badge badge-running" style="font-size:0.7rem">writable</span>`
-                    : html`<span class="badge badge-stopped" style="font-size:0.7rem">read-only</span>`}
+                    ? html`<span class="badge badge-running" style="font-size:0.7rem">bot-writable</span>`
+                    : html`<span class="badge badge-stopped" style="font-size:0.7rem">bot-readonly</span>`}
                   <small style="color:var(--mc-muted)">${(f.size / 1024).toFixed(1)} KB</small>
                 </summary>
                 <form hx-post="/bot/${name}/config/workspace-file" hx-target="#config-alerts" hx-swap="innerHTML" style="margin-top:0.5rem">
                   <input type="hidden" name="filename" value="${f.name}">
-                  <textarea name="content" class="code" rows="${rows}" ${readonly ? 'readonly style="opacity:0.7;cursor:not-allowed"' : ''}>${content}</textarea>
-                  ${f.writable ? html`<button type="submit" style="margin-top:0.25rem">${icon('save', 13)} Save ${f.name}</button>` : ''}
+                  <textarea name="content" class="code" rows="${rows}">${content}</textarea>
+                  <button type="submit" style="margin-top:0.25rem">${icon('save', 13)} Save ${f.name}</button>
                 </form>
               </details>
             `
@@ -313,16 +312,14 @@ app.post('/bot/:name/config/claude', validateBot, async (c) => {
 app.post('/bot/:name/config/workspace-file', validateBot, async (c) => {
   const name = botName(c)
   const body = await c.req.parseBody()
-  const filename = String(body['filename'] ?? '')
+  const filename = String(body['filename'] ?? '') as WorkspaceFileName
   const content = String(body['content'] ?? '')
   const dir = getBotDir(name)
 
-  if (!isWritableFile(filename)) {
-    return c.html(alert('error', `${filename} is read-only`))
-  }
-
   try {
-    writeWorkspaceFile(dir, filename as WorkspaceFileName, content)
+    // Admin can write any workspace file (no writable check)
+    const wsDir = resolve(dir, 'workspace-files')
+    writeFileSync(resolve(wsDir, filename), content, 'utf-8')
     return c.html(alert('success', `${filename} saved`))
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
