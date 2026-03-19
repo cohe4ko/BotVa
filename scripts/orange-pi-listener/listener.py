@@ -13,6 +13,8 @@ import struct
 import subprocess
 import logging
 import shutil
+import signal
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -48,10 +50,55 @@ logging.basicConfig(
 )
 log = logging.getLogger("listener")
 
+# ── Global: current arecord process (for button interrupt) ──────────
+
+_arecord_proc: subprocess.Popen | None = None
+_arecord_lock = threading.Lock()
+_button_pressed = threading.Event()
+
+# ── Hardware Button Listener ────────────────────────────────────────
+
+def start_button_listener():
+    """Listen for physical button press (BTN_0 on /dev/input/event0).
+    When pressed, interrupt current recording to force immediate upload.
+    Uses raw input_event struct (no evdev library needed)."""
+
+    BUTTON_DEVICE = "/dev/input/event0"
+    EV_KEY = 1
+    BTN_0 = 256
+    # struct input_event: time_sec(L) time_usec(L) type(H) code(H) value(i) = 24 bytes on 32-bit ARM
+    EVENT_SIZE = 16  # 32-bit ARM: 4+4+2+2+4 = 16 bytes
+    EVENT_FMT = "IIHHi"  # uint32 uint32 uint16 uint16 int32
+
+    def _listener():
+        try:
+            fd = open(BUTTON_DEVICE, "rb")
+            log.info(f"Button listener started ({BUTTON_DEVICE})")
+            while True:
+                data = fd.read(EVENT_SIZE)
+                if len(data) < EVENT_SIZE:
+                    break
+                _, _, ev_type, ev_code, ev_value = struct.unpack(EVENT_FMT, data)
+                if ev_type == EV_KEY and ev_code == BTN_0 and ev_value == 1:
+                    log.info(">>> BUTTON PRESSED — forcing chunk upload")
+                    _button_pressed.set()
+                    with _arecord_lock:
+                        if _arecord_proc and _arecord_proc.poll() is None:
+                            _arecord_proc.send_signal(signal.SIGINT)
+        except FileNotFoundError:
+            log.warning(f"Button device {BUTTON_DEVICE} not found, button disabled")
+        except Exception as e:
+            log.warning(f"Button listener error: {e}")
+
+    t = threading.Thread(target=_listener, daemon=True)
+    t.start()
+
 # ── Audio Recording ─────────────────────────────────────────────────
 
 def record_chunk(output_path: Path, duration: int, sample_rate: int, channels: int) -> bool:
-    """Record an audio chunk using arecord. Returns True if successful."""
+    """Record an audio chunk using arecord. Returns True if successful.
+    Can be interrupted early by button press (SIGINT to arecord)."""
+    global _arecord_proc
     cmd = [
         "arecord",
         "-D", "plughw:0,0",
@@ -63,16 +110,31 @@ def record_chunk(output_path: Path, duration: int, sample_rate: int, channels: i
         str(output_path),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=duration + 30)
-        if result.returncode != 0:
-            log.error(f"arecord failed: {result.stderr.decode()}")
+        with _arecord_lock:
+            _arecord_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        _arecord_proc.wait(timeout=duration + 30)
+        stderr = _arecord_proc.stderr.read().decode() if _arecord_proc.stderr else ""
+        rc = _arecord_proc.returncode
+        with _arecord_lock:
+            _arecord_proc = None
+
+        # arecord returns 0 on normal finish, or non-zero on SIGINT (button press)
+        # Both are OK as long as WAV file exists and has data
+        if rc != 0 and not _button_pressed.is_set():
+            log.error(f"arecord failed (rc={rc}): {stderr}")
             return False
         return output_path.exists() and output_path.stat().st_size > 1000
     except subprocess.TimeoutExpired:
         log.error("arecord timed out")
+        with _arecord_lock:
+            if _arecord_proc:
+                _arecord_proc.kill()
+                _arecord_proc = None
         return False
     except Exception as e:
         log.error(f"Recording error: {e}")
+        with _arecord_lock:
+            _arecord_proc = None
         return False
 
 # ── Voice Activity Detection (simple energy-based) ─────────────────
@@ -305,12 +367,18 @@ def main():
 
     chunk_count = 0
 
+    # Start button listener (separate thread)
+    start_button_listener()
+
     # Health ping at startup
     health = get_system_health(config, chunk_count, recording=False)
     send_health_ping(config, health)
 
     while True:
         try:
+            # Clear button state before recording
+            _button_pressed.clear()
+
             timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
             wav_path = config["audio_dir"] / f"{timestamp}.wav"
 
@@ -328,17 +396,21 @@ def main():
                 time.sleep(10)
                 continue
 
+            forced = _button_pressed.is_set()
             file_size_kb = wav_path.stat().st_size / 1024
-            log.info(f"Recorded: {wav_path.name} ({file_size_kb:.0f} KB)")
+            log.info(f"Recorded: {wav_path.name} ({file_size_kb:.0f} KB){' [BUTTON FORCED]' if forced else ''}")
 
-            # 2. VAD filter
-            speech_pct = detect_speech_percentage(wav_path, config["silence_threshold"])
-            log.info(f"Speech: {speech_pct:.1f}%")
+            # 2. VAD filter (skip if button forced)
+            if forced:
+                log.info("Button forced — skipping VAD, uploading immediately")
+            else:
+                speech_pct = detect_speech_percentage(wav_path, config["silence_threshold"])
+                log.info(f"Speech: {speech_pct:.1f}%")
 
-            if speech_pct < config["min_speech_pct"]:
-                log.info(f"Silence ({speech_pct:.1f}% < {config['min_speech_pct']}%), skipping")
-                wav_path.unlink()
-                continue
+                if speech_pct < config["min_speech_pct"]:
+                    log.info(f"Silence ({speech_pct:.1f}% < {config['min_speech_pct']}%), skipping")
+                    wav_path.unlink()
+                    continue
 
             # 3. Upload to server
             if upload_audio(wav_path, config):
