@@ -154,6 +154,7 @@ export class ProgressReporter {
   private dirty = false
   private flushing = false
   private subagentTools = new Set<string>()
+  private toolResults = new Map<string, string>() // tool_use_id -> result preview
   // Streaming text accumulator
   private streamingText = ''
   private streamingLineIdx: number | null = null
@@ -201,7 +202,7 @@ export class ProgressReporter {
     const msgId = this.messageId
     this.messageId = null
     try {
-      const finalText = this.lines.join('\n') || '...'
+      const finalText = this.buildFinalText()
       await this.api.editMessageText(this.chatId, msgId, finalText, {
         parse_mode: 'HTML',
       })
@@ -220,9 +221,9 @@ export class ProgressReporter {
     const msgId = this.messageId
     this.messageId = null
 
-    // Remove the Stop button immediately, show final state
+    // Remove the Stop button immediately, show final state with expandable details
     try {
-      const finalText = this.lines.join('\n') || '...'
+      const finalText = this.buildFinalText()
       await this.api.editMessageText(this.chatId, msgId, finalText, {
         parse_mode: 'HTML',
         // no reply_markup = removes keyboard
@@ -336,11 +337,12 @@ export class ProgressReporter {
         const preview = display.length > 300 ? '...' + display.slice(-297) : display
 
         const streamEmoji = this.cuteMode ? '💭' : '✍️'
+        const streamLine = `<blockquote>${indent}${streamEmoji} ${mdToHtml(preview)}</blockquote>`
         if (this.streamingLineIdx !== null && this.streamingLineIdx < this.lines.length) {
-          this.lines[this.streamingLineIdx] = `${indent}${streamEmoji} ${mdToHtml(preview)}`
+          this.lines[this.streamingLineIdx] = streamLine
         } else {
           this.streamingLineIdx = this.lines.length
-          this.addLine(`${indent}${streamEmoji} ${mdToHtml(preview)}`)
+          this.addLine(streamLine)
         }
         return true
       }
@@ -391,8 +393,7 @@ export class ProgressReporter {
           if (toolName && !this.subagentTools.has(event.parent_tool_use_id)) {
             const preview = resultPreview(event.tool_use_result)
             if (preview) {
-              const resultIndent = isSubagent ? '    ' : '  '
-              this.addLine(`${resultIndent}↳ <i>${escapeHtml(preview)}</i>`)
+              this.toolResults.set(event.parent_tool_use_id, preview)
             }
           }
         }
@@ -488,20 +489,20 @@ export class ProgressReporter {
 
       if (sys.subtype === 'task_started') {
         const desc = (sys.description ?? '').slice(0, 60)
-        this.addLine(`  🤖 <i>Subtask: ${escapeHtml(desc)}</i>`)
+        this.addLine(`<blockquote>🤖 <i>Subtask: ${escapeHtml(desc)}</i></blockquote>`)
         return true
       }
 
       if (sys.subtype === 'task_progress' && sys.summary) {
         const summary = String(sys.summary).replace(/\n/g, ' ').trim().slice(0, 80)
-        this.addLine(`  💭 <i>${escapeHtml(summary)}</i>`)
+        this.addLine(`<blockquote>💭 <i>${escapeHtml(summary)}</i></blockquote>`)
         return true
       }
 
       if (sys.subtype === 'task_notification') {
         const status = sys.status === 'completed' ? '✅' : sys.status === 'failed' ? '❌' : '⏹'
         const summary = sys.summary ? `: ${String(sys.summary).replace(/\n/g, ' ').trim().slice(0, 60)}` : ''
-        this.addLine(`  ${status} <i>Subtask ${sys.status ?? 'done'}${escapeHtml(summary)}</i>`)
+        this.addLine(`<blockquote>${status} <i>Subtask ${sys.status ?? 'done'}${escapeHtml(summary)}</i></blockquote>`)
         return true
       }
 
@@ -600,6 +601,22 @@ export class ProgressReporter {
         }
       }
     }
+  }
+
+  /** Build final message text with tool results in expandable blockquote */
+  private buildFinalText(): string {
+    const mainLines = [...this.lines]
+
+    if (this.toolResults.size > 0) {
+      const entries: string[] = []
+      for (const [toolId, preview] of this.toolResults) {
+        const name = this.toolNames.get(toolId) ?? 'tool'
+        entries.push(`<b>${escapeHtml(name)}</b> → <i>${escapeHtml(preview)}</i>`)
+      }
+      mainLines.push(`<blockquote expandable>📋 ${entries.join('\n')}</blockquote>`)
+    }
+
+    return mainLines.join('\n') || '...'
   }
 
   private scheduleFlush(): void {
