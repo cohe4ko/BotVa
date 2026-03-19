@@ -183,6 +183,11 @@ app.get('/system', async (c) => {
       <span style="color:var(--mc-text-dim)">Loading...</span>
     </div>
 
+    <h3>${icon('mic')} Room Listener</h3>
+    <div id="listener-status" hx-get="/system/listener/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
+      <span style="color:var(--mc-text-dim)">Loading...</span>
+    </div>
+
     <h3>${icon('hard-drive')} ${t('sys.storage')}</h3>
     <div class="stats-grid">
       <div class="stat-card">
@@ -721,6 +726,137 @@ app.post('/system/embedding/model', async (c) => {
       </div>
     </div>
     <div hx-get="/system/embedding/status" hx-trigger="load delay:5s" hx-target="#embedding-status" hx-swap="innerHTML"></div>
+  `)
+})
+
+// --- Room Listener routes ---
+
+app.get('/system/listener/status', async (c) => {
+  const t: TFunc = c.get('t')
+
+  let healthOk = false
+  let healthData: any = null
+  let devices: any[] = []
+
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 3000)
+    const res = await fetch('http://localhost:3847/health', { signal: ctrl.signal })
+    clearTimeout(timer)
+    if (res.ok) {
+      healthOk = true
+      healthData = await res.json()
+    }
+  } catch {}
+
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 3000)
+    const res = await fetch('http://localhost:3847/devices', { signal: ctrl.signal })
+    clearTimeout(timer)
+    if (res.ok) {
+      devices = await res.json()
+    }
+  } catch {}
+
+  const sttProvider = healthData?.stt_provider ?? '—'
+  const groqKeys = healthData?.groq_keys ?? 0
+  const deviceCount = Array.isArray(devices) ? devices.length : 0
+
+  const fmtUptime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    return `${h}h ${m}m`
+  }
+
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${icon('activity', 12)} Receiver</div>
+        <div class="stat-number" style="font-size:1.1rem">
+          ${healthOk
+            ? html`<span class="badge badge-set">${icon('check', 11)} ${t('records.online')}</span>`
+            : html`<span class="badge badge-missing">${icon('x', 11)} ${t('records.offline')}</span>`
+          }
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('mic', 12)} STT Provider</div>
+        <div class="stat-number" style="font-size:0.85rem">${sttProvider}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('key', 12)} Groq Keys</div>
+        <div class="stat-number">${groqKeys}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">${icon('cpu', 12)} ${t('records.devices')}</div>
+        <div class="stat-number">${deviceCount}</div>
+      </div>
+    </div>
+    ${Array.isArray(devices) && devices.length > 0 ? html`
+      <div class="table-wrap" style="margin-top:0.5rem">
+        <table>
+          <thead><tr><th>Device</th><th>Status</th><th>CPU Temp</th><th>Uptime</th></tr></thead>
+          <tbody>
+            ${devices.map((d: any) => html`
+              <tr>
+                <td><strong>${d.name || d.device_id || 'unknown'}</strong></td>
+                <td>${d.online
+                  ? html`<span class="badge badge-set" style="font-size:0.7rem">${icon('check', 9)} ${t('records.online')}</span>`
+                  : html`<span class="badge badge-missing" style="font-size:0.7rem">${icon('x', 9)} ${t('records.offline')}</span>`
+                }</td>
+                <td>${d.cpu_temp != null ? `${d.cpu_temp}°C` : '—'}</td>
+                <td>${d.uptime_seconds != null ? fmtUptime(d.uptime_seconds) : '—'}</td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+    ` : ''}
+    <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center">
+      ${healthOk
+        ? html`<button hx-post="/system/listener/stop" hx-target="#listener-status" hx-swap="innerHTML" class="btn-sm secondary outline">${icon('square', 11)} Stop</button>`
+        : html`<button hx-post="/system/listener/start" hx-target="#listener-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} Start</button>`
+      }
+    </div>
+  `)
+})
+
+app.post('/system/listener/start', (c) => {
+  const t: TFunc = c.get('t')
+  try {
+    execSync('launchctl load ~/Library/LaunchAgents/com.botva.listener-receiver.plist')
+  } catch {}
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${icon('activity', 12)} Receiver</div>
+        <div class="stat-number" style="font-size:1.1rem">
+          <span class="badge" style="background:var(--mc-warning);color:#000">${icon('loader', 11)} Starting...</span>
+        </div>
+      </div>
+    </div>
+    <div hx-get="/system/listener/status" hx-trigger="load delay:3s" hx-target="#listener-status" hx-swap="innerHTML"></div>
+  `)
+})
+
+app.post('/system/listener/stop', (c) => {
+  const t: TFunc = c.get('t')
+  try {
+    execSync('launchctl unload ~/Library/LaunchAgents/com.botva.listener-receiver.plist')
+  } catch {}
+  return c.html(html`
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">${icon('activity', 12)} Receiver</div>
+        <div class="stat-number" style="font-size:1.1rem">
+          <span class="badge badge-missing">${icon('x', 11)} ${t('records.offline')}</span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:0.5rem">
+      <button hx-post="/system/listener/start" hx-target="#listener-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} Start</button>
+    </div>
   `)
 })
 

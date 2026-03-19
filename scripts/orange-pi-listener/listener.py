@@ -36,6 +36,7 @@ def load_config():
         "queue_dir": Path(os.getenv("QUEUE_DIR", "/data/queue")),
         "max_storage_mb": int(os.getenv("MAX_STORAGE_MB", "4000")),
         "device_id": os.getenv("DEVICE_ID", "opi-1"),
+        "chunk_overlap": int(os.getenv("CHUNK_OVERLAP", "10")),
     }
 
 # ── Logging ─────────────────────────────────────────────────────────
@@ -202,6 +203,80 @@ def cleanup_storage(config: dict):
         log.info(f"Cleaned up: {oldest.name} ({size // 1024} KB)")
 
 
+def get_system_health(config: dict, chunk_count: int, recording: bool = False) -> dict:
+    """Gather system health metrics for health ping."""
+    health = {
+        "device_id": config["device_id"],
+        "chunks_recorded": chunk_count,
+        "recording": recording,
+    }
+
+    # CPU temperature
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            health["cpu_temp"] = int(f.read().strip()) / 1000
+    except Exception:
+        health["cpu_temp"] = None
+
+    # Load average
+    try:
+        with open("/proc/loadavg") as f:
+            parts = f.read().strip().split()
+            health["load_avg"] = [float(x) for x in parts[:3]]
+    except Exception:
+        health["load_avg"] = None
+
+    # RAM usage
+    try:
+        meminfo = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                key, val = line.split(":", 1)
+                meminfo[key.strip()] = int(val.strip().split()[0])  # kB
+        total_mb = meminfo["MemTotal"] / 1024
+        avail_mb = meminfo["MemAvailable"] / 1024
+        health["ram_total_mb"] = round(total_mb)
+        health["ram_used_mb"] = round(total_mb - avail_mb)
+    except Exception:
+        health["ram_total_mb"] = None
+        health["ram_used_mb"] = None
+
+    # Uptime
+    try:
+        with open("/proc/uptime") as f:
+            health["uptime_seconds"] = float(f.read().strip().split()[0])
+    except Exception:
+        health["uptime_seconds"] = None
+
+    # Queue size
+    try:
+        queue_dir = config["queue_dir"]
+        health["queue_size"] = len(list(queue_dir.glob("*.wav"))) if queue_dir.exists() else 0
+    except Exception:
+        health["queue_size"] = 0
+
+    return health
+
+
+def send_health_ping(config: dict, health_data: dict):
+    """Send health ping to server. Non-critical -- all exceptions caught."""
+    try:
+        url = config["upload_url"].replace("/audio", "/health-ping")
+        headers = {"Content-Type": "application/json"}
+        if config["upload_token"]:
+            headers["Authorization"] = f"Bearer {config['upload_token']}"
+
+        response = requests.post(url, json=health_data, headers=headers, timeout=10)
+
+        if response.status_code in (200, 201):
+            temp = health_data.get("cpu_temp")
+            used = health_data.get("ram_used_mb")
+            total = health_data.get("ram_total_mb")
+            log.info(f"Health ping sent (CPU {temp}°C, RAM {used}/{total}MB)")
+    except Exception:
+        pass  # Non-critical, don't log errors
+
+
 def get_disk_usage_mb(config: dict) -> float:
     """Get total disk usage in MB."""
     total = 0
@@ -225,10 +300,14 @@ def main():
 
     log.info(f"=== Listener started ===")
     log.info(f"Device: {config['device_id']}")
-    log.info(f"Chunk: {config['chunk_duration']}s, Upload: {config['upload_url']}")
+    log.info(f"Chunk: {config['chunk_duration']}s, Overlap: {config['chunk_overlap']}s, Upload: {config['upload_url']}")
     log.info(f"Audio dir: {config['audio_dir']}, Queue: {config['queue_dir']}")
 
     chunk_count = 0
+
+    # Health ping at startup
+    health = get_system_health(config, chunk_count, recording=False)
+    send_health_ping(config, health)
 
     while True:
         try:
@@ -236,8 +315,15 @@ def main():
             wav_path = config["audio_dir"] / f"{timestamp}.wav"
 
             # 1. Record
-            log.info(f"Recording ({config['chunk_duration']}s)...")
-            if not record_chunk(wav_path, config["chunk_duration"], config["sample_rate"], config["channels"]):
+            overlap = config["chunk_overlap"]
+            total_duration = config["chunk_duration"] + overlap
+
+            # Health ping before recording
+            health = get_system_health(config, chunk_count, recording=True)
+            send_health_ping(config, health)
+
+            log.info(f"Recording ({total_duration}s, {overlap}s overlap)...")
+            if not record_chunk(wav_path, total_duration, config["sample_rate"], config["channels"]):
                 log.warning("Recording failed, retrying in 10s...")
                 time.sleep(10)
                 continue

@@ -13,7 +13,8 @@
  *   LISTENER_PORT       (default: 3847)
  *   LISTENER_AUTH_TOKEN  (optional, for auth)
  *   LISTENER_DATA_DIR   (default: workspace/listener)
- *   GROQ_API_KEY        (required for transcription)
+ *   GROQ_API_KEY        (single key, fallback if GROQ_API_KEYS not set)
+ *   GROQ_API_KEYS       (comma-separated keys for rotation)
  *   ANTHROPIC_API_KEY   (optional, for LLM analysis)
  *   STT_PROVIDER        (default: "groq", or "xai")
  *   XAI_API_KEY         (for xAI STT when available)
@@ -37,10 +38,43 @@ const PORT = parseInt(process.env.LISTENER_PORT || "3847");
 const AUTH_TOKEN = process.env.LISTENER_AUTH_TOKEN || "";
 const DATA_DIR =
   process.env.LISTENER_DATA_DIR || join(process.cwd(), "workspace/listener");
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+const GROQ_API_KEYS: string[] = (() => {
+  const multi = process.env.GROQ_API_KEYS;
+  if (multi) return multi.split(",").map((k) => k.trim()).filter(Boolean);
+  const single = process.env.GROQ_API_KEY;
+  if (single) return [single];
+  return [];
+})();
+let groqKeyIndex = 0;
+
+function nextGroqKey(): string | null {
+  if (GROQ_API_KEYS.length === 0) return null;
+  const key = GROQ_API_KEYS[groqKeyIndex % GROQ_API_KEYS.length];
+  groqKeyIndex++;
+  return key;
+}
+
 const XAI_API_KEY = process.env.XAI_API_KEY || "";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const STT_PROVIDER = process.env.STT_PROVIDER || "groq";
+
+// ── Device Status ───────────────────────────────────────────────────
+
+interface DeviceStatus {
+  device_id: string;
+  uptime_seconds: number;
+  cpu_temp: number;
+  load_avg: number[];
+  ram_used_mb: number;
+  ram_total_mb: number;
+  chunks_recorded: number;
+  chunks_uploaded: number;
+  queue_size: number;
+  recording: boolean;
+  lastSeen: number;
+}
+
+const deviceStatuses = new Map<string, DeviceStatus>();
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -109,42 +143,68 @@ async function parseMultipart(req: IncomingMessage): Promise<ParsedUpload> {
 // ── Transcription ──────────────────────────────────────────────────
 
 async function transcribeGroq(wavPath: string): Promise<string | null> {
-  if (!GROQ_API_KEY) {
-    console.error("GROQ_API_KEY not set");
+  if (GROQ_API_KEYS.length === 0) {
+    console.error("No GROQ API keys configured");
     return null;
   }
 
   const fileData = readFileSync(wavPath);
-  const blob = new Blob([fileData], { type: "audio/wav" });
+  const totalKeys = GROQ_API_KEYS.length;
+  let keysExhausted = false;
 
-  const form = new FormData();
-  form.append("file", blob, "audio.wav");
-  form.append("model", "whisper-large-v3");
-  form.append("language", "uk");
-  form.append("response_format", "verbose_json");
-
-  try {
-    const response = await fetch(
-      "https://api.groq.com/openai/v1/audio/transcriptions",
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
-        body: form,
-      }
-    );
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error(`Groq error ${response.status}: ${text.slice(0, 200)}`);
-      return null;
+  for (let attempt = 0; attempt <= totalKeys; attempt++) {
+    // If we've tried all keys and got 429 on each, wait 60s and retry once
+    if (attempt === totalKeys) {
+      if (!keysExhausted) break;
+      console.log(`[${timestamp()}] All ${totalKeys} keys rate-limited, waiting 60s...`);
+      await new Promise((r) => setTimeout(r, 60_000));
+      keysExhausted = false;
     }
 
-    const result = (await response.json()) as any;
-    return result.text?.trim() || null;
-  } catch (e) {
-    console.error("Groq transcription error:", e);
-    return null;
+    const apiKey = nextGroqKey()!;
+    const keyHint = apiKey.slice(-4);
+    console.log(`[${timestamp()}] Groq transcription [key ...${keyHint}]`);
+
+    const blob = new Blob([fileData], { type: "audio/wav" });
+    const form = new FormData();
+    form.append("file", blob, "audio.wav");
+    form.append("model", "whisper-large-v3");
+    form.append("language", "uk");
+    form.append("response_format", "verbose_json");
+
+    try {
+      const response = await fetch(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: form,
+        }
+      );
+
+      if (response.status === 429) {
+        const text = await response.text();
+        console.error(`Groq 429 [key ...${keyHint}]: ${text.slice(0, 200)}`);
+        keysExhausted = true;
+        continue;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`Groq error ${response.status} [key ...${keyHint}]: ${text.slice(0, 200)}`);
+        return null;
+      }
+
+      const result = (await response.json()) as any;
+      return result.text?.trim() || null;
+    } catch (e) {
+      console.error(`Groq transcription error [key ...${keyHint}]:`, e);
+      return null;
+    }
   }
+
+  console.error("All Groq keys exhausted after retry");
+  return null;
 }
 
 async function transcribeXai(wavPath: string): Promise<string | null> {
@@ -367,6 +427,14 @@ async function processAudio(
   appendDailySummary(dateStr, ts, text, analysis);
 }
 
+// ── JSON Body Parser ────────────────────────────────────────────────
+
+async function readJsonBody(req: IncomingMessage): Promise<any> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.from(chunk));
+  return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+}
+
 // ── HTTP Server ────────────────────────────────────────────────────
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse) {
@@ -379,8 +447,55 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         service: "listener-receiver",
         stt: STT_PROVIDER,
         analysis: ANTHROPIC_API_KEY ? "enabled" : "disabled",
+        groqKeys: GROQ_API_KEYS.length,
+        devices: deviceStatuses.size,
       })
     );
+    return;
+  }
+
+  // Health ping from devices
+  if (req.method === "POST" && req.url === "/health-ping") {
+    try {
+      const body = await readJsonBody(req);
+      const deviceId = body.device_id;
+      if (!deviceId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "device_id required" }));
+        return;
+      }
+      deviceStatuses.set(deviceId, {
+        device_id: body.device_id,
+        uptime_seconds: body.uptime_seconds ?? 0,
+        cpu_temp: body.cpu_temp ?? 0,
+        load_avg: body.load_avg ?? [],
+        ram_used_mb: body.ram_used_mb ?? 0,
+        ram_total_mb: body.ram_total_mb ?? 0,
+        chunks_recorded: body.chunks_recorded ?? 0,
+        chunks_uploaded: body.chunks_uploaded ?? 0,
+        queue_size: body.queue_size ?? 0,
+        recording: body.recording ?? false,
+        lastSeen: Date.now(),
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid JSON body" }));
+    }
+    return;
+  }
+
+  // List devices
+  if (req.method === "GET" && req.url === "/devices") {
+    const now = Date.now();
+    const TEN_MINUTES = 10 * 60 * 1000;
+    const devices = Array.from(deviceStatuses.values()).map((d) => ({
+      ...d,
+      online: now - d.lastSeen < TEN_MINUTES,
+    }));
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(devices));
     return;
   }
 
@@ -481,10 +596,13 @@ server.listen(PORT, () => {
   console.log(`Port: ${PORT}`);
   console.log(`Data: ${DATA_DIR}`);
   console.log(`STT: ${STT_PROVIDER}`);
+  console.log(`Groq keys: ${GROQ_API_KEYS.length}`);
   console.log(`Auth: ${AUTH_TOKEN ? "enabled" : "disabled"}`);
   console.log(`LLM: ${ANTHROPIC_API_KEY ? "enabled" : "disabled"}`);
   console.log(`\nEndpoints:`);
   console.log(`  POST /audio          -- upload WAV file`);
+  console.log(`  POST /health-ping    -- device health ping`);
+  console.log(`  GET  /devices        -- list device statuses`);
   console.log(`  GET  /summary/DATE   -- daily summary`);
   console.log(`  GET  /dates          -- list available dates`);
   console.log(`  GET  /health         -- health check\n`);

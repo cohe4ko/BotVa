@@ -20,7 +20,25 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.new': 'New',
     'nav.docs': 'Docs',
     'nav.terminal': 'Terminal',
+    'nav.records': 'Records',
     'nav.footer': 'BotVa Admin',
+
+    // Records
+    'records.title': 'Records',
+    'records.devices': 'Devices',
+    'records.noDevices': 'No devices connected',
+    'records.receiverOffline': 'Receiver offline',
+    'records.online': 'online',
+    'records.offline': 'offline',
+    'records.chunks': 'chunks',
+    'records.date': 'Date',
+    'records.summary': 'Summary',
+    'records.transcript': 'Transcript',
+    'records.noRecords': 'No recordings yet',
+    'records.backToList': 'Back to records',
+    'records.facts': 'Facts',
+    'records.decisions': 'Decisions',
+    'records.tasks': 'Tasks',
 
     // Terminal
     'terminal.title': 'Terminal',
@@ -651,7 +669,25 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.new': 'Новий',
     'nav.docs': 'Документація',
     'nav.terminal': 'Термінал',
+    'nav.records': 'Записи',
     'nav.footer': 'BotVa Адмін',
+
+    // Records
+    'records.title': 'Записи',
+    'records.devices': 'Пристрої',
+    'records.noDevices': 'Немає підключених пристроїв',
+    'records.receiverOffline': 'Receiver офлайн',
+    'records.online': 'онлайн',
+    'records.offline': 'офлайн',
+    'records.chunks': 'записів',
+    'records.date': 'Дата',
+    'records.summary': 'Зведення',
+    'records.transcript': 'Транскрипція',
+    'records.noRecords': 'Записів ще немає',
+    'records.backToList': 'Назад до записів',
+    'records.facts': 'Факти',
+    'records.decisions': 'Рішення',
+    'records.tasks': 'Завдання',
 
     // Terminal
     'terminal.title': 'Термінал',

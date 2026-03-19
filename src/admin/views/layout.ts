@@ -15,6 +15,7 @@ const PAGE_ICONS: Record<string, string> = {
   '/': 'layout-dashboard',
   '/team': 'users',
   '/gallery': 'image',
+  '/records': 'mic',
   '/storage': 'hard-drive',
   '/backup': 'archive',
   '/system': 'server',
@@ -85,6 +86,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       </div>
       <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:14px;height:14px"></i> ${_t('nav.team')}</a>
       <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:14px;height:14px"></i> ${_t('nav.gallery')}</a>
+      <a href="/records" class="${activePath === '/records' ? 'active' : ''}"><i data-lucide="mic" style="width:14px;height:14px"></i> ${_t('nav.records')}</a>
       <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:14px;height:14px"></i> ${_t('nav.storage')}</a>
       <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:14px;height:14px"></i> ${_t('nav.backup')}</a>
       <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:14px;height:14px"></i> ${_t('nav.diagnostics')}</a>

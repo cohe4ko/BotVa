@@ -24,6 +24,7 @@ import diagnostics from './routes/diagnostics.js'
 import docs from './routes/docs.js'
 import templates from './routes/templates.js'
 import terminal from './routes/terminal.js'
+import records from './routes/records.js'
 import { attachTerminalWS } from './terminal-ws.js'
 
 export function createAdminApp(): Hono<I18nEnv> {
@@ -33,6 +34,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.use('/static/*', serveStatic({ root: 'src/admin/' }))
   app.use('/gallery-img/*', serveStatic({ root: 'workspace/', rewriteRequestPath: (path) => path.replace('/gallery-img/', '/gallery/') }))
   app.use('/gallery-thumb/*', serveStatic({ root: 'workspace/', rewriteRequestPath: (path) => path.replace('/gallery-thumb/', '/gallery/thumbs/') }))
+  app.use('/records-audio/*', serveStatic({ root: 'workspace/listener/', rewriteRequestPath: (path) => path.replace('/records-audio/', '/audio/') }))
 
   // Auth
   app.use('*', authMiddleware)
@@ -64,6 +66,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', system)
   app.route('/', createBot)
   app.route('/', gallery)
+  app.route('/', records)
   app.route('/', storage)
   app.route('/', backup)
   app.route('/', team)
