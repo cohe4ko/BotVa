@@ -72,7 +72,7 @@ function getDateList(): DateInfo[] {
 
   return dates.map(date => {
     const chunkCount = safeFileList(join(transcriptsDir, date), '.json').length
-    const audioSize = totalDirSize(join(audioDir, date), '.wav')
+    const audioSize = totalDirSize(join(audioDir, date))
     return { date, chunkCount, audioSize }
   }).sort((a, b) => b.date.localeCompare(a.date))
 }
@@ -99,9 +99,11 @@ function getChunksForDate(date: string): TranscriptChunk[] {
     if (!data) return null
 
     const baseName = filename.replace(/\.json$/, '')
-    const audioFile = existsSync(join(audioDir, `${baseName}.wav`))
-      ? `${baseName}.wav`
-      : null
+    const audioFile = existsSync(join(audioDir, `${baseName}.ogg`))
+      ? `${baseName}.ogg`
+      : existsSync(join(audioDir, `${baseName}.wav`))
+        ? `${baseName}.wav`
+        : null
 
     const analyzed = safeReadJson(join(analyzedDir, filename))
 
@@ -291,7 +293,7 @@ app.get('/records/:date', (c) => {
 
   const chunks = getChunksForDate(date)
   const audioDir = join(DATA_DIR, 'audio', date)
-  const totalAudio = totalDirSize(audioDir, '.wav')
+  const totalAudio = totalDirSize(audioDir)
 
   // Daily summary
   const summaryPath = join(DATA_DIR, 'summaries', `${date}.md`)
@@ -333,7 +335,7 @@ app.get('/records/:date', (c) => {
           ${chunk.audioFile ? html`
             <div style="margin-bottom:0.5rem">
               <audio controls preload="none" style="width:100%;max-width:400px;height:32px">
-                <source src="/records-audio/${date}/${chunk.audioFile}" type="audio/wav">
+                <source src="/records-audio/${date}/${chunk.audioFile}" type="${chunk.audioFile?.endsWith('.ogg') ? 'audio/ogg' : 'audio/wav'}">
               </audio>
             </div>
           ` : ''}

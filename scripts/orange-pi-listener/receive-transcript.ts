@@ -31,6 +31,7 @@ import {
 } from "fs";
 import { join, extname } from "path";
 import { tmpdir } from "os";
+import { execFileSync } from "child_process";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -169,7 +170,6 @@ async function transcribeGroq(wavPath: string): Promise<string | null> {
     const form = new FormData();
     form.append("file", blob, "audio.wav");
     form.append("model", "whisper-large-v3");
-    form.append("language", "uk");
     form.append("response_format", "verbose_json");
 
     try {
@@ -220,7 +220,6 @@ async function transcribeXai(wavPath: string): Promise<string | null> {
   const form = new FormData();
   form.append("file", blob, "audio.wav");
   form.append("model", "grok-2-audio");
-  form.append("language", "uk");
   form.append("response_format", "verbose_json");
 
   try {
@@ -368,6 +367,28 @@ function appendDailySummary(
   }
 }
 
+// ── WAV → OGG Conversion ──────────────────────────────────────────
+
+function convertWavToOgg(wavPath: string): string | null {
+  const oggPath = wavPath.replace(/\.wav$/, ".ogg");
+  try {
+    execFileSync("ffmpeg", [
+      "-y", "-i", wavPath,
+      "-c:a", "libopus", "-b:a", "48k", "-ar", "48000", "-ac", "1",
+      oggPath,
+    ], { timeout: 120_000, stdio: "pipe" });
+
+    unlinkSync(wavPath);
+    const { statSync } = require("fs");
+    const oggSize = (statSync(oggPath).size / 1024).toFixed(0);
+    console.log(`[${timestamp()}] Converted WAV → OGG (${oggSize} KB), deleted WAV`);
+    return oggPath;
+  } catch (e) {
+    console.error(`[${timestamp()}] FFmpeg conversion failed:`, e);
+    return null; // keep WAV if conversion fails
+  }
+}
+
 // ── Process Pipeline ───────────────────────────────────────────────
 
 async function processAudio(
@@ -377,9 +398,12 @@ async function processAudio(
 ): Promise<void> {
   const dateStr = ts.slice(0, 10);
 
-  // 1. Transcribe
+  // 1. Transcribe (from WAV)
   console.log(`[${timestamp()}] Transcribing: ${ts} (${STT_PROVIDER})...`);
   const text = await transcribe(wavPath);
+
+  // 2. Convert WAV → OGG (regardless of transcription result, save space)
+  convertWavToOgg(wavPath);
 
   if (!text) {
     console.log(`[${timestamp()}] Empty transcription, skipping analysis`);
