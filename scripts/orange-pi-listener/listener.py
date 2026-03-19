@@ -71,28 +71,45 @@ def led_set(led_path: str, on: bool):
     except Exception:
         pass
 
-def led_blink(led_path: str, times: int = 3, interval: float = 0.2):
-    """Blink LED N times."""
-    for _ in range(times):
-        led_set(led_path, True)
-        time.sleep(interval)
-        led_set(led_path, False)
-        time.sleep(interval)
+_upload_blink_stop = threading.Event()
 
-def indicate_busy():
-    """Red ON = busy, flushing data."""
-    led_set(LED_RED, True)
-
-def indicate_safe_to_poweroff():
-    """Both LEDs OFF = safe to unplug."""
+def led_blink_alternating(stop_event: threading.Event, interval: float = 0.3):
+    """Blink red/green alternately until stop_event is set."""
+    while not stop_event.is_set():
+        led_set(LED_RED, True)
+        led_set(LED_GREEN, False)
+        if stop_event.wait(interval):
+            break
+        led_set(LED_RED, False)
+        led_set(LED_GREEN, True)
+        if stop_event.wait(interval):
+            break
+    # Clean up
     led_set(LED_RED, False)
     led_set(LED_GREEN, False)
-    log.info("SAFE TO POWER OFF — both LEDs off")
 
-def indicate_normal():
-    """Normal operation: green ON, red OFF."""
-    led_set(LED_GREEN, True)
+def indicate_recording():
+    """Recording: red ON, green OFF."""
+    led_set(LED_RED, True)
+    led_set(LED_GREEN, False)
+
+def indicate_uploading():
+    """Uploading: alternating red/green blink (in background thread)."""
+    _upload_blink_stop.clear()
+    t = threading.Thread(target=led_blink_alternating, args=(_upload_blink_stop,), daemon=True)
+    t.start()
+
+def indicate_upload_done():
+    """Stop upload blink."""
+    _upload_blink_stop.set()
+    time.sleep(0.1)  # let blink thread clean up
+
+def indicate_safe_to_poweroff():
+    """Safe to power off: green ON, red OFF."""
+    _upload_blink_stop.set()
     led_set(LED_RED, False)
+    led_set(LED_GREEN, True)
+    log.info("SAFE TO POWER OFF — green LED on")
 
 # ── Hardware Button Listener ────────────────────────────────────────
 
@@ -407,7 +424,7 @@ def main():
 
     # Start button listener (separate thread)
     start_button_listener()
-    indicate_normal()  # Green ON, Red OFF
+    indicate_safe_to_poweroff()  # Green ON at start (safe state)
 
     # Health ping at startup
     health = get_system_health(config, chunk_count, recording=False)
@@ -429,9 +446,11 @@ def main():
             health = get_system_health(config, chunk_count, recording=True)
             send_health_ping(config, health)
 
+            indicate_recording()  # Red ON = recording
             log.info(f"Recording ({total_duration}s, {overlap}s overlap)...")
             if not record_chunk(wav_path, total_duration, config["sample_rate"], config["channels"]):
                 log.warning("Recording failed, retrying in 10s...")
+                indicate_safe_to_poweroff()  # Back to green
                 time.sleep(10)
                 continue
 
@@ -440,9 +459,9 @@ def main():
             log.info(f"Recorded: {wav_path.name} ({file_size_kb:.0f} KB){' [BUTTON FORCED]' if forced else ''}")
 
             if forced:
-                # Button pressed — flush everything, then signal safe to poweroff
-                indicate_busy()
-                log.info("Button forced — uploading current chunk + flushing queue")
+                # Button pressed -- flush everything, then signal safe to poweroff
+                indicate_uploading()  # Alternating red/green blink
+                log.info("Button forced -- uploading current chunk + flushing queue")
 
                 # Upload current chunk (skip VAD)
                 if upload_audio(wav_path, config):
@@ -455,16 +474,14 @@ def main():
                 process_retry_queue(config)
 
                 # Signal safe to power off
-                indicate_safe_to_poweroff()
-                led_blink(LED_RED, times=3, interval=0.3)
-                indicate_safe_to_poweroff()
+                indicate_upload_done()
+                indicate_safe_to_poweroff()  # Green ON = safe
 
                 # Wait for another button press to resume, or power off
                 log.info("Waiting for button press to resume recording (or power off now)...")
                 _button_pressed.clear()
                 _button_pressed.wait()  # blocks until next button press
-                log.info("Button pressed again — resuming recording")
-                indicate_normal()
+                log.info("Button pressed again -- resuming recording")
                 continue
 
             # 2. VAD filter
@@ -474,21 +491,27 @@ def main():
             if speech_pct < config["min_speech_pct"]:
                 log.info(f"Silence ({speech_pct:.1f}% < {config['min_speech_pct']}%), skipping")
                 wav_path.unlink()
+                indicate_safe_to_poweroff()  # Green ON between recordings
                 continue
 
             # 3. Upload to server
+            indicate_uploading()  # Alternating red/green blink
             if upload_audio(wav_path, config):
                 wav_path.unlink()
             else:
                 # Failed -- move to retry queue, delete from audio dir
                 queue_for_retry(wav_path, config)
                 wav_path.unlink()
+            indicate_upload_done()
+            indicate_safe_to_poweroff()  # Green ON = safe
 
             # 4. Process retry queue + cleanup (every 3 chunks)
             chunk_count += 1
             if chunk_count % 3 == 0:
+                indicate_uploading()
                 process_retry_queue(config)
                 cleanup_storage(config)
+                indicate_upload_done()
 
                 usage_mb = get_disk_usage_mb(config)
                 queue_count = len(list(config["queue_dir"].glob("*.wav")))
