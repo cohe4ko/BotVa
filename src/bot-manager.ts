@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { getBotNames, getBotDir, getProjectRoot, type BotName } from './admin/db-multi.js'
 import { getBotStatus, getBotUptime, stopBot } from './admin/bot-control.js'
 import { createBackup } from './backup/engine.js'
+import { hasWorkspaceFiles, assembleFromWorkspaceFiles, splitRoleIntoWorkspaceFiles, splitDefaultIntoWorkspaceFiles, createWorkspaceFiles } from './workspace-files.js'
 
 // --- Roles ---
 
@@ -59,9 +60,17 @@ export function buildRoleMd(role: string, botName: string, emoji: string): strin
   return content
 }
 
-/** Assemble CLAUDE.md from role.md + current _base.md. Returns null if no role.md exists. */
+/** Assemble CLAUDE.md from workspace-files/ (preferred) or role.md + _base.md (legacy fallback). */
 export function assembleClaudeMd(botName: string): string | null {
-  const roleMdPath = resolve(getProjectRoot(), 'bots', botName, 'role.md')
+  const botDir = resolve(getProjectRoot(), 'bots', botName)
+
+  // Prefer workspace files if they exist
+  if (hasWorkspaceFiles(botDir)) {
+    return assembleFromWorkspaceFiles(botDir)
+  }
+
+  // Legacy fallback: role.md + _base.md
+  const roleMdPath = resolve(botDir, 'role.md')
   if (!existsSync(roleMdPath)) return null
 
   const basePath = resolve(getRolesDir(), '_base.md')
@@ -346,6 +355,12 @@ export function createBot(params: CreateBotParams): CreateBotResult {
     }
   }
   writeFileSync(resolve(botDir, 'CLAUDE.md'), claudeMd)
+
+  // Create workspace files from assembled CLAUDE.md
+  const wsFiles = role
+    ? splitRoleIntoWorkspaceFiles(claudeMd)
+    : splitDefaultIntoWorkspaceFiles(claudeMd, displayName, emoji)
+  createWorkspaceFiles(botDir, wsFiles)
 
   // Initialize database
   const dbPath = resolve(botDir, 'store', 'botva.db')
