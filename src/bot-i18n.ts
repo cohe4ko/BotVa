@@ -168,6 +168,12 @@ const translations: Record<BotLang, Record<string, string>> = {
     'progress.cute.playwright': '🎭 controlling browser',
     'progress.cute.macoscontrol': '🖥️ controlling Mac',
     'progress.cute.googleworkspace': '📧 checking email',
+    'progress.cute.metaads': '📣 running ads magic',
+    'progress.cute.notion': '📔 flipping through notes',
+    'progress.cute.pubmed': '🔬 reading science stuff',
+    'progress.cute.medical': '💊 checking pills',
+    'progress.cute.spacedome': '⛺ building a dome',
+    'progress.cute.freecad': '📐 drawing shapes',
 
     // Consolidation
     'consolidate.done': '🧠 Memory consolidation for {date} complete.',
@@ -182,6 +188,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.style': '🎨 {label}',
     'settings.delay': '⏱ {label}',
     'settings.team': '👥 {label}',
+    'settings.close': 'Close',
     'settings.desc.voice': 'Reply with voice messages along with text',
     'settings.desc.stats': 'Show token count and cost after each reply',
     'settings.desc.lang': 'Bot interface language',
@@ -407,6 +414,12 @@ const translations: Record<BotLang, Record<string, string>> = {
     'progress.cute.playwright': '🎭 керуємо браузером',
     'progress.cute.macoscontrol': '🖥️ керуємо маком',
     'progress.cute.googleworkspace': '📧 дивимось пошту',
+    'progress.cute.metaads': '📣 крутимо рекламку',
+    'progress.cute.notion': '📔 гортаємо нотатки',
+    'progress.cute.pubmed': '🔬 читаємо наукове',
+    'progress.cute.medical': '💊 дивимось пігулочки',
+    'progress.cute.spacedome': '⛺ будуємо купол',
+    'progress.cute.freecad': '📐 малюємо фігурки',
 
     // Consolidation
     'consolidate.done': '🧠 Консолідація пам\'яті за {date} завершена.',
@@ -421,6 +434,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'settings.style': '🎨 {label}',
     'settings.delay': '⏱ {label}',
     'settings.team': '👥 {label}',
+    'settings.close': 'Закрити',
     'settings.desc.voice': 'Відповідати голосовими повідомленнями разом з текстом',
     'settings.desc.stats': 'Показувати кількість токенів та вартість після кожної відповіді',
     'settings.desc.lang': 'Мова інтерфейсу бота',

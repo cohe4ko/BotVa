@@ -142,21 +142,12 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
   try {
     const { searchFactsHybrid } = await import('./vector-search.js')
 
-    // Always search for preferences (they're directives, always relevant)
-    // Skip regular facts for very short messages (< 3 words) — too vague, returns noise
-    const facts = wordCount >= 3
-      ? await searchFactsHybrid(chatId, userMessage, 7, undefined, { preferenceThreshold: 0.3 })
-      : []
-
-    // Also load preferences via a broad search if short message skipped them
-    let preferences = facts.filter(f => f.sector === 'preference')
-    if (wordCount < 3 && preferences.length === 0) {
-      // For short messages, still try to find preferences
-      const prefFacts = await searchFactsHybrid(chatId, userMessage, 10, undefined, { preferenceThreshold: 0.2 })
-      preferences = prefFacts.filter(f => f.sector === 'preference')
-    }
-
-    const regularFacts = facts.filter(f => f.sector !== 'preference')
+    // Single search, split results by sector
+    const allFacts = await searchFactsHybrid(chatId, userMessage, 15)
+    const preferences = allFacts.filter(f => f.sector === 'preference')
+    const regularFacts = wordCount >= 3
+      ? allFacts.filter(f => f.sector !== 'preference').slice(0, 7)
+      : [] // skip regular facts for short messages
 
     // Preferences — separate block with higher priority, injected FIRST
     if (preferences.length > 0) {

@@ -267,7 +267,31 @@ export function initDatabase(): void {
     )
   `)
 
+  // Mid-session fact extraction tracking (proactive consolidation before context overflow)
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS mid_session_extractions (
+      session_id TEXT PRIMARY KEY,
+      file_offset INTEGER NOT NULL,
+      extracted_at INTEGER NOT NULL
+    )
+  `)
+
   logger.info('Database initialized')
+}
+
+// --- Mid-session extraction tracking ---
+
+export function getMidSessionOffset(sessionId: string): number {
+  const row = getDb().prepare(
+    'SELECT file_offset FROM mid_session_extractions WHERE session_id = ?'
+  ).get(sessionId) as { file_offset: number } | undefined
+  return row?.file_offset ?? 0
+}
+
+export function setMidSessionOffset(sessionId: string, offset: number): void {
+  getDb().prepare(
+    'INSERT OR REPLACE INTO mid_session_extractions (session_id, file_offset, extracted_at) VALUES (?, ?, ?)'
+  ).run(sessionId, offset, Math.floor(Date.now() / 1000))
 }
 
 // --- Sessions ---
@@ -562,6 +586,12 @@ export function getAllFacts(chatId: string, limit = 50): Fact[] {
   return getDb().prepare(
     'SELECT * FROM facts WHERE chat_id = ? ORDER BY updated_at DESC LIMIT ?'
   ).all(chatId, limit) as unknown as Fact[]
+}
+
+export function getFactsBySector(chatId: string, sector: FactSector, limit = 100): Fact[] {
+  return getDb().prepare(
+    'SELECT * FROM facts WHERE chat_id = ? AND sector = ? ORDER BY updated_at DESC LIMIT ?'
+  ).all(chatId, sector, limit) as unknown as Fact[]
 }
 
 // --- Fact embeddings (vector search) ---

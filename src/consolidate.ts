@@ -387,3 +387,100 @@ ${transcript}
   markSessionConsolidated(oldSessionId, fileSize)
   logger.info({ oldSessionId, result: result.text?.slice(0, 100) }, 'Session consolidation done')
 }
+
+// --- Mid-session fact extraction (proactive, before context overflow) ---
+
+const MIN_NEW_CONTENT = 2000 // minimum new bytes since last extraction
+
+/**
+ * Extract facts from an active session when context usage is high.
+ * Reads only new content since last extraction to avoid re-processing.
+ * Fire-and-forget, non-blocking.
+ */
+export async function extractFactsMidSession(
+  sessionId: string,
+  chatId: string,
+  botDir: string
+): Promise<void> {
+  const { getClaudeProjectDir } = await import('./disk-sessions.js')
+  const projectDir = getClaudeProjectDir(botDir)
+  const jsonlPath = join(projectDir, `${sessionId}.jsonl`)
+
+  if (!existsSync(jsonlPath)) return
+
+  const fileSize = statSync(jsonlPath).size
+  const { getMidSessionOffset, setMidSessionOffset } = await import('./db.js')
+  const lastOffset = getMidSessionOffset(sessionId)
+
+  // Skip if not enough new content
+  if (fileSize - lastOffset < MIN_NEW_CONTENT) return
+
+  logger.info({ sessionId, fileSize, lastOffset }, 'Starting mid-session fact extraction')
+
+  // Read full file but extract turns only from new content
+  const content = readFileSync(jsonlPath, 'utf-8')
+  const newContent = lastOffset > 0 ? content.slice(lastOffset) : content
+  const lines = newContent.split('\n')
+  const turns: string[] = []
+
+  for (const line of lines) {
+    if (!line.trim()) continue
+    try {
+      const entry = JSON.parse(line)
+      if (entry.type === 'user' && entry.message?.content) {
+        let text = extractMessageText(entry.message.content)
+        text = text.replace(/^\[.*?context.*?\][\s\S]*?\n\n/im, '').trim()
+        if (text) turns.push(`**User:** ${text.slice(0, 500)}`)
+      }
+      if (entry.type === 'assistant' && entry.message?.content) {
+        const text = extractMessageText(entry.message.content)
+        if (text) turns.push(`**Assistant:** ${text.slice(0, 500)}`)
+      }
+    } catch { /* skip malformed lines */ }
+  }
+
+  if (turns.length < 4) {
+    setMidSessionOffset(sessionId, fileSize)
+    return
+  }
+
+  let transcript = turns.join('\n\n')
+  if (transcript.length > 4000) {
+    transcript = '...\n\n' + transcript.slice(-4000)
+  }
+
+  const prompt = `Ти — система консолідації пам'яті ${BOT_NAME}.
+
+## Завдання: витягни факти з АКТИВНОЇ сесії (контекст заповнюється)
+
+Нижче — нещодавня частина розмови. Проаналізуй і збережи ТІЛЬКИ важливі факти, які можуть бути втрачені при стисненні контексту.
+
+### Розмова:
+${transcript}
+
+### Правила:
+- Перед КОЖНИМ SaveFact — SearchMemory (2-3 запити різними словами)
+- Якщо факт вже є (>70% збігається) — НЕ зберігай
+- Тест: "Чи буде це корисно через 3 місяці?"
+- Якщо факт змінився — DeleteFact(old) + SaveFact(new)
+
+### Зберігай:
+- Нові контакти, імена, дні народження
+- Рішення з наслідками
+- Здоров'я: діагнози, ліки, аналізи
+- Вподобання → sector=preference, формат ІНСТРУКЦІЇ
+- Нові credentials (логін/сервіс)
+
+### НЕ зберігай:
+- Одноразові події, технічні деталі, прогрес задач
+- File inventory, тимчасові дані, загальновідоме
+- Що вже є в CLAUDE.md
+
+Очікуваний результат: 0-3 факти. Пиши українською.`
+
+  const { server } = createConsolidationMcpServer(Number(chatId))
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
+
+  setMidSessionOffset(sessionId, fileSize)
+  logger.info({ sessionId, result: result.text?.slice(0, 100) }, 'Mid-session fact extraction done')
+}

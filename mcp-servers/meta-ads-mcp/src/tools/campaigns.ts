@@ -7,6 +7,7 @@ import {
   DeleteCampaignSchema,
   ListAdSetsSchema,
   CreateAdSetSchema,
+  CreateAdSchema,
 } from "../types/mcp-tools.js";
 
 export function registerCampaignTools(
@@ -908,6 +909,58 @@ export function registerCampaignTools(
             {
               type: "text",
               text: `Error listing ads: ${errorMessage}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // Create Ad Tool (links creative to ad set)
+  server.tool(
+    "create_ad",
+    CreateAdSchema.shape,
+    async ({ account_id, ad_set_id, creative_id, name, status }) => {
+      try {
+        const result = await metaClient.createAd(
+          ad_set_id,
+          {
+            name,
+            creative_id,
+            status: status || "PAUSED",
+          },
+          account_id
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  success: true,
+                  ad_id: result.id,
+                  ad_set_id,
+                  creative_id,
+                  name,
+                  status: status || "PAUSED",
+                  message: `Ad "${name}" created successfully`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error occurred";
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error creating ad: ${errorMessage}`,
             },
           ],
           isError: true,

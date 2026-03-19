@@ -73,7 +73,55 @@ const CUTE_MCP_PREFIXES: Record<string, string> = {
   'playwright': '🎭 керуємо браузером',
   'macos-control': '🖥️ керуємо маком',
   'google-workspace': '📧 дивимось пошту',
+  'meta-ads': '📣 крутимо рекламку',
+  'notion': '📔 гортаємо нотатки',
+  'pubmed': '🔬 читаємо наукове',
+  'medical': '💊 дивимось пігулочки',
+  'spacedome': '⛺ будуємо купол',
+  'freecad': '📐 малюємо фігурки',
 }
+
+// Tool-specific icons for standard mode
+const TOOL_ICONS: Record<string, string> = {
+  Read: '📖',
+  Write: '✏️',
+  Edit: '✂️',
+  Glob: '🔍',
+  Grep: '👀',
+  Bash: '⚡',
+  WebSearch: '🌐',
+  WebFetch: '📥',
+  Agent: '🤖',
+  TodoWrite: '📝',
+  TodoRead: '📋',
+  NotebookEdit: '📓',
+  Skill: '✨',
+}
+
+// MCP server icon prefixes
+const MCP_ICONS: Record<string, string> = {
+  'bitrix24': '📋',
+  'home-assistant': '🏠',
+  'stagehand': '🎭',
+  'playwright': '🎭',
+  'macos-control': '🖥️',
+  'google-workspace': '📧',
+  'meta-ads': '📣',
+  'notion': '📔',
+  'pubmed': '🔬',
+  'medical': '💊',
+  'spacedome': '⛺',
+  'freecad': '📐',
+}
+
+function toolIcon(name: string): string {
+  if (TOOL_ICONS[name]) return TOOL_ICONS[name]
+  const mcpPrefix = Object.keys(MCP_ICONS).find(p => name.startsWith(p + '_'))
+  return mcpPrefix ? MCP_ICONS[mcpPrefix] : '🔧'
+}
+
+// Regex matching any tool icon (for replacement in progress/result)
+const TOOL_ICON_RE = /^(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐][\uFE0F]?/
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   const i = input
@@ -154,6 +202,7 @@ export class ProgressReporter {
   private dirty = false
   private flushing = false
   private subagentTools = new Set<string>()
+  private toolResults = new Map<string, string>() // tool_use_id -> result preview
   // Streaming text accumulator
   private streamingText = ''
   private streamingLineIdx: number | null = null
@@ -201,7 +250,7 @@ export class ProgressReporter {
     const msgId = this.messageId
     this.messageId = null
     try {
-      const finalText = this.lines.join('\n') || '...'
+      const finalText = this.buildDisplayText()
       await this.api.editMessageText(this.chatId, msgId, finalText, {
         parse_mode: 'HTML',
       })
@@ -220,9 +269,9 @@ export class ProgressReporter {
     const msgId = this.messageId
     this.messageId = null
 
-    // Remove the Stop button immediately, show final state
+    // Remove the Stop button immediately, show final state with expandable details
     try {
-      const finalText = this.lines.join('\n') || '...'
+      const finalText = this.buildDisplayText()
       await this.api.editMessageText(this.chatId, msgId, finalText, {
         parse_mode: 'HTML',
         // no reply_markup = removes keyboard
@@ -294,6 +343,9 @@ export class ProgressReporter {
               'bitrix24': 'progress.cute.bitrix24', 'home-assistant': 'progress.cute.homeassistant',
               'stagehand': 'progress.cute.stagehand', 'playwright': 'progress.cute.playwright',
               'macos-control': 'progress.cute.macoscontrol', 'google-workspace': 'progress.cute.googleworkspace',
+              'meta-ads': 'progress.cute.metaads', 'notion': 'progress.cute.notion',
+              'pubmed': 'progress.cute.pubmed', 'medical': 'progress.cute.medical',
+              'spacedome': 'progress.cute.spacedome', 'freecad': 'progress.cute.freecad',
             }
             let cute = cuteToolKeys[name] ? this.t(cuteToolKeys[name]) : undefined
             if (!cute) {
@@ -302,7 +354,7 @@ export class ProgressReporter {
             }
             this.addLine(`${indent}${cute}${detailStr}`)
           } else {
-            this.addLine(`${indent}🔧 <b>${escapeHtml(name)}</b>${detailStr}`)
+            this.addLine(`${indent}${toolIcon(name)} <b>${escapeHtml(name)}</b>${detailStr}`)
           }
           hadContent = true
         } else if (block.type === 'text' && block.text) {
@@ -311,7 +363,7 @@ export class ProgressReporter {
           const text = (block.text as string).replace(/\n/g, ' ').trim()
           if (text.length > 0) {
             const preview = text.slice(0, TEXT_PREVIEW_LEN)
-            this.addLine(`${indent}💬 ${mdToHtml(preview)}${text.length > TEXT_PREVIEW_LEN ? '...' : ''}`)
+            this.addLine(`<blockquote>${indent}💬 <i>${mdToHtml(preview)}${text.length > TEXT_PREVIEW_LEN ? '...' : ''}</i></blockquote>`)
             hadContent = true
           }
         }
@@ -336,11 +388,12 @@ export class ProgressReporter {
         const preview = display.length > 300 ? '...' + display.slice(-297) : display
 
         const streamEmoji = this.cuteMode ? '💭' : '✍️'
+        const streamLine = `<blockquote>${indent}${streamEmoji} <i>${mdToHtml(preview)}</i></blockquote>`
         if (this.streamingLineIdx !== null && this.streamingLineIdx < this.lines.length) {
-          this.lines[this.streamingLineIdx] = `${indent}${streamEmoji} ${mdToHtml(preview)}`
+          this.lines[this.streamingLineIdx] = streamLine
         } else {
           this.streamingLineIdx = this.lines.length
-          this.addLine(`${indent}${streamEmoji} ${mdToHtml(preview)}`)
+          this.addLine(streamLine)
         }
         return true
       }
@@ -361,12 +414,7 @@ export class ProgressReporter {
       if (idx !== undefined && idx < this.lines.length) {
         const original = this.lines[idx]
         const withoutTime = original.replace(/\s*\(\d+s\)$/g, '')
-        if (this.cuteMode) {
-          // In cute mode, replace the tool emoji with ⏳ but keep text
-          this.lines[idx] = withoutTime.replace(/^(\s*)[📖✏️💅🔍👀⚡🌐📥🤖📝📋📓✨🔧✅📋🏠🎭🖥️📧][\uFE0F]?/, '$1⏳') + ` (${elapsed}s)`
-        } else {
-          this.lines[idx] = withoutTime.replace(/^(\s*)[🔧✅]/, '$1⏳') + ` (${elapsed}s)`
-        }
+        this.lines[idx] = withoutTime.replace(TOOL_ICON_RE, '$1⏳') + ` (${elapsed}s)`
       }
       return true
     }
@@ -377,22 +425,18 @@ export class ProgressReporter {
         const idx = this.toolLines.get(event.parent_tool_use_id)
         const toolName = this.toolNames.get(event.parent_tool_use_id)
         if (idx !== undefined && idx < this.lines.length) {
-          if (this.cuteMode) {
-            // Replace any tool emoji with ✅
-            this.lines[idx] = this.lines[idx]
-              .replace(/^(\s*)[📖✏️💅🔍👀⚡🌐📥🤖📝📋📓✨🔧⏳📋🏠🎭🖥️📧][\uFE0F]?/, '$1✅')
-              .replace(/\s*\(\d+s\)$/g, '')
-          } else {
-            this.lines[idx] = this.lines[idx]
-              .replace(/^(\s*)[🔧⏳]/, '$1✅')
-              .replace(/\s*\(\d+s\)$/g, '')
-          }
+          this.lines[idx] = this.lines[idx]
+            .replace(TOOL_ICON_RE, '$1✅')
+            .replace(/\s*\(\d+s\)$/g, '')
 
           if (toolName && !this.subagentTools.has(event.parent_tool_use_id)) {
             const preview = resultPreview(event.tool_use_result)
             if (preview) {
-              const resultIndent = isSubagent ? '    ' : '  '
-              this.addLine(`${resultIndent}↳ <i>${escapeHtml(preview)}</i>`)
+              // Inline short result on the same line as tool
+              const shortPreview = preview.length > 60 ? preview.slice(0, 57) + '...' : preview
+              this.lines[idx] += ` → <i>${escapeHtml(shortPreview)}</i>`
+              // Also collect full result for final expandable blockquote
+              this.toolResults.set(event.parent_tool_use_id, preview)
             }
           }
         }
@@ -568,7 +612,7 @@ export class ProgressReporter {
       const display = this.streamingText.replace(/\n/g, ' ').trim()
       if (display.length > 0) {
         const preview = display.slice(0, TEXT_PREVIEW_LEN)
-        this.lines[this.streamingLineIdx] = `💬 ${mdToHtml(preview)}${display.length > TEXT_PREVIEW_LEN ? '...' : ''}`
+        this.lines[this.streamingLineIdx] = `<blockquote>💬 <i>${mdToHtml(preview)}${display.length > TEXT_PREVIEW_LEN ? '...' : ''}</i></blockquote>`
       } else {
         this.lines.splice(this.streamingLineIdx, 1)
         // Fix indexes
@@ -602,6 +646,44 @@ export class ProgressReporter {
     }
   }
 
+  /** Build structured display text: streaming visible, tools in expandable blockquote */
+  private buildDisplayText(): string {
+    // Categorize lines: tools vs streaming vs other (system messages, errors, etc.)
+    const toolIdxSet = new Set<number>()
+    for (const idx of this.toolLines.values()) {
+      toolIdxSet.add(idx)
+    }
+
+    const toolParts: string[] = []
+    const otherParts: string[] = []
+    let streamPart = ''
+
+    for (let i = 0; i < this.lines.length; i++) {
+      if (toolIdxSet.has(i)) {
+        toolParts.push(this.lines[i])
+      } else if (i === this.streamingLineIdx) {
+        streamPart = this.lines[i]
+      } else {
+        otherParts.push(this.lines[i])
+      }
+    }
+
+    const parts: string[] = []
+
+    // Streaming text first (most important — what the bot is thinking)
+    if (streamPart) parts.push(streamPart)
+
+    // System messages (errors, compacting, auth, rate limit)
+    if (otherParts.length) parts.push(otherParts.join('\n'))
+
+    // Tools in expandable blockquote
+    if (toolParts.length) {
+      parts.push(`<blockquote expandable>${toolParts.join('\n')}</blockquote>`)
+    }
+
+    return parts.join('\n') || '...'
+  }
+
   private scheduleFlush(): void {
     if (this.editTimer) return
 
@@ -619,7 +701,7 @@ export class ProgressReporter {
     this.flushing = true
     this.dirty = false
 
-    const text = this.lines.join('\n') || '...'
+    const text = this.buildDisplayText()
     const stopLabel = this.cuteMode ? this.t('progress.cute.stop') : this.t('progress.stop')
     const keyboard = new InlineKeyboard().text(stopLabel, `stop:${this.chatId}`)
 

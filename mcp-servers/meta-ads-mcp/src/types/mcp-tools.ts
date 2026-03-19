@@ -115,6 +115,18 @@ export const DeleteCampaignSchema = z.object({
   campaign_id: z.string().describe("Campaign ID to delete"),
 });
 
+// Ad (individual ad) Schemas
+export const CreateAdSchema = z.object({
+  account_id: z.string().describe("Meta Ad Account ID"),
+  ad_set_id: z.string().describe("Ad Set ID to place the ad in"),
+  creative_id: z.string().describe("Creative ID to use for this ad"),
+  name: z.string().min(1).describe("Ad name"),
+  status: z
+    .enum(["ACTIVE", "PAUSED"])
+    .default("PAUSED")
+    .describe("Initial ad status"),
+});
+
 // Ad Set Management Schemas
 export const ListAdSetsSchema = z.object({
   campaign_id: z.string().optional().describe("Filter by campaign ID"),

@@ -421,6 +421,62 @@ export class MetaApiClient {
     return PaginationHelper.parsePaginatedResponse(response);
   }
 
+  // Create Ad (links creative to ad set)
+  async createAd(
+    adSetId: string,
+    adData: {
+      name: string;
+      creative_id: string;
+      status?: string;
+      tracking_specs?: any;
+    },
+    accountId: string
+  ): Promise<{ id: string }> {
+    const formattedAccountId = this.auth.getAccountId(accountId);
+
+    const requestData: Record<string, any> = {
+      name: adData.name,
+      adset_id: adSetId,
+      creative: JSON.stringify({ creative_id: adData.creative_id }),
+      status: adData.status || "PAUSED",
+    };
+
+    if (adData.tracking_specs) {
+      requestData.tracking_specs = JSON.stringify(adData.tracking_specs);
+    }
+
+    const body = this.buildQueryString(requestData);
+
+    console.error("=== AD CREATION DEBUG ===");
+    console.error("Ad Set ID:", adSetId);
+    console.error("Account ID:", formattedAccountId);
+    console.error("Request Data:", JSON.stringify(requestData, null, 2));
+    console.error("========================");
+
+    try {
+      const result = await this.makeRequest<{ id: string }>(
+        `${formattedAccountId}/ads`,
+        "POST",
+        body,
+        formattedAccountId,
+        true
+      );
+
+      console.error("=== AD CREATION SUCCESS ===");
+      console.error("Created Ad ID:", result.id);
+      console.error("===========================");
+
+      return result;
+    } catch (error) {
+      console.error("=== AD CREATION ERROR ===");
+      if (error instanceof Error) {
+        console.error("Error:", error.message);
+      }
+      console.error("=========================");
+      throw error;
+    }
+  }
+
   // Insights Methods
   async getInsights(
     objectId: string,

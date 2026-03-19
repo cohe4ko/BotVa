@@ -69,10 +69,7 @@ export async function searchFactsHybrid(
           if (!f.embedding) continue
           const vec = new Float32Array(f.embedding.buffer, f.embedding.byteOffset, f.embedding.byteLength / 4)
           const score = cosineSim(queryVec, vec)
-          const threshold = f.sector === 'preference'
-            ? (opts?.preferenceThreshold ?? 0.3)
-            : VECTOR_THRESHOLD
-          if (score > threshold) {
+          if (score > VECTOR_THRESHOLD) {
             scored.push({ fact: f, score })
           }
         }

@@ -119,6 +119,24 @@ export function formatForTelegram(text: string): string {
   processed = processed.replace(/%%CODEBLOCK_(\d+)%%/g, (_, i) => codeBlocks[Number(i)])
   processed = processed.replace(/%%INLINE_(\d+)%%/g, (_, i) => inlineCodes[Number(i)])
 
+  // Expandable blockquotes: >> lines grouped into <blockquote expandable>
+  processed = processed.replace(
+    /(?:^&gt;&gt;\s?(.*)$\n?)+/gm,
+    (match) => {
+      const content = match.trimEnd().replace(/^&gt;&gt;\s?/gm, '')
+      return `<blockquote expandable>${content}</blockquote>`
+    }
+  )
+
+  // Regular blockquotes: > lines grouped into <blockquote>
+  processed = processed.replace(
+    /(?:^&gt;\s?(.*)$\n?)+/gm,
+    (match) => {
+      const content = match.trimEnd().replace(/^&gt;\s?/gm, '')
+      return `<blockquote>${content}</blockquote>`
+    }
+  )
+
   // Headings → bold
   processed = processed.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
 
@@ -132,6 +150,9 @@ export function formatForTelegram(text: string): string {
 
   // Strikethrough
   processed = processed.replace(/~~(.+?)~~/g, '<s>$1</s>')
+
+  // Spoiler: ||text||
+  processed = processed.replace(/\|\|(.+?)\|\|/g, '<tg-spoiler>$1</tg-spoiler>')
 
   // Links: [text](url)
   processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
@@ -913,6 +934,17 @@ async function handleMessage(
         }
       }
 
+      // Proactive fact extraction when context is filling up (>70%)
+      if (usage && usage.contextWindow > 0 && newSessionId) {
+        const contextPct = usage.lastTurnContextTokens / usage.contextWindow
+        if (contextPct > 0.70) {
+          import('./consolidate.js').then(({ extractFactsMidSession }) =>
+            extractFactsMidSession(newSessionId!, chatIdStr, BOT_DIR)
+              .catch(err => logger.warn({ err }, 'Mid-session fact extraction failed'))
+          )
+        }
+      }
+
       // Check for follow-up BEFORE cleanup — reuse reporter if continuing
       const followup = getAndClearFollowup(chatIdStr)
       if (followup) {
@@ -1042,15 +1074,28 @@ export function createBot(): Bot {
     const langLabel = t(`lang.${lang}`)
 
     const keyboard = [
-      [{ text: t(voiceOn ? 'settings.voice.on' : 'settings.voice.off'), callback_data: 'settings:voice' }],
-      [{ text: t(voiceConfirmOn ? 'settings.voice_confirm.on' : 'settings.voice_confirm.off'), callback_data: 'settings:voice_confirm' }],
-      [{ text: t(statsOn ? 'settings.stats.on' : 'settings.stats.off'), callback_data: 'settings:stats' }],
-      [{ text: t(factsOn ? 'settings.facts.on' : 'settings.facts.off'), callback_data: 'settings:facts' }],
-      [{ text: t('settings.agent', { label: agentLabel }), callback_data: 'settings:agent_mode' }],
-      [{ text: t('settings.lang', { label: langLabel }), callback_data: 'settings:lang' }],
-      [{ text: t('settings.style', { label: styleLabel }), callback_data: 'settings:style' }],
-      [{ text: t('settings.delay', { label: delayLabel }), callback_data: 'settings:delay' }],
-      [{ text: t('settings.team', { label: teamLabel }), callback_data: 'settings:team' }],
+      [
+        { text: t(voiceOn ? 'settings.voice.on' : 'settings.voice.off'), callback_data: 'settings:voice' },
+        { text: t(voiceConfirmOn ? 'settings.voice_confirm.on' : 'settings.voice_confirm.off'), callback_data: 'settings:voice_confirm' },
+      ],
+      [
+        { text: t(statsOn ? 'settings.stats.on' : 'settings.stats.off'), callback_data: 'settings:stats' },
+        { text: t(factsOn ? 'settings.facts.on' : 'settings.facts.off'), callback_data: 'settings:facts' },
+      ],
+      [
+        { text: t('settings.agent', { label: agentLabel }), callback_data: 'settings:agent_mode' },
+        { text: t('settings.lang', { label: langLabel }), callback_data: 'settings:lang' },
+      ],
+      [
+        { text: t('settings.style', { label: styleLabel }), callback_data: 'settings:style' },
+        { text: t('settings.delay', { label: delayLabel }), callback_data: 'settings:delay' },
+      ],
+      [
+        { text: t('settings.team', { label: teamLabel }), callback_data: 'settings:team' },
+      ],
+      [
+        { text: '❌ ' + t('settings.close'), callback_data: 'settings:close' },
+      ],
     ]
 
     const lines = [
@@ -1366,6 +1411,11 @@ export function createBot(): Bot {
           if (next === 'full') deleteChatSetting(chatIdStr, 'agent_mode')
           else setChatSetting(chatIdStr, 'agent_mode', next)
           break
+        }
+        case 'close': {
+          await ctx.answerCallbackQuery()
+          try { await ctx.deleteMessage() } catch { /* ignore */ }
+          return
         }
       }
 
