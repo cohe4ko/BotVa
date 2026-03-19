@@ -239,6 +239,118 @@ app.get('/records', async (c) => {
       <span style="color:var(--mc-text-dim)">${icon('loader', 13)} Loading...</span>
     </div>
 
+    <details style="margin-top:1.5rem;margin-bottom:1.5rem">
+      <summary style="cursor:pointer;font-size:1rem;font-weight:600">${icon('plus-circle')} Add New Device</summary>
+      <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:1rem;margin-top:0.5rem">
+        <p style="font-size:0.85rem;color:var(--mc-text-dim);margin-top:0">
+          Deploy a room listener to any Linux device with a microphone (Orange Pi, Raspberry Pi, etc.)
+        </p>
+
+        <form id="setup-form" onsubmit="return false" style="display:flex;flex-direction:column;gap:0.75rem">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+            <div>
+              <label style="font-size:0.75rem;font-weight:500">SSH Target</label>
+              <input id="sf-ssh" type="text" placeholder="user@device-ip" style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.85rem" />
+            </div>
+            <div>
+              <label style="font-size:0.75rem;font-weight:500">Device ID</label>
+              <input id="sf-device" type="text" placeholder="opi-livingroom" style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.85rem" />
+            </div>
+          </div>
+
+          <details>
+            <summary style="font-size:0.8rem;cursor:pointer;color:var(--mc-text-dim)">Advanced options</summary>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-top:0.5rem">
+              <div>
+                <label style="font-size:0.7rem">Chunk duration (s)</label>
+                <input id="sf-chunk" type="number" value="300" style="width:100%;padding:0.3rem 0.5rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.8rem" />
+              </div>
+              <div>
+                <label style="font-size:0.7rem">Overlap (s)</label>
+                <input id="sf-overlap" type="number" value="10" style="width:100%;padding:0.3rem 0.5rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.8rem" />
+              </div>
+              <div>
+                <label style="font-size:0.7rem">tmpfs size (MB)</label>
+                <input id="sf-tmpfs" type="number" value="100" style="width:100%;padding:0.3rem 0.5rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.8rem" />
+              </div>
+            </div>
+          </details>
+
+          <div>
+            <button type="button" onclick="generateSetupCmd()" class="btn-sm" style="padding:0.4rem 1rem;cursor:pointer">
+              ${icon('terminal', 12)} Generate Setup Command
+            </button>
+          </div>
+        </form>
+
+        <div id="setup-output" style="display:none;margin-top:0.75rem">
+          <label style="font-size:0.75rem;font-weight:500">Run this on your Mac/server:</label>
+          <pre id="setup-cmd" style="background:var(--mc-surface2);border:1px solid var(--mc-border);border-radius:6px;padding:0.75rem;font-size:0.78rem;overflow-x:auto;cursor:pointer;position:relative" onclick="copyCmd(this)"></pre>
+          <span id="copy-hint" style="font-size:0.7rem;color:var(--mc-text-dim)">Click to copy</span>
+        </div>
+
+        <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--mc-border)">
+          <details>
+            <summary style="font-size:0.8rem;cursor:pointer;color:var(--mc-text-dim)">${icon('book', 11)} What the setup script does</summary>
+            <div style="font-size:0.78rem;line-height:1.6;margin-top:0.5rem;color:var(--mc-text-secondary)">
+              <ol style="padding-left:1.2rem;margin:0">
+                <li>Detects audio hardware (ALSA card + mic)</li>
+                <li>Sets up tmpfs for /data (no SD card writes for audio)</li>
+                <li>Configures volatile journald + zram for /var/log</li>
+                <li>Tunes kernel for minimal SD writes</li>
+                <li>Creates Python venv + installs requests</li>
+                <li>Deploys listener.py + config.env</li>
+                <li>Creates systemd service (auto-start on boot)</li>
+                <li>Installs safe shutdown/reboot scripts</li>
+                <li>Boosts microphone gain to max</li>
+                <li>Tests recording and starts the service</li>
+              </ol>
+              <p style="margin:0.5rem 0 0 0">
+                <strong>LED indicators (Orange Pi):</strong> 🔴 recording &bull; 🔴🟢 blink = uploading &bull; 🟢 safe to power off
+              </p>
+              <p style="margin:0.25rem 0 0 0">
+                <strong>Button (Orange Pi):</strong> press to force upload + safe shutdown mode
+              </p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </details>
+
+    <script>
+    function generateSetupCmd() {
+      const ssh = document.getElementById('sf-ssh').value.trim();
+      const device = document.getElementById('sf-device').value.trim();
+      const chunk = document.getElementById('sf-chunk').value || '300';
+      const overlap = document.getElementById('sf-overlap').value || '10';
+      const tmpfs = document.getElementById('sf-tmpfs').value || '100';
+
+      if (!ssh || !device) {
+        alert('SSH target and Device ID are required');
+        return;
+      }
+
+      const receiverUrl = 'http://' + location.hostname + ':3847/audio';
+      let cmd = '';
+      if (chunk !== '300' || overlap !== '10' || tmpfs !== '100') {
+        const envParts = [];
+        if (chunk !== '300') envParts.push('CHUNK_DURATION=' + chunk);
+        if (overlap !== '10') envParts.push('CHUNK_OVERLAP=' + overlap);
+        if (tmpfs !== '100') envParts.push('TMPFS_SIZE=' + tmpfs + 'M');
+        cmd = envParts.join(' ') + ' ';
+      }
+      cmd += 'scripts/orange-pi-listener/setup-device.sh ' + ssh + ' ' + device + ' ' + receiverUrl;
+
+      document.getElementById('setup-cmd').textContent = cmd;
+      document.getElementById('setup-output').style.display = 'block';
+    }
+    function copyCmd(el) {
+      navigator.clipboard.writeText(el.textContent);
+      document.getElementById('copy-hint').textContent = 'Copied!';
+      setTimeout(() => { document.getElementById('copy-hint').textContent = 'Click to copy'; }, 2000);
+    }
+    </script>
+
     <h3 style="margin-top:1.5rem">${icon('calendar')} Recordings</h3>
     ${dates.length === 0
       ? html`<p style="color:var(--mc-text-dim)">No recordings yet. Listener data will appear in <code>workspace/listener/</code>.</p>`
