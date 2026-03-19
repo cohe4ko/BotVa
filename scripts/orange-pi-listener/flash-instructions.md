@@ -1,113 +1,55 @@
-# Orange Pi Lite Listener — Flash & Setup
+# Orange Pi Lite Listener -- Quick Start
 
-## 1. Завантаж Armbian
+## Крок 1: Прошивка SD-картки
 
-Armbian Bookworm CLI для Orange Pi Lite:
-https://www.armbian.com/orange-pi-lite/
-
-Вибирай **CLI** (без desktop), **Bookworm** або **Jammy**.
-
-## 2. Прошивка на microSD
-
-### macOS (Balena Etcher)
-1. Завантаж [Balena Etcher](https://etcher.balena.io/)
-2. Встав microSD (мін. 8 GB)
-3. Flash -> Select image -> Select drive -> Flash!
-
-### macOS (dd)
-```bash
-# Знайди диск
-diskutil list
-# Unmount (замінити diskN на правильний!)
-diskutil unmountDisk /dev/diskN
-# Flash (ОБЕРЕЖНО з номером диска!)
-sudo dd if=Armbian_*.img of=/dev/rdiskN bs=4m status=progress
-```
-
-## 3. Підготовка config
+Armbian вже скачано: `workspace/cap/orange-pi/armbian-opi-lite.img.xz`
 
 ```bash
-cd scripts/orange-pi-listener/
-cp config.env.example config.env
-# Заповни: WiFi, Groq API ключ, upload URL
-nano config.env
+# Знайди диск (вставлену SD-картку)
+diskutil list external physical
+
+# Прошити (замінити diskN!)
+sudo bash scripts/orange-pi-listener/flash-sd.sh /dev/diskN
 ```
 
-## 4. Копіювання файлів на SD-карту
+Або вручну через [Balena Etcher](https://etcher.balena.io/):
+1. Відкрий Etcher
+2. Select image: `workspace/cap/orange-pi/armbian-opi-lite.img.xz`
+3. Select drive: SD-картка
+4. Flash!
+5. Після flash, скопіюй `armbian_first_run.txt` в `/boot/` на SD-картці
 
-Після прошивки Armbian, SD-карта матиме розділ з файловою системою.
-Скопіюй скрипти:
+## Крок 2: Boot
 
-```bash
-# Монтуй SD карту
-# Знайди розділ (зазвичай другий)
-mkdir -p /tmp/sdcard
-sudo mount /dev/diskNs2 /tmp/sdcard  # або /dev/diskNp2
-
-# Копіюй скрипти
-sudo mkdir -p /tmp/sdcard/root/listener-setup
-sudo cp config.env listener.py setup.sh /tmp/sdcard/root/listener-setup/
-
-sudo umount /tmp/sdcard
-```
-
-## 5. Перший запуск Orange Pi
-
-1. Встав microSD в Orange Pi Lite
+1. Встав SD в Orange Pi Lite
 2. Підключи живлення (micro USB, 5V 2A)
-3. Зачекай 1-2 хв (перший boot довший)
-4. Знайди IP: перевір роутер або `arp -a | grep -i orange`
-5. SSH: `ssh root@IP_ADDRESS` (пароль: 1234, змінить при першому вході)
+3. Зачекай 2-3 хв
+4. WiFi: M8 (підключиться автоматично)
+5. SSH: `root@<IP>`, пароль: `listener2026`
 
-## 6. Запуск setup
+## Крок 3: Скажи cap
 
-```bash
-cd ~/listener-setup
-chmod +x setup.sh
-sudo bash setup.sh
-```
+> "Orange Pi online, IP: xxx.xxx.xxx.xxx -- налаштуй listener"
 
-Скрипт:
-- Встановить залежності (alsa, python3, pip)
-- Налаштує WiFi
+Cap по SSH:
+- Встановить пакети
 - Налаштує мікрофон
+- Скопіює listener.py + config.env
 - Створить systemd сервіс
-- Увімкне автозапуск
+- Запустить
 
-## 7. Перевірка
+## Промпт для cap (SSH setup)
 
-```bash
-# Запуск
-sudo systemctl start listener
-
-# Логи в реальному часі
-journalctl -u listener -f
-
-# Перевірка транскриптів
-ls -la /data/transcripts/
 ```
+Orange Pi Lite підключений до мережі, IP: <IP>.
+SSH: root@<IP>, пароль: listener2026
 
-## Troubleshooting
-
-### Мікрофон не працює
-```bash
-# Список пристроїв
-arecord -l
-# Тест запису
-arecord -D plughw:0,0 -f S16_LE -r 16000 -c 1 -d 5 /tmp/test.wav
-# Перевірка рівнів
-alsamixer
-```
-
-### WiFi не підключається
-```bash
-nmcli dev wifi list
-nmcli dev wifi connect "SSID" password "PASSWORD"
-```
-
-### API помилки
-```bash
-# Перевірити Groq ключ
-curl -s https://api.groq.com/openai/v1/models \
-  -H "Authorization: Bearer $GROQ_API_KEY" | jq .
+Зайди по SSH і налаштуй room listener:
+1. apt install python3 python3-pip python3-venv alsa-utils
+2. Налаштуй мікрофон (sun4i codec): amixer Mic1 cap 80%, Mic1 Boost 60%
+3. Скопіюй listener.py і config.env з scripts/orange-pi-listener/ на /opt/listener/
+4. В config.env: UPLOAD_URL=http://<BOTVA_IP>:3847/audio, DEVICE_ID=opi-1
+5. Створи venv, pip install requests
+6. Створи systemd service, enable + start
+7. Перевір що працює: journalctl -u listener
 ```
