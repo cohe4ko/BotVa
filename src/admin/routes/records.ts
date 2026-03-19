@@ -146,7 +146,7 @@ async function fetchDevices(): Promise<DeviceStatus[] | null> {
     if (typeof data === 'object') {
       return Object.entries(data).map(([name, info]: [string, any]) => ({
         name,
-        online: info.online ?? (info.status === 'online') ?? false,
+        online: info.online !== undefined ? info.online : (info.status === 'online'),
         cpu_temp: info.cpu_temp,
         uptime: info.uptime,
         queue_size: info.queue_size,
