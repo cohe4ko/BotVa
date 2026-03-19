@@ -56,6 +56,44 @@ _arecord_proc: subprocess.Popen | None = None
 _arecord_lock = threading.Lock()
 _button_pressed = threading.Event()
 
+# ── LED Control ────────────────────────────────────────────────────
+
+LED_RED = "/sys/class/leds/orangepi:red:status"
+LED_GREEN = "/sys/class/leds/orangepi:green:pwr"
+
+def led_set(led_path: str, on: bool):
+    """Set LED on/off. Silently fails if LED not available."""
+    try:
+        with open(f"{led_path}/trigger", "w") as f:
+            f.write("none")
+        with open(f"{led_path}/brightness", "w") as f:
+            f.write("1" if on else "0")
+    except Exception:
+        pass
+
+def led_blink(led_path: str, times: int = 3, interval: float = 0.2):
+    """Blink LED N times."""
+    for _ in range(times):
+        led_set(led_path, True)
+        time.sleep(interval)
+        led_set(led_path, False)
+        time.sleep(interval)
+
+def indicate_busy():
+    """Red ON = busy, flushing data."""
+    led_set(LED_RED, True)
+
+def indicate_safe_to_poweroff():
+    """Both LEDs OFF = safe to unplug."""
+    led_set(LED_RED, False)
+    led_set(LED_GREEN, False)
+    log.info("SAFE TO POWER OFF — both LEDs off")
+
+def indicate_normal():
+    """Normal operation: green ON, red OFF."""
+    led_set(LED_GREEN, True)
+    led_set(LED_RED, False)
+
 # ── Hardware Button Listener ────────────────────────────────────────
 
 def start_button_listener():
@@ -369,6 +407,7 @@ def main():
 
     # Start button listener (separate thread)
     start_button_listener()
+    indicate_normal()  # Green ON, Red OFF
 
     # Health ping at startup
     health = get_system_health(config, chunk_count, recording=False)
@@ -400,17 +439,42 @@ def main():
             file_size_kb = wav_path.stat().st_size / 1024
             log.info(f"Recorded: {wav_path.name} ({file_size_kb:.0f} KB){' [BUTTON FORCED]' if forced else ''}")
 
-            # 2. VAD filter (skip if button forced)
             if forced:
-                log.info("Button forced — skipping VAD, uploading immediately")
-            else:
-                speech_pct = detect_speech_percentage(wav_path, config["silence_threshold"])
-                log.info(f"Speech: {speech_pct:.1f}%")
+                # Button pressed — flush everything, then signal safe to poweroff
+                indicate_busy()
+                log.info("Button forced — uploading current chunk + flushing queue")
 
-                if speech_pct < config["min_speech_pct"]:
-                    log.info(f"Silence ({speech_pct:.1f}% < {config['min_speech_pct']}%), skipping")
+                # Upload current chunk (skip VAD)
+                if upload_audio(wav_path, config):
                     wav_path.unlink()
-                    continue
+                else:
+                    queue_for_retry(wav_path, config)
+                    wav_path.unlink()
+
+                # Flush entire retry queue
+                process_retry_queue(config)
+
+                # Signal safe to power off
+                indicate_safe_to_poweroff()
+                led_blink(LED_RED, times=3, interval=0.3)
+                indicate_safe_to_poweroff()
+
+                # Wait for another button press to resume, or power off
+                log.info("Waiting for button press to resume recording (or power off now)...")
+                _button_pressed.clear()
+                _button_pressed.wait()  # blocks until next button press
+                log.info("Button pressed again — resuming recording")
+                indicate_normal()
+                continue
+
+            # 2. VAD filter
+            speech_pct = detect_speech_percentage(wav_path, config["silence_threshold"])
+            log.info(f"Speech: {speech_pct:.1f}%")
+
+            if speech_pct < config["min_speech_pct"]:
+                log.info(f"Silence ({speech_pct:.1f}% < {config['min_speech_pct']}%), skipping")
+                wav_path.unlink()
+                continue
 
             # 3. Upload to server
             if upload_audio(wav_path, config):
