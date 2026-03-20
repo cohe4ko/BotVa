@@ -129,17 +129,30 @@ function initFilePositions(chatIds: string[]): void {
 
 /**
  * Start polling relay files for new messages from other bots.
- * @param chatIds - list of group chat IDs to watch
+ * @param chatIdsOrFn - list of group chat IDs or a function returning them (for dynamic groups)
  * @param onMessage - callback when a new message from another bot arrives
  */
 export function startRelayPoller(
-  chatIds: string[],
+  chatIdsOrFn: string[] | (() => string[]),
   onMessage: (msg: RelayMessage) => void
 ): () => void {
-  initFilePositions(chatIds)
+  const getChatIds = typeof chatIdsOrFn === 'function' ? chatIdsOrFn : () => chatIdsOrFn
+  const knownChatIds = new Set<string>()
+
+  const initial = getChatIds()
+  initFilePositions(initial)
+  initial.forEach(id => knownChatIds.add(id))
 
   const timer = setInterval(() => {
-    for (const chatId of chatIds) {
+    const currentIds = getChatIds()
+    // Init positions for newly added groups
+    for (const id of currentIds) {
+      if (!knownChatIds.has(id)) {
+        initFilePositions([id])
+        knownChatIds.add(id)
+      }
+    }
+    for (const chatId of currentIds) {
       const messages = relayRead(chatId)
       for (const msg of messages) {
         logger.info({ chatId, from: msg.botName, textLen: msg.text.length }, 'Relay message received')
@@ -148,7 +161,7 @@ export function startRelayPoller(
     }
   }, POLL_INTERVAL_MS)
 
-  logger.info({ chatIds, interval: POLL_INTERVAL_MS }, 'Relay poller started')
+  logger.info({ chatIds: initial, interval: POLL_INTERVAL_MS }, 'Relay poller started')
 
   return () => clearInterval(timer)
 }

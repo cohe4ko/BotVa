@@ -35,6 +35,9 @@ import {
   getChatSetting,
   setChatSetting,
   deleteChatSetting,
+  getApprovedGroups,
+  addApprovedGroup,
+  removeApprovedGroup,
   insertMemory,
   searchMemories,
   getRecentMemories,
@@ -109,6 +112,43 @@ describe('chat settings', () => {
     setChatSetting(CHAT, 'tmp', 'val')
     deleteChatSetting(CHAT, 'tmp')
     expect(getChatSetting(CHAT, 'tmp')).toBeUndefined()
+  })
+})
+
+describe('approved groups', () => {
+  it('returns empty array initially', () => {
+    expect(getApprovedGroups()).toEqual([])
+  })
+
+  it('addApprovedGroup adds a group', () => {
+    addApprovedGroup('-100123')
+    expect(getApprovedGroups()).toEqual(['-100123'])
+  })
+
+  it('addApprovedGroup is idempotent', () => {
+    addApprovedGroup('-100123')
+    expect(getApprovedGroups()).toEqual(['-100123'])
+  })
+
+  it('addApprovedGroup adds multiple groups', () => {
+    addApprovedGroup('-100456')
+    expect(getApprovedGroups()).toEqual(['-100123', '-100456'])
+  })
+
+  it('removeApprovedGroup removes a group', () => {
+    removeApprovedGroup('-100123')
+    expect(getApprovedGroups()).toEqual(['-100456'])
+  })
+
+  it('removeApprovedGroup cleans up when last group removed', () => {
+    removeApprovedGroup('-100456')
+    expect(getApprovedGroups()).toEqual([])
+    expect(getChatSetting('_global', 'allowed_groups')).toBeUndefined()
+  })
+
+  it('removeApprovedGroup is safe for non-existent group', () => {
+    removeApprovedGroup('-999')
+    expect(getApprovedGroups()).toEqual([])
   })
 })
 

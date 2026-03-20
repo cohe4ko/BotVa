@@ -9,7 +9,7 @@ import {
   BOT_DIR,
   DEBUG_CONTEXT,
 } from './config.js'
-import { getSession, setSession, clearSession, getAllMemories, logUsage, getUsageSince, getChatSetting, setChatSetting, deleteChatSetting, logAudit } from './db.js'
+import { getSession, setSession, clearSession, getAllMemories, logUsage, getUsageSince, getChatSetting, setChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup } from './db.js'
 import { runAgent, type UsageStats } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, voiceCapabilities, synthesizeSpeech } from './voice.js'
@@ -67,6 +67,13 @@ const pendingPermissions = new Map<string, {
 const pendingVoiceConfirms = new Map<string, {
   transcript: string
   messageId: number
+  timeout: ReturnType<typeof setTimeout>
+}>()
+
+// --- Pending group approvals ---
+const pendingGroupApprovals = new Map<string, {
+  chatId: number
+  chatTitle: string
   timeout: ReturnType<typeof setTimeout>
 }>()
 
@@ -303,10 +310,26 @@ async function sendChunked(ctx: Context, text: string): Promise<void> {
 
 // --- Auth ---
 
+// In-memory cache for dynamically approved groups
+let approvedGroupsCache: Set<string> | null = null
+
+function loadApprovedGroups(): Set<string> {
+  if (!approvedGroupsCache) {
+    approvedGroupsCache = new Set(getApprovedGroups())
+  }
+  return approvedGroupsCache
+}
+
+function refreshApprovedGroups(): void {
+  approvedGroupsCache = null
+}
+
 function isAuthorised(chatId: number): boolean {
   if (!ALLOWED_CHAT_ID) return true // first-run mode
   const allowed = ALLOWED_CHAT_ID.split(',').map(s => s.trim())
-  return allowed.includes(String(chatId))
+  if (allowed.includes(String(chatId))) return true
+  // Check dynamically approved groups
+  return loadApprovedGroups().has(String(chatId))
 }
 
 // --- Group chat support ---
@@ -1600,6 +1623,49 @@ export function createBot(): Bot {
 
       return
     }
+    // Group approval callback
+    if (ctx.callbackQuery?.data?.startsWith('grp:')) {
+      const ownerChatId = ALLOWED_CHAT_ID.split(',')[0]?.trim()
+      if (String(ctx.chat?.id) !== ownerChatId) {
+        await ctx.answerCallbackQuery({ text: '⛔ Тільки власник' })
+        return
+      }
+      const parts = ctx.callbackQuery.data.split(':')
+      const action = parts[1]
+      const groupId = parts.slice(2).join(':')
+
+      const pending = pendingGroupApprovals.get(groupId)
+
+      if (action === 'allow') {
+        addApprovedGroup(groupId)
+        refreshApprovedGroups()
+        if (pending) {
+          clearTimeout(pending.timeout)
+          pendingGroupApprovals.delete(groupId)
+        }
+        await ctx.answerCallbackQuery({ text: '✅ Групу додано' })
+        try {
+          const msg = ctx.callbackQuery.message
+          if (msg && 'text' in msg) {
+            await ctx.editMessageText(`${msg.text}\n\n✅ <b>Дозволено</b>`, { parse_mode: 'HTML' })
+          }
+        } catch {}
+      } else if (action === 'deny') {
+        if (pending) {
+          clearTimeout(pending.timeout)
+          pendingGroupApprovals.delete(groupId)
+        }
+        try { await bot.api.leaveChat(Number(groupId)) } catch {}
+        await ctx.answerCallbackQuery({ text: '❌ Відхилено, бот вийшов' })
+        try {
+          const msg = ctx.callbackQuery.message
+          if (msg && 'text' in msg) {
+            await ctx.editMessageText(`${msg.text}\n\n❌ <b>Відхилено</b>`, { parse_mode: 'HTML' })
+          }
+        } catch {}
+      }
+      return
+    }
     // /cancel command
     if (ctx.message?.text === '/cancel') {
       const chatIdStr = String(ctx.chat?.id)
@@ -1897,6 +1963,85 @@ export function createBot(): Bot {
     }
   })
 
+  // Group membership: bot added/removed from a group
+  bot.on('my_chat_member', async (ctx) => {
+    const update = ctx.myChatMember
+    const chat = update.chat
+    const newStatus = update.new_chat_member.status
+    const oldStatus = update.old_chat_member.status
+
+    // Bot added to group
+    if ((chat.type === 'group' || chat.type === 'supergroup') &&
+        (newStatus === 'member' || newStatus === 'administrator') &&
+        (oldStatus === 'left' || oldStatus === 'kicked')) {
+
+      const chatIdStr = String(chat.id)
+      const ownerChatId = ALLOWED_CHAT_ID.split(',')[0]?.trim()
+      if (!ownerChatId) return
+
+      // Already approved?
+      if (isAuthorised(chat.id)) return
+
+      const chatTitle = 'title' in chat ? chat.title : chatIdStr
+      logger.info({ chatId: chatIdStr, title: chatTitle }, 'Bot added to new group, requesting owner approval')
+
+      // Clear previous pending for same group
+      const prev = pendingGroupApprovals.get(chatIdStr)
+      if (prev) clearTimeout(prev.timeout)
+
+      // Auto-deny after 24h
+      const timeout = setTimeout(() => {
+        pendingGroupApprovals.delete(chatIdStr)
+        bot.api.leaveChat(chat.id).catch(() => {})
+      }, 24 * 60 * 60 * 1000)
+
+      pendingGroupApprovals.set(chatIdStr, { chatId: chat.id, chatTitle, timeout })
+
+      await bot.api.sendMessage(Number(ownerChatId),
+        `🆕 Бота додано до групи:\n\n<b>${escapeHtml(chatTitle)}</b>\n<code>${chatIdStr}</code>\n\nДозволити читати та реагувати в цій групі?`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ Дозволити', callback_data: `grp:allow:${chatIdStr}` },
+              { text: '❌ Відхилити', callback_data: `grp:deny:${chatIdStr}` },
+            ]],
+          },
+        }
+      ).catch(err => logger.error({ err, chatId: chatIdStr }, 'Failed to send group approval request'))
+    }
+
+    // Bot removed from group
+    if ((chat.type === 'group' || chat.type === 'supergroup') &&
+        (newStatus === 'left' || newStatus === 'kicked') &&
+        (oldStatus === 'member' || oldStatus === 'administrator')) {
+
+      const chatIdStr = String(chat.id)
+
+      // Clean up approved group
+      if (loadApprovedGroups().has(chatIdStr)) {
+        removeApprovedGroup(chatIdStr)
+        refreshApprovedGroups()
+
+        const ownerChatId = ALLOWED_CHAT_ID.split(',')[0]?.trim()
+        if (ownerChatId) {
+          const chatTitle = 'title' in chat ? chat.title : chatIdStr
+          await bot.api.sendMessage(Number(ownerChatId),
+            `🚪 Бота видалено з групи <b>${escapeHtml(chatTitle)}</b> (<code>${chatIdStr}</code>)`,
+            { parse_mode: 'HTML' }
+          ).catch(() => {})
+        }
+      }
+
+      // Clean up pending approval
+      const pending = pendingGroupApprovals.get(chatIdStr)
+      if (pending) {
+        clearTimeout(pending.timeout)
+        pendingGroupApprovals.delete(chatIdStr)
+      }
+    }
+  })
+
   // Text messages
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
@@ -2153,14 +2298,20 @@ export async function sendMessage(chatId: string, text: string): Promise<void> {
 export function startRelayListener(bot: Bot): () => void {
   if (!ALLOWED_CHAT_ID) return () => {}
 
-  // All negative chat IDs are group chats (Telegram convention)
-  const chatIds = ALLOWED_CHAT_ID.split(',').map(s => s.trim()).filter(id => id.startsWith('-'))
-  if (chatIds.length === 0) {
-    logger.debug('No group chats configured — relay listener not started')
-    return () => {}
+  // Dynamic group IDs: env + approved groups from DB
+  const getGroupChatIds = (): string[] => {
+    const envIds = ALLOWED_CHAT_ID.split(',').map(s => s.trim()).filter(id => id.startsWith('-'))
+    const dynamicIds = getApprovedGroups().filter(id => id.startsWith('-'))
+    return [...new Set([...envIds, ...dynamicIds])]
   }
 
-  return startRelayPoller(chatIds, (msg) => {
+  const initial = getGroupChatIds()
+  if (initial.length === 0) {
+    logger.debug('No group chats configured — relay listener not started')
+    // Still start with dynamic function so new groups get picked up
+  }
+
+  return startRelayPoller(getGroupChatIds, (msg) => {
     // Build group prefix from relay data
     const prefix = `[Group message from ${msg.botName} @${msg.botUsername} [bot]]\n`
     const fullText = prefix + msg.text

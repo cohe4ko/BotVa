@@ -238,7 +238,13 @@ async function main(): Promise<void> {
 
   // Start bot with concurrent runner
   logger.info('BotVa запускається...')
-  const runner = run(bot)
+  const runner = run(bot, {
+    runner: {
+      fetch: {
+        allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer'],
+      },
+    },
+  })
 
   // Graceful shutdown
   const shutdown = async () => {

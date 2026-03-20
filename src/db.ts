@@ -764,6 +764,33 @@ export function deleteChatSetting(chatId: string, key: string): void {
   getDb().prepare('DELETE FROM chat_settings WHERE chat_id = ? AND key = ?').run(chatId, key)
 }
 
+// --- Dynamic group allowlist ---
+
+const GLOBAL_SETTINGS_ID = '_global'
+
+export function getApprovedGroups(): string[] {
+  const raw = getChatSetting(GLOBAL_SETTINGS_ID, 'allowed_groups')
+  if (!raw) return []
+  try { return JSON.parse(raw) } catch { return [] }
+}
+
+export function addApprovedGroup(groupId: string): void {
+  const groups = getApprovedGroups()
+  if (!groups.includes(groupId)) {
+    groups.push(groupId)
+    setChatSetting(GLOBAL_SETTINGS_ID, 'allowed_groups', JSON.stringify(groups))
+  }
+}
+
+export function removeApprovedGroup(groupId: string): void {
+  const groups = getApprovedGroups().filter(id => id !== groupId)
+  if (groups.length > 0) {
+    setChatSetting(GLOBAL_SETTINGS_ID, 'allowed_groups', JSON.stringify(groups))
+  } else {
+    deleteChatSetting(GLOBAL_SETTINGS_ID, 'allowed_groups')
+  }
+}
+
 // --- Imagen usage tracking ---
 
 export function logImagenUsage(
