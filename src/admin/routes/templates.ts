@@ -61,21 +61,29 @@ app.get('/templates', (c) => {
   const lang: Lang = c.get('lang')
   const rolesDir = getRolesDir()
   const roles = getAvailableRoles()
-  const hasBase = existsSync(resolve(rolesDir, '_base.md'))
+  const baseFiles = ['_soul.md', '_tools.md'].filter(f => existsSync(resolve(rolesDir, f)))
+  const baseDescriptions: Record<string, string> = {
+    '_soul': 'Soul, rules, format, workspace files',
+    '_tools': 'Generic tool routing, SaveFact, AskUser',
+  }
 
   const content = html`
     <h2>${icon('file-code')} ${t('tpl.title')}</h2>
     <div id="tpl-alerts"></div>
 
-    ${hasBase ? html`
-      <div class="form-section" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem">
-        <div>
-          <strong>_base.md</strong> <small style="opacity:0.7">${t('tpl.base')}</small>
-        </div>
-        <button hx-get="/templates/_base/edit" hx-target="#template-editor" hx-swap="innerHTML" class="outline" style="margin:0;padding:0.25rem 0.75rem">
-          ${icon('pencil', 13)} ${t('tpl.edit')}
-        </button>
-      </div>
+    ${baseFiles.length > 0 ? html`
+      ${baseFiles.map(f => {
+        const slug = f.replace('.md', '')
+        return html`
+        <div class="form-section" style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem">
+          <div>
+            <strong>${f}</strong> <small style="opacity:0.7">${baseDescriptions[slug] ?? t('tpl.base')}</small>
+          </div>
+          <button hx-get="/templates/${slug}/edit" hx-target="#template-editor" hx-swap="innerHTML" class="outline" style="margin:0;padding:0.25rem 0.75rem">
+            ${icon('pencil', 13)} ${t('tpl.edit')}
+          </button>
+        </div>`
+      })}
     ` : ''}
 
     <table>
@@ -128,9 +136,10 @@ app.get('/templates/:slug/edit', (c) => {
   const t: TFunc = c.get('t')
   const slug = c.req.param('slug')
 
-  // Allow _base as special case
-  const safeSlug = slug === '_base' ? '_base' : slug
-  if (safeSlug !== '_base' && !validateSlug(safeSlug)) {
+  // Allow _soul, _tools as base files
+  const isBaseFile = slug.startsWith('_') && /^_[a-z]+$/.test(slug)
+  const safeSlug = isBaseFile ? slug : slug
+  if (!isBaseFile && !validateSlug(safeSlug)) {
     return c.html(alert('error', t('tpl.slugInvalid')))
   }
 
@@ -143,8 +152,6 @@ app.get('/templates/:slug/edit', (c) => {
 
   const content = readFileSync(filePath, 'utf-8')
   const historyCount = getHistoryVersions(safeSlug).length
-  const isBase = safeSlug === '_base'
-
   return c.html(html`
     <h3 class="section-title">${icon('file-pen')} ${t('tpl.editing', { slug: safeSlug + '.md' })}</h3>
     <form hx-post="/templates/${safeSlug}" hx-target="#tpl-alerts" hx-swap="innerHTML">
@@ -154,7 +161,7 @@ app.get('/templates/:slug/edit', (c) => {
         <button type="button" hx-get="/templates/${safeSlug}/history" hx-target="#template-history" hx-swap="innerHTML" class="outline">
           ${icon('history', 13)} ${t('tpl.history')} ${historyCount > 0 ? `(${historyCount})` : ''}
         </button>
-        ${!isBase ? html`
+        ${!isBaseFile ? html`
           <button type="button" hx-post="/templates/${safeSlug}/delete" hx-target="#tpl-alerts" hx-swap="innerHTML"
             hx-confirm="${t('tpl.deleteConfirm', { slug: safeSlug })}" class="outline danger" style="margin-left:auto">
             ${icon('trash-2', 13)} ${t('tpl.delete')}
@@ -170,7 +177,8 @@ app.post('/templates/:slug', async (c) => {
   const t: TFunc = c.get('t')
   const slug = c.req.param('slug')
 
-  const safeSlug = slug === '_base' ? '_base' : slug
+  const isBaseFile = slug.startsWith('_') && /^_[a-z]+$/.test(slug)
+  const safeSlug = slug
   if (safeSlug !== '_base' && !validateSlug(safeSlug)) {
     return c.html(alert('error', t('tpl.slugInvalid')))
   }
@@ -225,7 +233,7 @@ app.post('/templates/:slug/delete', async (c) => {
   const t: TFunc = c.get('t')
   const slug = c.req.param('slug')
 
-  if (slug === '_base') {
+  if (slug.startsWith('_')) {
     return c.html(alert('error', t('tpl.cantDeleteBase')))
   }
   if (!validateSlug(slug)) {
@@ -253,7 +261,8 @@ app.post('/templates/:slug/delete', async (c) => {
 app.get('/templates/:slug/history', (c) => {
   const t: TFunc = c.get('t')
   const slug = c.req.param('slug')
-  const safeSlug = slug === '_base' ? '_base' : slug
+  const isBaseFile = slug.startsWith('_') && /^_[a-z]+$/.test(slug)
+  const safeSlug = slug
   if (safeSlug !== '_base' && !validateSlug(safeSlug)) {
     return c.html(alert('error', t('tpl.slugInvalid')))
   }
@@ -293,7 +302,8 @@ app.get('/templates/:slug/history/:ts', (c) => {
   const t: TFunc = c.get('t')
   const slug = c.req.param('slug')
   const ts = c.req.param('ts')
-  const safeSlug = slug === '_base' ? '_base' : slug
+  const isBaseFile = slug.startsWith('_') && /^_[a-z]+$/.test(slug)
+  const safeSlug = slug
 
   const histDir = getHistoryDir(safeSlug)
   const filePath = resolve(histDir, `${ts}.md`)
@@ -317,7 +327,8 @@ app.post('/templates/:slug/history/:ts/restore', async (c) => {
   const t: TFunc = c.get('t')
   const slug = c.req.param('slug')
   const ts = c.req.param('ts')
-  const safeSlug = slug === '_base' ? '_base' : slug
+  const isBaseFile = slug.startsWith('_') && /^_[a-z]+$/.test(slug)
+  const safeSlug = slug
 
   if (safeSlug !== '_base' && !validateSlug(safeSlug)) {
     return c.html(alert('error', t('tpl.slugInvalid')))
