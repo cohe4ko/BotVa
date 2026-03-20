@@ -365,6 +365,27 @@ function debateLog(chatId: string, event: string, data?: Record<string, unknown>
   logger.info({ chatId, event, ...data }, `debate: ${event}`)
 }
 
+// --- Plan mode state (planning → executing transition) ---
+
+interface PlanModeState {
+  phase: 'planning' | 'executing'
+  startedAt: number
+}
+
+const planModeState = new Map<string, PlanModeState>()
+
+function getPlanPhase(chatId: string): 'planning' | 'executing' | null {
+  return planModeState.get(chatId)?.phase ?? null
+}
+
+function setPlanPhase(chatId: string, phase: 'planning' | 'executing'): void {
+  planModeState.set(chatId, { phase, startedAt: Date.now() })
+}
+
+function clearPlanState(chatId: string): void {
+  planModeState.delete(chatId)
+}
+
 // --- Group debate state (tracks partner bot for auto @mention) ---
 
 interface DebateState {
@@ -775,6 +796,31 @@ async function handleMessage(
         fullMessage = `[📌 Контекст від користувача]\n${groupCtx}\n\n${fullMessage}`
       }
 
+      // Plan mode: prompt injection + approval detection
+      const agentMode = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
+      if (agentMode === 'plan') {
+        // Detect plan approval from user
+        const approvalRe = /^(виконувати|виконати|execute|так[,. ]*(роби|виконуй)|go|do it|ок[,. ]*(роби|давай)|погнали|запускай)/i
+        if (getPlanPhase(chatIdStr) === 'planning' && approvalRe.test(currentMessage.trim())) {
+          setPlanPhase(chatIdStr, 'executing')
+        }
+
+        // Initialize planning phase if not set
+        if (!getPlanPhase(chatIdStr)) {
+          setPlanPhase(chatIdStr, 'planning')
+        }
+
+        // Inject plan mode context
+        if (getPlanPhase(chatIdStr) === 'planning') {
+          fullMessage = `[🔍 PLAN MODE — Research & Plan]\nYou are in planning mode. Research the task: read files, search, analyze. Then create a structured plan with steps, files to modify, risks.\nFor complex plans (6+ steps): save to a file and send via SendMedia.\nPresent the plan and ask for approval via AskUser(["Виконувати", "Скоригувати"]).\nWrite operations are blocked until approved. Do NOT attempt to execute changes — only plan.\n\n${fullMessage}`
+        } else {
+          fullMessage = `[⚡ EXECUTING PLAN — approved by user]\nThe user approved your plan. Execute it now. All tools are available.\n\n${fullMessage}`
+        }
+      } else {
+        // Not in plan mode — clear any stale plan state
+        clearPlanState(chatIdStr)
+      }
+
       // Get session
       const sessionId = getSession(chatIdStr)
 
@@ -880,12 +926,16 @@ async function handleMessage(
           }
         }
         const currentModel = getModel(chatIdStr)
-        const agentMode = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
-        const permissionMode = agentMode === 'plan' ? 'plan' : isDebateMode ? 'debate' : undefined
-        logger.info({ chatId: chatIdStr, model: currentModel, agentMode, hasSession: !!sessionId }, 'Running agent')
+        const agentModeForRun = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
+        const planPhase = agentModeForRun === 'plan' ? (getPlanPhase(chatIdStr) ?? 'planning') : null
+        const permissionMode = planPhase === 'planning' ? 'plan'
+          : planPhase === 'executing' ? undefined  // full access after approval
+          : isDebateMode ? 'debate'
+          : undefined
+        logger.info({ chatId: chatIdStr, model: currentModel, agentMode: agentModeForRun, planPhase, hasSession: !!sessionId }, 'Running agent')
 
         // Permission callback for ask mode
-        const onPermissionRequest = agentMode === 'ask' ? async (toolName: string, summary: string) => {
+        const onPermissionRequest = agentModeForRun === 'ask' ? async (toolName: string, summary: string) => {
           const msg = `🔐 <b>${escapeHtml(toolName)}</b>\n<code>${escapeHtml(summary)}</code>`
           const keyboard = [
             [{ text: '✅ Дозволити', callback_data: 'perm:allow' },
@@ -970,6 +1020,11 @@ async function handleMessage(
       // Translate agent error markers {{key}} to localized text
       const t = chatT(chatIdStr)
       text = text.replace(/\{\{([a-z._]+)\}\}/g, (_, key) => t(key))
+
+      // Reset plan state after execution completes
+      if (getPlanPhase(chatIdStr) === 'executing') {
+        clearPlanState(chatIdStr)
+      }
 
       // Save memory
       await saveConversationTurn(chatIdStr, currentMessage, text)
@@ -1410,6 +1465,7 @@ export function createBot(): Bot {
           const next = ids[(ids.indexOf(cur) + 1) % ids.length]
           if (next === 'full') deleteChatSetting(chatIdStr, 'agent_mode')
           else setChatSetting(chatIdStr, 'agent_mode', next)
+          clearPlanState(chatIdStr)  // Reset plan phase on mode switch
           break
         }
         case 'close': {
