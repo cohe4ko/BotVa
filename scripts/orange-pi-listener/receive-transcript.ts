@@ -59,6 +59,9 @@ const XAI_API_KEY = process.env.XAI_API_KEY || "";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const STT_PROVIDER = process.env.STT_PROVIDER || "groq";
 
+// Runtime-configurable STT language (empty = auto-detect)
+let sttLanguage = process.env.STT_LANGUAGE || "";
+
 // ── Device Status ───────────────────────────────────────────────────
 
 interface DeviceStatus {
@@ -171,6 +174,9 @@ async function transcribeGroq(wavPath: string): Promise<string | null> {
     form.append("file", blob, "audio.wav");
     form.append("model", "whisper-large-v3");
     form.append("response_format", "verbose_json");
+    if (sttLanguage) {
+      form.append("language", sttLanguage);
+    }
 
     try {
       const response = await fetch(
@@ -470,11 +476,36 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         status: "ok",
         service: "listener-receiver",
         stt: STT_PROVIDER,
+        stt_language: sttLanguage || "auto",
         analysis: ANTHROPIC_API_KEY ? "enabled" : "disabled",
         groqKeys: GROQ_API_KEYS.length,
         devices: deviceStatuses.size,
       })
     );
+    return;
+  }
+
+  // Settings: get current
+  if (req.method === "GET" && req.url === "/settings") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ stt_language: sttLanguage || "auto" }));
+    return;
+  }
+
+  // Settings: update
+  if (req.method === "POST" && req.url === "/settings") {
+    try {
+      const body = await readJsonBody(req);
+      if (body.stt_language !== undefined) {
+        sttLanguage = body.stt_language === "auto" ? "" : String(body.stt_language);
+        console.log(`[${timestamp()}] STT language changed to: ${sttLanguage || "auto-detect"}`);
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, stt_language: sttLanguage || "auto" }));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid JSON body" }));
+    }
     return;
   }
 

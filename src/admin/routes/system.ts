@@ -816,6 +816,47 @@ app.get('/system/listener/status', async (c) => {
         </table>
       </div>
     ` : ''}
+    ${healthOk ? html`
+    <div style="margin-top:0.75rem;padding:0.75rem;border:1px solid var(--mc-border);border-radius:8px;background:var(--mc-bg-dim, #f8f9fa)">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+        ${icon('languages', 14)} <strong>Recognition Language</strong>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <select id="stt-language-select" style="max-width:300px;margin:0"
+          hx-post="/system/listener/language"
+          hx-target="#stt-lang-status"
+          hx-swap="innerHTML"
+          hx-vals="js:{language: event.target.value}"
+          hx-trigger="change"
+        >
+          <option value="auto"${(healthData?.stt_language ?? 'auto') === 'auto' ? ' selected' : ''}>🌐 Auto-detect</option>
+          <option value="uk"${'uk' === healthData?.stt_language ? ' selected' : ''}>🇺🇦 Українська</option>
+          <option value="ru"${'ru' === healthData?.stt_language ? ' selected' : ''}>🇷🇺 Русский</option>
+          <option value="en"${'en' === healthData?.stt_language ? ' selected' : ''}>🇬🇧 English</option>
+          <option value="de"${'de' === healthData?.stt_language ? ' selected' : ''}>🇩🇪 Deutsch</option>
+          <option value="fr"${'fr' === healthData?.stt_language ? ' selected' : ''}>🇫🇷 Français</option>
+          <option value="es"${'es' === healthData?.stt_language ? ' selected' : ''}>🇪🇸 Español</option>
+          <option value="it"${'it' === healthData?.stt_language ? ' selected' : ''}>🇮🇹 Italiano</option>
+          <option value="pt"${'pt' === healthData?.stt_language ? ' selected' : ''}>🇵🇹 Português</option>
+          <option value="pl"${'pl' === healthData?.stt_language ? ' selected' : ''}>🇵🇱 Polski</option>
+          <option value="nl"${'nl' === healthData?.stt_language ? ' selected' : ''}>🇳🇱 Nederlands</option>
+          <option value="sv"${'sv' === healthData?.stt_language ? ' selected' : ''}>🇸🇪 Svenska</option>
+          <option value="da"${'da' === healthData?.stt_language ? ' selected' : ''}>🇩🇰 Dansk</option>
+          <option value="no"${'no' === healthData?.stt_language ? ' selected' : ''}>🇳🇴 Norsk</option>
+          <option value="fi"${'fi' === healthData?.stt_language ? ' selected' : ''}>🇫🇮 Suomi</option>
+          <option value="ja"${'ja' === healthData?.stt_language ? ' selected' : ''}>🇯🇵 日本語</option>
+          <option value="ko"${'ko' === healthData?.stt_language ? ' selected' : ''}>🇰🇷 한국어</option>
+          <option value="zh"${'zh' === healthData?.stt_language ? ' selected' : ''}>🇨🇳 中文</option>
+          <option value="ar"${'ar' === healthData?.stt_language ? ' selected' : ''}>🇸🇦 العربية</option>
+          <option value="hi"${'hi' === healthData?.stt_language ? ' selected' : ''}>🇮🇳 हिन्दी</option>
+          <option value="tr"${'tr' === healthData?.stt_language ? ' selected' : ''}>🇹🇷 Türkçe</option>
+          <option value="cs"${'cs' === healthData?.stt_language ? ' selected' : ''}>🇨🇿 Čeština</option>
+          <option value="hu"${'hu' === healthData?.stt_language ? ' selected' : ''}>🇭🇺 Magyar</option>
+        </select>
+        <span id="stt-lang-status" style="font-size:0.8rem;color:var(--mc-text-dim)"></span>
+      </div>
+    </div>
+    ` : ''}
     <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center">
       ${healthOk
         ? html`<button hx-post="/system/listener/stop" hx-target="#listener-status" hx-swap="innerHTML" class="btn-sm secondary outline">${icon('square', 11)} Stop</button>`
@@ -861,6 +902,29 @@ app.post('/system/listener/stop', (c) => {
       <button hx-post="/system/listener/start" hx-target="#listener-status" hx-swap="innerHTML" class="btn-sm">${icon('play', 11)} Start</button>
     </div>
   `)
+})
+
+// Change listener STT language
+app.post('/system/listener/language', async (c) => {
+  const body = await c.req.parseBody()
+  const language = String(body['language'] || 'auto').trim()
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 3000)
+    const res = await fetch('http://localhost:3847/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stt_language: language }),
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (res.ok) {
+      return c.html(html`<span style="color:var(--mc-green)">✓ ${language === 'auto' ? 'Auto-detect' : language}</span>`)
+    }
+    return c.html(html`<span style="color:var(--mc-red)">✗ Error</span>`)
+  } catch {
+    return c.html(html`<span style="color:var(--mc-red)">✗ Receiver offline</span>`)
+  }
 })
 
 // Save system settings
