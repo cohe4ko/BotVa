@@ -112,6 +112,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
           </div>
         </div>
         <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.team')}</span></a>
+        <a href="/templates" class="${activePath.startsWith('/templates') ? 'active' : ''}"><i data-lucide="file-code" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.templates')}</span></a>
         <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.gallery')}</span></a>
         <a href="/records" class="${activePath === '/records' ? 'active' : ''}"><i data-lucide="mic" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.records')}</span></a>
         <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.storage')}</span></a>
