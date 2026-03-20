@@ -45,6 +45,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
     (function(){
       var t = localStorage.getItem('theme');
       if (t) document.documentElement.setAttribute('data-theme', t);
+      if (localStorage.getItem('sidebar-collapsed') === '1') document.documentElement.classList.add('sidebar-collapsed');
     })();
     function toggleTheme() {
       var current = document.documentElement.getAttribute('data-theme');
@@ -52,6 +53,15 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       var next = isDark ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('theme', next);
+    }
+    function toggleSidebar() {
+      var html = document.documentElement;
+      html.classList.toggle('sidebar-collapsed');
+      var collapsed = html.classList.contains('sidebar-collapsed');
+      localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0');
+      // Close any open dropdown when collapsing
+      if (collapsed) document.querySelectorAll('.nav-dropdown.open').forEach(function(dd) { dd.classList.remove('open'); });
+      lucide.createIcons();
     }
     function toggleMobileMenu() {
       document.getElementById('sidebar').classList.toggle('open');
@@ -82,13 +92,17 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       <div class="sidebar-header">
         <a href="/" class="logo">
           <span class="logo-icon"><i data-lucide="sprout" style="width:14px;height:14px"></i></span>
-          BotVa
+          <span class="nav-label">BotVa</span>
         </a>
+        <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+          <i data-lucide="panel-left-close" style="width:16px;height:16px" class="icon-expanded"></i>
+          <i data-lucide="panel-left-open" style="width:16px;height:16px" class="icon-collapsed"></i>
+        </button>
       </div>
       <div class="nav-links">
-        <a href="/" class="${activePath === '/' ? 'active' : ''}"><i data-lucide="layout-dashboard" style="width:15px;height:15px"></i> ${_t('nav.dashboard')}</a>
+        <a href="/" class="${activePath === '/' ? 'active' : ''}"><i data-lucide="layout-dashboard" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.dashboard')}</span></a>
         <div class="nav-dropdown${bots.some(b => activePath.startsWith(`/bot/${b}`)) || activePath === '/create-bot' ? ' active' : ''}">
-          <button class="nav-dropdown-toggle"><i data-lucide="bot" style="width:15px;height:15px"></i> ${_t('nav.bots')} <i data-lucide="chevron-down" style="width:12px;height:12px;margin-left:auto"></i></button>
+          <button class="nav-dropdown-toggle"><i data-lucide="bot" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.bots')}</span> <i data-lucide="chevron-down" style="width:12px;height:12px" class="nav-chevron"></i></button>
           <div class="nav-dropdown-menu">
             ${bots.map(b => html`
               <a href="/bot/${b}/config" class="${activePath.startsWith(`/bot/${b}`) ? 'active' : ''}">${b}</a>
@@ -97,24 +111,24 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
             <a href="/create-bot" class="${activePath === '/create-bot' ? 'active' : ''}"><i data-lucide="plus" style="width:13px;height:13px"></i> ${_t('nav.new')}</a>
           </div>
         </div>
-        <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:15px;height:15px"></i> ${_t('nav.team')}</a>
-        <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:15px;height:15px"></i> ${_t('nav.gallery')}</a>
-        <a href="/records" class="${activePath === '/records' ? 'active' : ''}"><i data-lucide="mic" style="width:15px;height:15px"></i> ${_t('nav.records')}</a>
-        <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:15px;height:15px"></i> ${_t('nav.storage')}</a>
-        <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:15px;height:15px"></i> ${_t('nav.backup')}</a>
-        <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:15px;height:15px"></i> ${_t('nav.diagnostics')}</a>
-        <a href="/terminal" class="${activePath === '/terminal' ? 'active' : ''}"><i data-lucide="terminal" style="width:15px;height:15px"></i> ${_t('nav.terminal')}</a>
-        <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:15px;height:15px"></i> ${_t('nav.system')}</a>
+        <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.team')}</span></a>
+        <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.gallery')}</span></a>
+        <a href="/records" class="${activePath === '/records' ? 'active' : ''}"><i data-lucide="mic" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.records')}</span></a>
+        <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.storage')}</span></a>
+        <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.backup')}</span></a>
+        <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.diagnostics')}</span></a>
+        <a href="/terminal" class="${activePath === '/terminal' ? 'active' : ''}"><i data-lucide="terminal" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.terminal')}</span></a>
+        <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.system')}</span></a>
       </div>
       <div class="sidebar-footer">
         <a href="/docs" class="sidebar-action" title="${_t('nav.docs')}">
-          <i data-lucide="book-open" style="width:15px;height:15px"></i> ${_t('nav.docs')}
+          <i data-lucide="book-open" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.docs')}</span>
         </a>
         <button class="sidebar-action" onclick="switchLang()" title="Switch language">
-          <i data-lucide="globe" style="width:15px;height:15px"></i> ${langLabel}
+          <i data-lucide="globe" style="width:16px;height:16px"></i> <span class="nav-label">${langLabel}</span>
         </button>
         <button class="sidebar-action" onclick="toggleTheme()" title="Toggle theme">
-          <i data-lucide="sun" style="width:15px;height:15px"></i>
+          <i data-lucide="sun" style="width:16px;height:16px"></i> <span class="nav-label">Theme</span>
         </button>
       </div>
     </nav>
