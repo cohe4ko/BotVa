@@ -1,34 +1,18 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
-import { formatCost } from '../views/components.js'
-import { getBotNames, getUsageSummary, getBotDir, getProjectRoot, getToolUsageStats, type ToolUsageStat } from '../db-multi.js'
+import { getBotNames, getBotDir, getProjectRoot, getToolUsageStats, type ToolUsageStat } from '../db-multi.js'
 import { readEnv } from '../env-parser.js'
 import { getMcpServersConfig, isServerDisabled, setServerEnabled, addMcpServer, removeMcpServer, getMcpServer, updateMcpServer, type McpServerEntry } from '../../mcp-config.js'
 import { getBuiltinToolDefs, setToolEnabled, type BuiltinToolDef } from '../../builtin-tools.js'
 import { existsSync, readdirSync, renameSync, readFileSync, openSync } from 'fs'
 import { resolve, join } from 'path'
 import { execSync, spawn } from 'child_process'
+import { guideBlock } from '../views/components.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { getConsolidationHour, getEmbeddingModel, setSystemSetting } from '../../system-settings.js'
 
 const app = new Hono<I18nEnv>()
-
-function getNodeVersion(): string { return process.versions.node }
-function getClaudeVersion(): string {
-  try { return execSync('claude --version 2>/dev/null', { encoding: 'utf-8' }).trim() }
-  catch { return '(not found)' }
-}
-function getUptime(): string {
-  const secs = process.uptime()
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  return `${h}h ${m}m`
-}
-function getDiskUsage(dir: string): string {
-  try { return execSync(`du -sh "${dir}" 2>/dev/null`, { encoding: 'utf-8' }).split('\t')[0].trim() }
-  catch { return '?' }
-}
 
 interface SkillInfo {
   name: string
@@ -115,27 +99,6 @@ app.get('/system', async (c) => {
   const root = getProjectRoot()
   const botNames = getBotNames()
 
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-  const todayTs = Math.floor(todayStart.getTime() / 1000)
-  const monthTs = todayTs - 30 * 86400
-
-  let totalToday = 0, totalMonth = 0
-  for (const name of botNames) {
-    try { totalToday += getUsageSummary(name, todayTs).costUSD; totalMonth += getUsageSummary(name, monthTs).costUSD } catch {}
-  }
-
-  const botApiKeys = botNames.map(name => {
-    const env = readEnv(name)
-    return {
-      name,
-      hasToken: !!env['TELEGRAM_BOT_TOKEN'],
-      hasGroq: !!env['GROQ_API_KEY'],
-      hasGoogle: !!env['GOOGLE_API_KEY'],
-      hasChatId: !!env['ALLOWED_CHAT_ID'],
-    }
-  })
-
   // Merge env from all bots to determine which MCP servers are available
   const mergedEnv: Record<string, string> = {}
   for (const name of botNames) {
@@ -150,33 +113,7 @@ app.get('/system', async (c) => {
 
   const content = html`
     <h2>${icon('server')} ${t('sys.title')}</h2>
-
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">${icon('hexagon', 12)} ${t('sys.nodejs')}</div>
-        <div class="stat-number" style="font-size:1.1rem">${getNodeVersion()}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">${icon('bot', 12)} ${t('sys.claudeCli')}</div>
-        <div class="stat-number" style="font-size:1.1rem">${getClaudeVersion()}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">${icon('timer', 12)} ${t('sys.adminUptime')}</div>
-        <div class="stat-number">${getUptime()}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">${icon('monitor', 12)} ${t('sys.platform')}</div>
-        <div class="stat-number" style="font-size:1.1rem">${process.platform} ${process.arch}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">${icon('credit-card', 12)} ${t('sys.costToday')}</div>
-        <div class="stat-number">${formatCost(totalToday)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">${icon('calendar', 12)} ${t('sys.cost30')}</div>
-        <div class="stat-number">${formatCost(totalMonth)}</div>
-      </div>
-    </div>
+    ${guideBlock(t('guide.system.title'), [t('guide.system.1'), t('guide.system.2'), t('guide.system.3'), t('guide.system.4'), t('guide.system.5')])}
 
     <h3>${icon('brain')} ${t('sys.embeddingService')}</h3>
     <div id="embedding-status" hx-get="/system/embedding/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
@@ -188,46 +125,6 @@ app.get('/system', async (c) => {
       <span style="color:var(--mc-text-dim)">Loading...</span>
     </div>
 
-    <h3>${icon('hard-drive')} ${t('sys.storage')}</h3>
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">${t('sys.projectTotal')}</div>
-        <div class="stat-number">${getDiskUsage(root)}</div>
-      </div>
-      ${botNames.map(name => html`
-        <div class="stat-card">
-          <div class="stat-label">${name}</div>
-          <div class="stat-number">${getDiskUsage(getBotDir(name))}</div>
-        </div>
-      `)}
-    </div>
-
-    <h3>${icon('key')} ${t('sys.apiKeys')}</h3>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>${t('sys.bot')}</th>
-            <th>${t('sys.telegram')}</th>
-            <th>${t('sys.chatId')}</th>
-            <th class="hide-mobile">${t('sys.groq')}</th>
-            <th class="hide-mobile">${t('sys.google')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${botApiKeys.map(b => html`
-            <tr>
-              <td><span class="badge badge-${b.name}">${b.name}</span></td>
-              <td>${b.hasToken ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-missing">${icon('x', 11)} ${t('sys.missing')}</span>`}</td>
-              <td>${b.hasChatId ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-missing">${icon('x', 11)} ${t('sys.missing')}</span>`}</td>
-              <td class="hide-mobile">${b.hasGroq ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-optional">${t('sys.optional')}</span>`}</td>
-              <td class="hide-mobile">${b.hasGoogle ? html`<span class="badge badge-set">${icon('check', 11)} ${t('sys.set')}</span>` : html`<span class="badge badge-optional">${t('sys.optional')}</span>`}</td>
-            </tr>
-          `)}
-        </tbody>
-      </table>
-    </div>
-
     <h3>${icon('plug')} ${t('sys.mcpServers')}</h3>
     ${renderMcpTable(mcpServers, getEnvBotMap(), t, await getPersistentStatus(mcpServers))}
 
@@ -236,27 +133,6 @@ app.get('/system', async (c) => {
 
     <h3>${icon('puzzle')} ${t('sys.skills')}</h3>
     ${renderSkillsTable(projectSkills, t)}
-
-    <h3>${icon('message-square')} ${t('sys.telegramCommands')}</h3>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>${t('sys.tgCommand')}</th><th>${t('sys.tgDescription')}</th></tr></thead>
-        <tbody>
-          ${[
-            ['/start', t('sys.tgStart')],
-            ['/chatid', t('sys.tgChatid')],
-            ['/newchat', t('sys.tgNewchat')],
-            ['/model', t('sys.tgModel')],
-            ['/memory', t('sys.tgMemory')],
-            ['/voice', t('sys.tgVoice')],
-            ['/usage', t('sys.tgUsage')],
-            ['/stats', t('sys.tgStats')],
-            ['/img <prompt>', t('sys.tgImg')],
-            ['/cancel', t('sys.tgCancel')],
-          ].map(([cmd, desc]) => html`<tr><td><code>${cmd}</code></td><td>${desc}</td></tr>`)}
-        </tbody>
-      </table>
-    </div>
 
     <h3>${icon('settings')} ${t('sys.settings')}</h3>
     <div class="form-section" id="sys-settings">
@@ -272,20 +148,6 @@ app.get('/system', async (c) => {
       </form>
     </div>
 
-    <h3>${icon('layers')} ${t('sys.architecture')}</h3>
-    <div class="table-wrap">
-      <table>
-        <tbody>
-          <tr><td style="width:120px"><strong>${t('sys.agent')}</strong></td><td>${t('sys.agentDesc')}</td></tr>
-          <tr><td><strong>Telegram</strong></td><td>${t('sys.telegramDesc')}</td></tr>
-          <tr><td><strong>${t('sys.database')}</strong></td><td>${t('sys.databaseDesc')}</td></tr>
-          <tr><td><strong>${t('sys.memory')}</strong></td><td>${t('sys.memoryDesc')}</td></tr>
-          <tr><td><strong>${t('sys.consolidation')}</strong></td><td>${t('sys.consolidationDesc')}</td></tr>
-          <tr><td><strong>${t('sys.scheduler')}</strong></td><td>${t('sys.schedulerDesc')}</td></tr>
-          <tr><td><strong>${t('sys.watchdog')}</strong></td><td>Warn ${process.env.AGENT_WATCHDOG_WARN_SECONDS || '60'}s / timeout ${process.env.AGENT_WATCHDOG_TIMEOUT_MS || '600000'}ms</td></tr>
-        </tbody>
-      </table>
-    </div>
   `
 
   return c.html(layout(t('sys.title'), content, '/system', t, lang))

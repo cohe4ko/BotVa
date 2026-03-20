@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
-import { alert } from '../views/components.js'
+import { alert, guideBlock } from '../views/components.js'
 import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, unlinkSync } from 'fs'
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
@@ -69,6 +69,13 @@ app.get('/templates', (c) => {
 
   const content = html`
     <h2>${icon('file-code')} ${t('tpl.title')}</h2>
+    ${guideBlock(t('guide.templates.title'), [
+      t('guide.templates.1'),
+      t('guide.templates.2') + ' (_soul.md, _tools.md) ' + t('guide.templates.2b'),
+      t('guide.templates.3') + ' IDENTITY ' + t('guide.templates.3a') + ', ROLE ' + t('guide.templates.3b') + ', TOOLS ' + t('guide.templates.3c') + '.',
+      t('guide.templates.4'),
+      t('guide.templates.5'),
+    ])}
     <div id="tpl-alerts"></div>
 
     ${baseFiles.length > 0 ? html`

@@ -27,6 +27,20 @@ export function formatCost(usd: number): string {
   return `$${usd.toFixed(4)}`
 }
 
+/** Collapsible guide/help block. items = array of plain text lines rendered as <li> */
+export function guideBlock(title: string, items: string[]): HtmlEscapedString {
+  return html`
+    <details style="margin-bottom:1.5rem;border:1px solid var(--mc-border);border-radius:8px;padding:0.75rem 1rem;background:var(--mc-bg-dim, #f8f9fa)">
+      <summary style="cursor:pointer;font-weight:600;display:flex;align-items:center;gap:0.5rem">
+        <i data-lucide="help-circle" style="width:16px;height:16px"></i> ${title}
+      </summary>
+      <ul style="margin-top:0.75rem;padding-left:1.25rem;font-size:0.88rem;line-height:1.65">
+        ${items.map(item => html`<li style="margin-bottom:0.3rem">${item}</li>`)}
+      </ul>
+    </details>
+  ` as HtmlEscapedString
+}
+
 export function truncate(s: string, max = 80): string {
   if (s.length <= max) return s
   return s.slice(0, max) + '\u2026'

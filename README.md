@@ -136,7 +136,7 @@ TTS_VOICE_EN=en-US-AndrewNeural  # Голос для англійської
    - Пошук через `SearchMemory` -- OR-query по content + tags
    - Управління в адмін-панелі (вкладка Факти)
 2. **Щоденні markdown-логи** -- конспект розмов за кожен день
-   - `bots/<name>/context/memories/YYYY-MM-DD.md`
+   - `bots/<name>/knowledge/memories/YYYY-MM-DD.md`
    - Консолідуються автоматично о NIGHT_OWL_HOUR
 
 Команди:
@@ -247,20 +247,18 @@ bots/<name>/
 ├── core/
 │   ├── personality.md           # Ідентичність, правила, формат
 │   └── skills.md                # Доступні інструменти та MCP
-├── context/
+├── knowledge/                   # Знання, профілі, diary
 │   ├── user-profile.md          # Базовий профіль користувача
 │   ├── user-deep-profile.md     # Детальний профіль
 │   ├── KEY_EVENTS.md            # Важливі події
 │   └── memories/                # Щоденні логи (YYYY-MM-DD.md)
-├── knowledge/                   # Файли знань (предметна область)
 └── store/
     └── botva.db                 # SQLite база (сесії, пам'ять, usage)
 ```
 
 - **workspace-files/** -- живі файли бота між сесіями. USER.md і MEMORY.md бот може оновлювати через WriteWorkspaceFile
 - **core/** -- персональність та навички бота (редагуй для кастомізації)
-- **context/** -- що бот знає про тебе (заповнюється автоматично та вручну)
-- **knowledge/** -- файли з предметними знаннями (додавай .md, .txt, .pdf)
+- **knowledge/** -- що бот знає: профілі, предметні знання, щоденні diary-логи
 - **store/** -- база даних (створюється автоматично)
 
 ## Конфігурація
@@ -349,6 +347,8 @@ bots/<name>/
 # 2. Як окремий сервіс (постійний)
 npm run admin
 ```
+
+Детальний посібник по всіх розділах: [MANUAL.md](MANUAL.md) (також доступний в адмінці: Docs → MANUAL).
 
 ### Розділи
 

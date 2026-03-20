@@ -44,6 +44,47 @@ app.get('/team', (c) => {
     <h2>${icon('users')} ${t('team.title')}</h2>
     <div id="team-alerts"></div>
 
+    <details style="margin-bottom:1.5rem;border:1px solid var(--mc-border);border-radius:8px;padding:0.75rem 1rem;background:var(--mc-bg-dim, #f8f9fa)">
+      <summary style="cursor:pointer;font-weight:600;display:flex;align-items:center;gap:0.5rem">
+        ${icon('help-circle', 16)} ${t('team.guideTitle')}
+      </summary>
+      <div style="margin-top:0.75rem;font-size:0.88rem;line-height:1.65">
+        <p>
+          ${t('team.guideIntro1')}
+          <b>Manager</b> ${t('team.guideIntro2')} <code>ask_colleague(bot, task)</code>.
+          ${t('team.guideIntro3')} <code>ask_manager(question)</code>.
+        </p>
+
+        <h4 style="margin:1rem 0 0.5rem">${icon('settings', 14)} ${t('team.guideSetupTitle')}</h4>
+        <ol style="padding-left:1.25rem">
+          <li><b>${t('team.guideStep1a')}</b> ${t('team.guideStep1b')} <code>researcher</code>, <code>sales</code>, <code>planner</code>).</li>
+          <li style="margin-top:0.4rem"><b>${t('team.guideStep2a')}</b> — <code>manager</code> ${t('team.guideStep2b')}</li>
+          <li style="margin-top:0.4rem"><b>${t('team.guideStep3a')}</b> ${t('team.guideStep3b')} <code>ask_colleague</code>, ${t('team.guideStep3c')} <code>ask_manager</code>.</li>
+        </ol>
+
+        <h4 style="margin:1rem 0 0.5rem">${icon('file-text', 14)} ${t('team.guideDescTitle')}</h4>
+        <p>${t('team.guideDescText1')} <b>${t('team.guideDescText2')}</b>${t('team.guideDescText3')}</p>
+        <div style="margin:0.5rem 0;color:var(--mc-red, #c00)">✗ <code>${t('team.guideDescBad')}</code> ${t('team.guideDescBadWhy')}</div>
+        <div style="margin:0.5rem 0;color:var(--mc-green, #080)">✓ <code>${t('team.guideDescGood')}</code></div>
+
+        <h4 style="margin:1rem 0 0.5rem">${icon('message-square', 14)} ${t('team.guideExampleTitle')}</h4>
+        <div style="padding:0.75rem 1rem;background:var(--mc-bg-alt, #fff);border-radius:6px;border:1px solid var(--mc-border);font-size:0.82rem">
+          <div style="margin-bottom:0.5rem"><b>User:</b> "${t('team.guideExUser')}"</div>
+          <div style="margin-bottom:0.4rem">${t('team.guideExAction')}</div>
+          <div style="margin-left:0.5rem;margin-bottom:0.25rem">→ <code>ask_colleague("sales", "February sales: deals, conversion, revenue.")</code></div>
+          <div style="margin-left:0.5rem;margin-bottom:0.5rem">→ <code>ask_colleague("product-market", "Competitor analysis: pricing, positioning.")</code></div>
+          <div>${t('team.guideExResult')}</div>
+        </div>
+
+        <h4 style="margin:1rem 0 0.5rem">${icon('lightbulb', 14)} ${t('team.guideTipsTitle')}</h4>
+        <ul style="padding-left:1.25rem">
+          <li>${t('team.guideTip1')}</li>
+          <li style="margin-top:0.4rem">${t('team.guideTip2')}</li>
+          <li style="margin-top:0.4rem">${t('team.guideTip3')}</li>
+        </ul>
+      </div>
+    </details>
+
     <h3>${icon('crown')} ${t('team.manager')}</h3>
     <form hx-post="/team/manager" hx-target="#team-alerts" hx-swap="innerHTML">
       <div class="grid">

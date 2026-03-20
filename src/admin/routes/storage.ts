@@ -5,6 +5,7 @@ import { getBotNames, getBotDir, getProjectRoot } from '../db-multi.js'
 import { execSync } from 'child_process'
 import { existsSync, unlinkSync, statSync, readdirSync } from 'fs'
 import { resolve, join, relative } from 'path'
+import { guideBlock } from '../views/components.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const app = new Hono<I18nEnv>()
@@ -123,6 +124,7 @@ app.get('/storage', (c) => {
 
   const content = html`
     <h2>${icon('hard-drive')} ${t('stor.title')}</h2>
+    ${guideBlock(t('guide.storage.title'), [t('guide.storage.1'), t('guide.storage.2'), t('guide.storage.3')])}
 
     <div id="storage-stats"
       hx-get="/storage/stats"

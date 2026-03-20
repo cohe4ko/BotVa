@@ -5,6 +5,7 @@ import { getBotNames, getProjectRoot } from '../db-multi.js'
 import { resolve } from 'path'
 import { createReadStream, statSync } from 'fs'
 import { Readable } from 'stream'
+import { guideBlock } from '../views/components.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import {
   createBackup, restoreBackup, listBackups, deleteBackup,
@@ -31,6 +32,7 @@ app.get('/backup', (c) => {
 
   const content = html`
     <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
+    ${guideBlock(t('guide.backup.title'), [t('guide.backup.1'), t('guide.backup.2'), t('guide.backup.3'), t('guide.backup.4')])}
 
     <!-- Create Backup -->
     <details open>

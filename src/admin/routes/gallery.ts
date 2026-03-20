@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
-import { pagination, formatTs } from '../views/components.js'
+import { pagination, formatTs, guideBlock } from '../views/components.js'
 import { getGalleryImages, countGalleryImages, getBotNames, deleteGalleryImage, getProjectRoot, getGalleryImageById } from '../db-multi.js'
 import { existsSync, unlinkSync, readFileSync } from 'fs'
 import { resolve } from 'path'
@@ -27,6 +27,7 @@ app.get('/gallery', (c) => {
 
   const content = html`
     <h2>${icon('image')} ${t('gallery.title')}</h2>
+    ${guideBlock(t('guide.gallery.title'), [t('guide.gallery.1'), t('guide.gallery.2'), t('guide.gallery.3')])}
 
     <!-- Workspace: Generate / Edit -->
     <div class="gen-workspace" id="gen-workspace">

@@ -11,6 +11,7 @@ import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { existsSync, readFileSync, readdirSync, statSync, accessSync, constants as fsConstants } from 'fs'
 import { execSync } from 'child_process'
 import { resolve, join } from 'path'
+import { guideBlock } from '../views/components.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const app = new Hono<I18nEnv>()
@@ -842,6 +843,7 @@ app.get('/diagnostics', (c) => {
 
   const content = html`
     <h2>${icon('stethoscope')} ${t('sdiag.title')}</h2>
+    ${guideBlock(t('guide.diagnostics.title'), [t('guide.diagnostics.1'), t('guide.diagnostics.2'), t('guide.diagnostics.3')])}
     <p style="color:var(--mc-text-secondary);font-size:0.85rem;margin-bottom:1rem">${t('sdiag.desc')}</p>
 
     <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem">

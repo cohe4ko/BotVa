@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
-import { truncate } from '../views/components.js'
+import { truncate, guideBlock } from '../views/components.js'
 import { getProjectRoot } from '../db-multi.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
@@ -230,6 +230,7 @@ app.get('/records', async (c) => {
 
   const content = html`
     <h2>${icon('mic')} Records</h2>
+    ${guideBlock(t('guide.records.title'), [t('guide.records.1'), t('guide.records.2'), t('guide.records.3')])}
 
     <h3>${icon('radio')} Devices</h3>
     <div id="devices-status"

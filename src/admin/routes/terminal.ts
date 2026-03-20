@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
+import { guideBlock } from '../views/components.js'
 import type { I18nEnv } from '../i18n.js'
 import { getActiveSessions, deleteSession } from '../terminal-ws.js'
 
@@ -102,6 +103,7 @@ app.get('/terminal', (c) => {
 
     <div class="term-toolbar">
       <h2>${icon('terminal')} ${t('terminal.title')}</h2>
+      ${guideBlock(t('guide.terminal.title'), [t('guide.terminal.1'), t('guide.terminal.2'), t('guide.terminal.3')])}
       <div class="term-sessions">
         ${activeSessions.map((s, i) => html`
           <button class="btn btn-sm btn-outline session-btn${s.alive ? '' : ' dead'}" data-session="${s.id}"
