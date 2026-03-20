@@ -117,10 +117,11 @@ const MCP_ICONS: Record<string, string> = {
   'miro': '🎨',
 }
 
-/** Strip mcp__server__ prefix → short display name */
+/** Strip mcp__ prefix: mcp__builtin__X → X, mcp__server__tool → server_tool */
 function shortToolName(name: string): string {
-  const m = name.match(/^mcp__[^_]+__(.+)$/)
-  return m ? m[1] : name
+  const m = name.match(/^mcp__([^_]+)__(.+)$/)
+  if (!m) return name
+  return m[1] === 'builtin' ? m[2] : `${m[1]}_${m[2]}`
 }
 
 function toolIcon(name: string): string {
