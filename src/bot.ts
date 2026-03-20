@@ -799,22 +799,41 @@ async function handleMessage(
       // Plan mode: prompt injection + approval detection
       const agentMode = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
       if (agentMode === 'plan') {
-        // Detect plan approval from user
-        const approvalRe = /^(виконувати|виконати|execute|так[,. ]*(роби|виконуй)|go|do it|ок[,. ]*(роби|давай)|погнали|запускай)/i
-        if (getPlanPhase(chatIdStr) === 'planning' && approvalRe.test(currentMessage.trim())) {
-          setPlanPhase(chatIdStr, 'executing')
-        }
+        const trimmed = currentMessage.trim()
 
-        // Initialize planning phase if not set
-        if (!getPlanPhase(chatIdStr)) {
-          setPlanPhase(chatIdStr, 'planning')
-        }
-
-        // Inject plan mode context
+        // Detect plan approval / exit from user (AskUser button responses)
         if (getPlanPhase(chatIdStr) === 'planning') {
-          fullMessage = `[🔍 PLAN MODE — Research & Plan]\nYou are in planning mode. Research the task: read files, search, analyze. Then create a structured plan with steps, files to modify, risks.\nFor complex plans (6+ steps): save to a file and send via SendMedia.\nPresent the plan and ask for approval via AskUser(["Виконувати", "Скоригувати"]).\nWrite operations are blocked until approved. Do NOT attempt to execute changes — only plan.\n\n${fullMessage}`
-        } else {
-          fullMessage = `[⚡ EXECUTING PLAN — approved by user]\nThe user approved your plan. Execute it now. All tools are available.\n\n${fullMessage}`
+          const approvalRe = /^(виконувати|виконати|execute|так[,. ]*(роби|виконуй)|go|do it|ок[,. ]*(роби|давай)|погнали|запускай)/i
+          const saveExitRe = /^(зберегти й вийти|save.*(exit|plan)|зберегти план)/i
+          const exitRe = /^(вийти з планування|exit plan|скасувати план|cancel plan)/i
+
+          if (approvalRe.test(trimmed)) {
+            setPlanPhase(chatIdStr, 'executing')
+          } else if (saveExitRe.test(trimmed)) {
+            // Agent will handle saving plan file + SendMedia, then we exit plan mode
+            clearPlanState(chatIdStr)
+            deleteChatSetting(chatIdStr, 'agent_mode')
+            fullMessage = `[📄 SAVE PLAN & EXIT]\nUser wants to save the plan and exit planning mode. Save the plan to a file and send it via SendMedia. Do NOT execute the plan. After sending, confirm that plan mode is deactivated.\n\n${fullMessage}`
+            // Skip normal plan injection below
+          } else if (exitRe.test(trimmed)) {
+            clearPlanState(chatIdStr)
+            deleteChatSetting(chatIdStr, 'agent_mode')
+            fullMessage = currentMessage  // Pass through as regular message in full mode
+          }
+        }
+
+        // Initialize planning phase if not set (and not already exited above)
+        if (getChatSetting(chatIdStr, 'agent_mode') === 'plan') {
+          if (!getPlanPhase(chatIdStr)) {
+            setPlanPhase(chatIdStr, 'planning')
+          }
+
+          // Inject plan mode context
+          if (getPlanPhase(chatIdStr) === 'planning') {
+            fullMessage = `[🔍 PLAN MODE — Research & Plan]\nYou are in planning mode. Research the task: read files, search, analyze. Then create a structured plan with steps, files to modify, risks.\nFor complex plans (6+ steps): save to a file and send via SendMedia.\nPresent the plan and ask for approval via AskUser(["Виконувати", "Скоригувати", "Зберегти й вийти", "Вийти з планування"]).\nWrite operations are blocked until approved. Do NOT attempt to execute changes — only plan.\n\n${fullMessage}`
+          } else if (getPlanPhase(chatIdStr) === 'executing') {
+            fullMessage = `[⚡ EXECUTING PLAN — approved by user]\nThe user approved your plan. Execute it now. All tools are available.\n\n${fullMessage}`
+          }
         }
       } else {
         // Not in plan mode — clear any stale plan state
