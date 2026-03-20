@@ -117,11 +117,30 @@ const MCP_ICONS: Record<string, string> = {
   'miro': '🎨',
 }
 
+// Tools to hide from progress display (infrastructure, not user-facing)
+const HIDDEN_TOOLS = new Set(['ToolSearch', 'ToolFetch'])
+const HIDDEN_MCP_SERVERS = new Set(['plugin_telegram_telegram'])
+
 /** Strip mcp__ prefix: mcp__builtin__X → X, mcp__server__tool → server_tool */
 function shortToolName(name: string): string {
-  const m = name.match(/^mcp__([^_]+)__(.+)$/)
-  if (!m) return name
-  return m[1] === 'builtin' ? m[2] : `${m[1]}_${m[2]}`
+  // Split on double underscore: mcp__server_name__tool_name
+  const parts = name.split('__')
+  if (parts.length >= 3 && parts[0] === 'mcp') {
+    const server = parts[1]
+    const tool = parts.slice(2).join('__')
+    if (server === 'builtin') return tool
+    return `${server}_${tool}`
+  }
+  return name
+}
+
+function isHiddenTool(name: string): boolean {
+  if (HIDDEN_TOOLS.has(name)) return true
+  const parts = name.split('__')
+  if (parts.length >= 3 && parts[0] === 'mcp') {
+    return HIDDEN_MCP_SERVERS.has(parts[1])
+  }
+  return false
 }
 
 function toolIcon(name: string): string {
@@ -339,6 +358,7 @@ export class ProgressReporter {
           this.clearStreamingLine()
 
           const name = block.name as string
+          if (isHiddenTool(name)) continue
           const input = (block.input ?? {}) as Record<string, unknown>
           const detail = toolDetail(name, input)
           const idx = this.lines.length
