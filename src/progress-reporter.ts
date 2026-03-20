@@ -114,6 +114,7 @@ const MCP_ICONS: Record<string, string> = {
   'medical': '💊',
   'spacedome': '⛺',
   'freecad': '📐',
+  'miro': '🎨',
 }
 
 function toolIcon(name: string): string {
@@ -123,7 +124,7 @@ function toolIcon(name: string): string {
 }
 
 // Regex matching any tool icon (for replacement in progress/result)
-const TOOL_ICON_RE = /^(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐][\uFE0F]?/
+const TOOL_ICON_RE = /^(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐🎨][\uFE0F]?/
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   const i = input
@@ -353,6 +354,7 @@ export class ProgressReporter {
               'meta-ads': 'progress.cute.metaads', 'notion': 'progress.cute.notion',
               'pubmed': 'progress.cute.pubmed', 'medical': 'progress.cute.medical',
               'spacedome': 'progress.cute.spacedome', 'freecad': 'progress.cute.freecad',
+              'miro': 'progress.cute.miro',
             }
             let cute = cuteToolKeys[name] ? this.t(cuteToolKeys[name]) : undefined
             if (!cute) {

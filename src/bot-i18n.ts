@@ -176,6 +176,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'progress.cute.freecad': '📐 drawing shapes',
     'progress.cute.askgemini': '💎 asking Gemini bestie',
     'progress.cute.geminisearch': '💎 Gemini is googling',
+    'progress.cute.miro': '🎨 drawing on the board',
 
     // Consolidation
     'consolidate.done': '🧠 Memory consolidation for {date} complete.',
@@ -424,6 +425,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'progress.cute.freecad': '📐 малюємо фігурки',
     'progress.cute.askgemini': '💎 питаємо Джемінічку',
     'progress.cute.geminisearch': '💎 Джемінічка гуглить',
+    'progress.cute.miro': '🎨 малюємо на дошці',
 
     // Consolidation
     'consolidate.done': '🧠 Консолідація пам\'яті за {date} завершена.',

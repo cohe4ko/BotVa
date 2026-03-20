@@ -16,6 +16,10 @@ export interface McpServerConfig {
   envPassthrough?: string[] // env var names to pass to the process
   enabled: boolean          // user toggle
   persistent?: boolean      // keep subprocess alive between agent queries (for stateful servers like browsers)
+  // Remote MCP servers (HTTP/SSE)
+  type?: 'stdio' | 'http' | 'sse'  // default: 'stdio'
+  url?: string                       // URL for http/sse servers
+  headers?: Record<string, string>   // custom headers for http/sse servers
 }
 
 export interface McpServerEntry {
@@ -26,6 +30,8 @@ export interface McpServerEntry {
   userEnabled: boolean     // user toggle only
   condition: string        // 'always' or env var names required
   persistent: boolean      // keep subprocess alive between queries
+  type: 'stdio' | 'http' | 'sse'
+  url?: string
 }
 
 export interface McpServerRuntime {
@@ -128,6 +134,8 @@ export function getMcpServersConfig(env: Record<string, string> = process.env as
       userEnabled: s.enabled,
       condition,
       persistent: s.persistent ?? false,
+      type: s.type ?? 'stdio' as const,
+      url: s.url,
     }
   })
 }
@@ -182,6 +190,15 @@ export async function buildMcpServers(env: Record<string, string> = process.env 
     // Check env vars
     const envVars = s.envVars ?? []
     if (envVars.length > 0 && !envVars.every(v => !!env[v])) continue
+
+    // Remote HTTP/SSE servers
+    const serverType = s.type ?? 'stdio'
+    if ((serverType === 'http' || serverType === 'sse') && s.url) {
+      const entry: Record<string, any> = { type: serverType, url: s.url }
+      if (s.headers) entry.headers = s.headers
+      servers[name] = entry
+      continue
+    }
 
     // Build env for passthrough
     let passEnv: Record<string, string> | undefined

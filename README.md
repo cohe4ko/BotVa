@@ -184,6 +184,7 @@ Cron-задачі для автоматичних дій: нагадування
 | Google Calendar, Docs, Gmail | `google-workspace` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
 | Home Assistant | `home-assistant` | `HA_URL`, `HA_TOKEN` |
 | PubMed (медичні дослідження) | `pubmed` | -- (Python 3) |
+| Miro (дошки, діаграми, схеми) | `miro` | -- (remote HTTP, OAuth) |
 
 ### Email
 

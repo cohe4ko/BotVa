@@ -385,7 +385,10 @@ function renderMcpTable(servers: McpServerEntry[], envBotMap: Record<string, str
                       : html`<br><span class="badge" style="font-size:0.6rem;padding:0.05rem 0.3rem;background:var(--mc-yellow-light,#fff3cd);color:var(--mc-yellow,#856404)">${icon('zap', 9)} persistent <small>idle</small></span>`
                     : ''}
                 </td>
-                <td class="hide-mobile"><code style="font-size:0.72rem">${s.command} ${s.args.join(' ').replace(new RegExp(getProjectRoot().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.').slice(0, 80)}${s.args.join(' ').length > 80 ? '…' : ''}</code></td>
+                <td class="hide-mobile"><code style="font-size:0.72rem">${s.type === 'http' || s.type === 'sse'
+                    ? `${s.type.toUpperCase()} ${s.url ?? ''}`
+                    : `${s.command} ${s.args.join(' ').replace(new RegExp(getProjectRoot().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '.').slice(0, 80)}${s.args.join(' ').length > 80 ? '…' : ''}`
+                  }</code></td>
                 <td class="hide-mobile">${s.condition === 'always'
                   ? html`<span class="badge badge-set" style="font-size:0.7rem">${icon('check', 11)} always</span>`
                   : envVars.map(v => {
@@ -915,12 +918,26 @@ app.get('/system/mcp-add', (c) => {
       <label>${t('sys.mcpName')} <small>${t('sys.mcpNameHint')}</small>
         <input type="text" name="name" required placeholder="my-server">
       </label>
-      <label style="margin-top:0.5rem">${t('sys.mcpCommand')} <small>${t('sys.mcpCommandHint')}</small>
-        <input type="text" name="command" required placeholder="npx">
+      <label style="margin-top:0.5rem">Type
+        <select name="type" onchange="document.getElementById('stdio-fields').style.display=this.value==='stdio'?'':'none';document.getElementById('url-field').style.display=this.value!=='stdio'?'':'none'">
+          <option value="stdio">stdio (local process)</option>
+          <option value="http">http (remote URL)</option>
+          <option value="sse">sse (remote URL)</option>
+        </select>
       </label>
-      <label style="margin-top:0.5rem">${t('sys.mcpArgs')} <small>${t('sys.mcpArgsHint')}</small>
-        <input type="text" name="args" placeholder="-y my-mcp-server">
-      </label>
+      <div id="url-field" style="display:none">
+        <label style="margin-top:0.5rem">URL
+          <input type="text" name="url" placeholder="https://mcp.example.com/">
+        </label>
+      </div>
+      <div id="stdio-fields">
+        <label style="margin-top:0.5rem">${t('sys.mcpCommand')} <small>${t('sys.mcpCommandHint')}</small>
+          <input type="text" name="command" placeholder="npx">
+        </label>
+        <label style="margin-top:0.5rem">${t('sys.mcpArgs')} <small>${t('sys.mcpArgsHint')}</small>
+          <input type="text" name="args" placeholder="-y my-mcp-server">
+        </label>
+      </div>
       <label style="margin-top:0.5rem">${t('sys.mcpEnvVars')} <small>${t('sys.mcpEnvVarsHint')}</small>
         <input type="text" name="envVars" placeholder="MY_API_KEY, MY_SECRET">
       </label>
@@ -958,12 +975,26 @@ app.get('/system/mcp-edit/:name', (c) => {
       <label>${t('sys.mcpName')}
         <input type="text" name="name" value="${name}" readonly style="opacity:0.6">
       </label>
-      <label style="margin-top:0.5rem">${t('sys.mcpCommand')}
-        <input type="text" name="command" value="${server.command}" required>
+      <label style="margin-top:0.5rem">Type
+        <select name="type" onchange="document.getElementById('stdio-fields-edit').style.display=this.value==='stdio'?'':'none';document.getElementById('url-field-edit').style.display=this.value!=='stdio'?'':'none'">
+          <option value="stdio"${(server.type ?? 'stdio') === 'stdio' ? ' selected' : ''}>stdio (local process)</option>
+          <option value="http"${server.type === 'http' ? ' selected' : ''}>http (remote URL)</option>
+          <option value="sse"${server.type === 'sse' ? ' selected' : ''}>sse (remote URL)</option>
+        </select>
       </label>
-      <label style="margin-top:0.5rem">${t('sys.mcpArgs')} <small>${t('sys.mcpArgsHint')}</small>
-        <input type="text" name="args" value="${server.args.join(' ')}">
-      </label>
+      <div id="url-field-edit" style="display:${server.type === 'http' || server.type === 'sse' ? '' : 'none'}">
+        <label style="margin-top:0.5rem">URL
+          <input type="text" name="url" value="${server.url ?? ''}" placeholder="https://mcp.example.com/">
+        </label>
+      </div>
+      <div id="stdio-fields-edit" style="display:${server.type === 'http' || server.type === 'sse' ? 'none' : ''}">
+        <label style="margin-top:0.5rem">${t('sys.mcpCommand')}
+          <input type="text" name="command" value="${server.command}">
+        </label>
+        <label style="margin-top:0.5rem">${t('sys.mcpArgs')} <small>${t('sys.mcpArgsHint')}</small>
+          <input type="text" name="args" value="${server.args.join(' ')}">
+        </label>
+      </div>
       <label style="margin-top:0.5rem">${t('sys.mcpEnvVars')} <small>${t('sys.mcpEnvVarsHint')}</small>
         <input type="text" name="envVars" value="${(server.envVars ?? []).join(', ')}">
       </label>
@@ -990,6 +1021,8 @@ app.post('/system/mcp-save', async (c) => {
   const name = String(editName || body['name'] || '').trim()
   if (!name) return c.text('Name required', 400)
 
+  const serverType = String(body['type'] || 'stdio').trim() as 'stdio' | 'http' | 'sse'
+  const url = String(body['url'] || '').trim() || undefined
   const command = String(body['command'] || '').trim()
   const argsStr = String(body['args'] || '').trim()
   const envVarsStr = String(body['envVars'] || '').trim()
@@ -1003,9 +1036,9 @@ app.post('/system/mcp-save', async (c) => {
   const existing = getMcpServer(name)
 
   if (editName) {
-    updateMcpServer(name, { command, args, envVars, envPassthrough, persistent })
+    updateMcpServer(name, { command, args, envVars, envPassthrough, persistent, type: serverType !== 'stdio' ? serverType : undefined, url })
   } else {
-    addMcpServer(name, { command, args, envVars, envPassthrough, enabled: true, persistent })
+    addMcpServer(name, { command, args, envVars, envPassthrough, enabled: true, persistent, type: serverType !== 'stdio' ? serverType : undefined, url })
   }
 
   return c.redirect('/system')
