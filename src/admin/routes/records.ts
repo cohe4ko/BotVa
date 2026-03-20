@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
-import { truncate, guideBlock } from '../views/components.js'
+import { guideBlock } from '../views/components.js'
 import { getProjectRoot } from '../db-multi.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
@@ -419,8 +419,10 @@ app.get('/records/:date', (c) => {
     </div>
 
     ${summary ? html`
-      <h3>${icon('file-text')} Daily Summary</h3>
-      <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:1rem;margin-bottom:1.5rem;white-space:pre-wrap;font-size:0.85rem;line-height:1.6">${summary}</div>
+      <details style="margin-bottom:1.5rem">
+        <summary style="cursor:pointer;font-size:1rem;font-weight:600;padding:0.5rem 0">${icon('file-text')} Daily Summary</summary>
+        <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:1rem;margin-top:0.5rem;white-space:pre-wrap;font-size:0.85rem;line-height:1.6">${summary}</div>
+      </details>
     ` : ''}
 
     <div class="stats-grid" style="margin-bottom:1.5rem">
@@ -485,16 +487,7 @@ app.get('/records/:date', (c) => {
             </div>
           ` : ''}
 
-          ${chunk.text.length > 300
-            ? html`
-              <div style="font-size:0.85rem;line-height:1.5">${truncate(chunk.text, 300)}</div>
-              <details style="margin-top:0.25rem">
-                <summary style="font-size:0.75rem;color:var(--mc-text-dim);cursor:pointer">Full transcript</summary>
-                <div style="font-size:0.85rem;line-height:1.5;margin-top:0.35rem;white-space:pre-wrap">${chunk.text}</div>
-              </details>
-            `
-            : html`<div style="font-size:0.85rem;line-height:1.5">${chunk.text}</div>`
-          }
+          <div style="font-size:0.88rem;line-height:1.6;white-space:pre-wrap">${chunk.text}</div>
 
           ${chunk.analyzed ? renderAnalyzed(chunk.analyzed) : ''}
         </div>
