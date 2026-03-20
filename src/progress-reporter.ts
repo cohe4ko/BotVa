@@ -685,9 +685,9 @@ export class ProgressReporter {
     // System messages (errors, compacting, auth, rate limit)
     if (otherParts.length) parts.push(otherParts.join('\n'))
 
-    // Tools in expandable blockquote
+    // Tools in blockquote
     if (toolParts.length) {
-      parts.push(`<blockquote expandable>${toolParts.join('\n')}</blockquote>`)
+      parts.push(`<blockquote>${toolParts.join('\n')}</blockquote>`)
     }
 
     return parts.join('\n') || '...'
