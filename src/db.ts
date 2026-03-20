@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'fs'
-import { STORE_DIR, MEMORY_SALIENCE_DECAY, MEMORY_SALIENCE_MIN, MEMORY_SALIENCE_MAX, MEMORY_SALIENCE_BOOST } from './config.js'
+import { STORE_DIR } from './config.js'
 import { logger } from './logger.js'
 import { imageTokenCost } from './pricing.js'
 
@@ -25,47 +25,6 @@ export function initDatabase(): void {
       session_id TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     )
-  `)
-
-  // Full memory system
-  d.exec(`
-    CREATE TABLE IF NOT EXISTS memories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chat_id TEXT NOT NULL,
-      topic_key TEXT,
-      content TEXT NOT NULL,
-      sector TEXT NOT NULL CHECK(sector IN ('semantic','episodic','preference')),
-      salience REAL NOT NULL DEFAULT 1.0,
-      created_at INTEGER NOT NULL,
-      accessed_at INTEGER NOT NULL
-    )
-  `)
-
-  d.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-      content,
-      content_rowid='id'
-    )
-  `)
-
-  // FTS sync triggers
-  d.exec(`
-    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-      INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
-    END
-  `)
-
-  d.exec(`
-    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-      INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
-    END
-  `)
-
-  d.exec(`
-    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF content ON memories BEGIN
-      INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
-      INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
-    END
   `)
 
   // Scheduler
@@ -389,85 +348,6 @@ export function getSavedSession(id: number): SavedSession | undefined {
 
 export function deleteSavedSession(id: number): void {
   getDb().prepare('DELETE FROM saved_sessions WHERE id = ?').run(id)
-}
-
-// --- Memories ---
-
-export interface Memory {
-  id: number
-  chat_id: string
-  topic_key: string | null
-  content: string
-  sector: 'semantic' | 'episodic'
-  salience: number
-  created_at: number
-  accessed_at: number
-}
-
-export function insertMemory(chatId: string, content: string, sector: 'semantic' | 'episodic', topicKey?: string): void {
-  const now = Math.floor(Date.now() / 1000)
-  getDb().prepare(
-    'INSERT INTO memories (chat_id, topic_key, content, sector, salience, created_at, accessed_at) VALUES (?, ?, ?, ?, 1.0, ?, ?)'
-  ).run(chatId, topicKey ?? null, content, sector, now, now)
-}
-
-export function searchMemories(chatId: string, query: string, limit = 3, topic?: string): Memory[] {
-  const sanitized = query.replace(/[^\w\s\u0400-\u04FF]/g, '').trim()
-  if (!sanitized) return []
-
-  const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
-  try {
-    if (topic) {
-      const stmt = getDb().prepare(`
-        SELECT m.* FROM memories m
-        JOIN memories_fts f ON f.rowid = m.id
-        WHERE memories_fts MATCH ? AND m.chat_id = ? AND m.topic_key = ?
-        ORDER BY rank
-        LIMIT ?
-      `)
-      return stmt.all(ftsQuery, chatId, topic, limit) as unknown as Memory[]
-    }
-    const stmt = getDb().prepare(`
-      SELECT m.* FROM memories m
-      JOIN memories_fts f ON f.rowid = m.id
-      WHERE memories_fts MATCH ? AND m.chat_id = ?
-      ORDER BY rank
-      LIMIT ?
-    `)
-    return stmt.all(ftsQuery, chatId, limit) as unknown as Memory[]
-  } catch {
-    return []
-  }
-}
-
-export function getRecentMemories(chatId: string, limit = 5): Memory[] {
-  return getDb().prepare(
-    'SELECT * FROM memories WHERE chat_id = ? ORDER BY accessed_at DESC LIMIT ?'
-  ).all(chatId, limit) as unknown as Memory[]
-}
-
-export function touchMemory(id: number): void {
-  const now = Math.floor(Date.now() / 1000)
-  getDb().prepare(
-    `UPDATE memories SET accessed_at = ?, salience = MIN(salience + ${MEMORY_SALIENCE_BOOST}, ${MEMORY_SALIENCE_MAX}) WHERE id = ?`
-  ).run(now, id)
-}
-
-export function decayAndPruneMemories(): void {
-  const oneDayAgo = Math.floor(Date.now() / 1000) - 86400
-  const d = getDb()
-  d.prepare(`UPDATE memories SET salience = salience * ${MEMORY_SALIENCE_DECAY} WHERE created_at < ?`).run(oneDayAgo)
-  d.prepare(`DELETE FROM memories WHERE salience < ${MEMORY_SALIENCE_MIN}`).run()
-}
-
-export function getAllMemories(chatId: string, limit = 20): Memory[] {
-  return getDb().prepare(
-    'SELECT * FROM memories WHERE chat_id = ? ORDER BY accessed_at DESC LIMIT ?'
-  ).all(chatId, limit) as unknown as Memory[]
-}
-
-export function clearMemories(chatId: string): void {
-  getDb().prepare('DELETE FROM memories WHERE chat_id = ?').run(chatId)
 }
 
 // --- Facts (long-term structured memory, no decay) ---

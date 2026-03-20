@@ -6,7 +6,6 @@ import { i18nMiddleware, type I18nEnv } from './i18n.js'
 import dashboard from './routes/dashboard.js'
 import botConfig from './routes/bot-config.js'
 import botKnowledge from './routes/bot-knowledge.js'
-import botMemories from './routes/bot-memories.js'
 import botTasks from './routes/bot-tasks.js'
 import botSettings from './routes/bot-settings.js'
 import botFacts from './routes/bot-facts.js'
@@ -56,7 +55,6 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', dashboard)
   app.route('/', botConfig)
   app.route('/', botKnowledge)
-  app.route('/', botMemories)
   app.route('/', botTasks)
   app.route('/', botSettings)
   app.route('/', botFacts)

@@ -65,17 +65,6 @@ export function closeAll(): void {
 
 // --- Query helpers ---
 
-export interface Memory {
-  id: number
-  chat_id: string
-  topic_key: string | null
-  content: string
-  sector: 'semantic' | 'episodic'
-  salience: number
-  created_at: number
-  accessed_at: number
-}
-
 export interface ScheduledTask {
   id: string
   chat_id: string
@@ -109,66 +98,6 @@ export interface ChatSetting {
   chat_id: string
   key: string
   value: string
-}
-
-// Memories
-export function getMemories(bot: BotName, limit = 50, offset = 0, query?: string): Memory[] {
-  const db = getBotDb(bot)
-  if (query) {
-    const sanitized = query.replace(/[^\w\s]/g, '').trim()
-    if (!sanitized) return []
-    const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
-    try {
-      return db.prepare(`
-        SELECT m.* FROM memories m
-        JOIN memories_fts f ON f.rowid = m.id
-        WHERE memories_fts MATCH ?
-        ORDER BY rank
-        LIMIT ? OFFSET ?
-      `).all(ftsQuery, limit, offset) as unknown as Memory[]
-    } catch { return [] }
-  }
-  return db.prepare('SELECT * FROM memories ORDER BY accessed_at DESC LIMIT ? OFFSET ?')
-    .all(limit, offset) as unknown as Memory[]
-}
-
-export function countMemories(bot: BotName, query?: string): number {
-  const db = getBotDb(bot)
-  if (query) {
-    const sanitized = query.replace(/[^\w\s]/g, '').trim()
-    if (!sanitized) return 0
-    const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' ')
-    try {
-      const row = db.prepare(`
-        SELECT COUNT(*) as cnt FROM memories m
-        JOIN memories_fts f ON f.rowid = m.id
-        WHERE memories_fts MATCH ?
-      `).get(ftsQuery) as unknown as { cnt: number }
-      return row.cnt
-    } catch { return 0 }
-  }
-  const row = db.prepare('SELECT COUNT(*) as cnt FROM memories').get() as unknown as { cnt: number }
-  return row.cnt
-}
-
-export function updateMemorySalience(bot: BotName, id: number, salience: number): boolean {
-  const db = getBotDb(bot)
-  const r = db.prepare('UPDATE memories SET salience = ? WHERE id = ?').run(salience, id)
-  return r.changes > 0
-}
-
-export function deleteMemory(bot: BotName, id: number): boolean {
-  const db = getBotDb(bot)
-  // Drop the FTS delete trigger, delete manually, then recreate
-  db.exec('DROP TRIGGER IF EXISTS memories_ad')
-  try {
-    db.prepare("INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', ?, (SELECT content FROM memories WHERE id = ?))").run(id, id)
-  } catch { /* FTS entry may not exist */ }
-  const r = db.prepare('DELETE FROM memories WHERE id = ?').run(id)
-  db.exec(`CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-    INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
-  END`)
-  return r.changes > 0
 }
 
 // Tasks

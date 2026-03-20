@@ -12,10 +12,7 @@ vi.mock('./config.js', () => ({
   MAX_ASSISTANT_MEMORY_LEN: 500,
 }))
 
-vi.mock('./db.js', () => ({
-  insertMemory: vi.fn(),
-  decayAndPruneMemories: vi.fn(),
-}))
+vi.mock('./db.js', () => ({}))
 
 vi.mock('./logger.js', () => ({
   logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn() },

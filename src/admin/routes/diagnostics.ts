@@ -573,7 +573,7 @@ BotVa is a multi-bot Telegram platform where each bot is a Claude AI agent with 
 - \`bots/<name>/\` — per-bot directory, each has its own .env, CLAUDE.md, store/
 - \`bots/<name>/.env\` — bot config (tokens, API keys). REQUIRED for bot to work.
 - \`bots/<name>/CLAUDE.md\` — bot personality/role instructions. Without it the bot has no personality.
-- \`bots/<name>/store/botva.db\` — SQLite DB (sessions, memories, usage, tasks, audit). Created on first start.
+- \`bots/<name>/store/botva.db\` — SQLite DB (sessions, facts, usage, tasks, audit). Created on first start.
 - \`bots/<name>/store/botva.pid\` — PID lock file. If bot isn't running but PID file exists = stale lock.
 - \`bots/<name>/knowledge/\` — optional knowledge base files the bot can read.
 - \`workspace/\` — shared data: team.json, builtin-tools.json, gallery.db, admin.lock
@@ -650,9 +650,8 @@ Multi-bot collaboration via colleague/manager MCP servers.
 - If team.json exists but manager bot isn't running = workers can't reach manager
 
 ## Memory System
-- SQLite FTS5 for semantic search
-- Daily consolidation at NIGHT_OWL_HOUR (default 04:00)
-- Salience decay: memories fade over time unless reinforced
+- Facts: long-term structured knowledge with FTS5 + vector search
+- Daily diary: markdown logs per day, consolidated at NIGHT_OWL_HOUR (default 04:00)
 - If consolidation hasn't run (bot always stopped at 4am) = diary bloat
 
 ## Performance Benchmarks (what's normal)
@@ -725,7 +724,7 @@ Multi-bot collaboration via colleague/manager MCP servers.
 - If any not writable = operations will fail silently or with cryptic errors
 
 ## Large Files
-- Database files (botva.db) > 100MB = consider cleanup (old usage_log entries, memories with low salience)
+- Database files (botva.db) > 100MB = consider cleanup (old usage_log entries)
 - Gallery images > 50MB each = unusual, might be uncompressed
 - Log files > 100MB = log rotation not working
 - Any binary files in src/ = likely committed by mistake

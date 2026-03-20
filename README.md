@@ -24,7 +24,7 @@
 
 - **Кілька ботів** з одного інстансу Node.js
 - **11 готових ролей** -- від персонального асистента до вебмайстра
-- **Пам'ять** -- двошарова система з salience decay та щоденною консолідацією
+- **Пам'ять** -- факти (довгострокова) + щоденні diary-логи з консолідацією
 - **Голос** -- надсилай голосові, отримуй голосові відповіді (Groq STT + Edge TTS)
 - **Зображення** -- генерація та редагування через Gemini з авто-галереєю
 - **Gemini AI** -- друга думка (AskGemini) та пошук з цитатами (GeminiSearch)
@@ -135,14 +135,11 @@ TTS_VOICE_EN=en-US-AndrewNeural  # Голос для англійської
    - Кожен факт має topic та tags (синоніми, переклади для пошуку)
    - Пошук через `SearchMemory` -- OR-query по content + tags
    - Управління в адмін-панелі (вкладка Факти)
-2. **Short-term memories (salience)** -- автоматичний контекст розмов
-   - Salience згасає 0.98/день, pruning нижче 0.1
-   - Автоматично інжектиться в промпт
-3. **Щоденні markdown-логи** -- конспект розмов за кожен день
+2. **Щоденні markdown-логи** -- конспект розмов за кожен день
    - `bots/<name>/context/memories/YYYY-MM-DD.md`
+   - Консолідуються автоматично о NIGHT_OWL_HOUR
 
 Команди:
-- `/memory` -- показати останні 10 збережених спогадів
 - `/newchat` або `/forget` -- очистити сесію (пам'ять залишається)
 
 ### Планувальник
@@ -305,9 +302,6 @@ bots/<name>/
 | Змінна | За замовчуванням | Опис |
 |--------|-----------------|------|
 | `NIGHT_OWL_HOUR` | `4` | Година "переходу дня" (для нічних сов) |
-| `MEMORY_SALIENCE_DECAY` | `0.98` | Множник згасання за день |
-| `MEMORY_SALIENCE_MIN` | `0.1` | Мінімальна важливість (нижче -- видалення) |
-| `MEMORY_SALIENCE_MAX` | `5.0` | Максимальна важливість |
 
 ### Agent
 
@@ -364,7 +358,6 @@ npm run admin
 | Config | Налаштування: модель, температура, env-змінні |
 | Knowledge | Управління файлами знань |
 | Facts | Абсолютна пам'ять: перегляд, редагування, пошук, перезбірка з файлів |
-| Memories | Перегляд та видалення short-term спогадів |
 | Tasks | Заплановані задачі |
 | Settings | Налаштування чатів + сесії |
 | Usage | Аналітика токенів та витрат |
@@ -423,7 +416,7 @@ npx vitest                                # Watch mode
 | `deduplication` | 4 | TTL cleanup, duplicate detection |
 | `memory` | 5 | Night-owl date logic, month boundary |
 | `model` | 9 | getModelLabel, getModel, getTemperature |
-| `db` | 13 | Facts CRUD + FTS, chat settings, memories |
+| `db` | 10 | Facts CRUD + FTS, chat settings, approved groups |
 | `builtin-tools` | 6 | Tool defs integrity, defaults |
 | `telegraph` | 3 | shouldUseTelegraph threshold |
 | `workspace-files` | 12 | Read/write, validation, assembly |

@@ -9,7 +9,7 @@ import {
   BOT_DIR,
   DEBUG_CONTEXT,
 } from './config.js'
-import { getSession, setSession, clearSession, getAllMemories, logUsage, getUsageSince, getChatSetting, setChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup } from './db.js'
+import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, setChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup } from './db.js'
 import { runAgent, type UsageStats } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, voiceCapabilities, synthesizeSpeech } from './voice.js'
@@ -1742,21 +1742,6 @@ export function createBot(): Bot {
   bot.command('newchat', clearSessionHandler)
   bot.command('forget', clearSessionHandler)
 
-  bot.command('memory', async (ctx) => {
-    const chatId = String(ctx.chat.id)
-    if (!isAuthorised(ctx.chat.id)) return
-    const t = chatT(chatId)
-    const memories = getAllMemories(chatId, 10)
-    if (memories.length === 0) {
-      await ctx.reply(t('cmd.memory.empty'))
-      return
-    }
-    const lines = memories.map(
-      (m, i) => `${i + 1}. [${m.sector}] ${m.content.slice(0, 100)}${m.content.length > 100 ? '...' : ''} (salience: ${m.salience.toFixed(2)})`
-    )
-    await ctx.reply(`${t('cmd.memory.title')}\n\n${lines.join('\n')}`)
-  })
-
   bot.command('usage', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const t = chatT(String(ctx.chat.id))
@@ -2263,7 +2248,6 @@ export function createBot(): Bot {
     { command: 'new', description: t('menu.new') },
     { command: 'cancel', description: t('menu.cancel') },
     { command: 'model', description: t('menu.model') },
-    { command: 'memory', description: t('menu.memory') },
     { command: 'usage', description: t('menu.usage') },
     { command: 'settings', description: t('menu.settings') },
     { command: 'session', description: t('menu.session') },

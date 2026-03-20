@@ -6,7 +6,6 @@ vi.mock('./env.js', () => ({
     NIGHT_OWL_HOUR: '5',
     TELEGRAPH_ENABLED: 'false',
     AGENT_WATCHDOG_WARN_SECONDS: '120',
-    MEMORY_SALIENCE_DECAY: '0.9',
   }),
   BOT_NAME: 'TestBot',
   BOT_DIR: '/tmp/test-bot',
@@ -16,7 +15,6 @@ import {
   NIGHT_OWL_HOUR,
   TELEGRAPH_ENABLED,
   AGENT_WATCHDOG_WARN_SECONDS,
-  MEMORY_SALIENCE_DECAY,
   MAX_MESSAGE_LENGTH,
   BOT_NAME,
 } from './config.js'
@@ -32,10 +30,6 @@ describe('config', () => {
 
   it('parses AGENT_WATCHDOG_WARN_SECONDS as int', () => {
     expect(AGENT_WATCHDOG_WARN_SECONDS).toBe(120)
-  })
-
-  it('parses MEMORY_SALIENCE_DECAY as float', () => {
-    expect(MEMORY_SALIENCE_DECAY).toBe(0.9)
   })
 
   it('has hardcoded MAX_MESSAGE_LENGTH', () => {

@@ -13,10 +13,6 @@ const testDir = vi.hoisted(() => {
 
 vi.mock('./config.js', () => ({
   STORE_DIR: testDir,
-  MEMORY_SALIENCE_DECAY: 0.95,
-  MEMORY_SALIENCE_MIN: 0.1,
-  MEMORY_SALIENCE_MAX: 2.0,
-  MEMORY_SALIENCE_BOOST: 0.1,
 }))
 
 vi.mock('./logger.js', () => ({
@@ -38,10 +34,6 @@ import {
   getApprovedGroups,
   addApprovedGroup,
   removeApprovedGroup,
-  insertMemory,
-  searchMemories,
-  getRecentMemories,
-  decayAndPruneMemories,
 } from './db.js'
 
 const CHAT = 'test-chat-1'
@@ -152,21 +144,3 @@ describe('approved groups', () => {
   })
 })
 
-describe('memories', () => {
-  it('insert and search via FTS', () => {
-    insertMemory(CHAT, 'Went to the gym today', 'episodic')
-    const results = searchMemories(CHAT, 'gym')
-    expect(results.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('getRecentMemories returns latest', () => {
-    insertMemory(CHAT, 'Memory one', 'semantic')
-    insertMemory(CHAT, 'Memory two', 'semantic')
-    const recent = getRecentMemories(CHAT, 2)
-    expect(recent.length).toBe(2)
-  })
-
-  it('decayAndPruneMemories does not throw', () => {
-    expect(() => decayAndPruneMemories()).not.toThrow()
-  })
-})

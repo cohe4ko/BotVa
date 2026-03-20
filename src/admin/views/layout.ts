@@ -178,7 +178,6 @@ const NAV_SECTIONS = [
   { id: 'config', key: 'botnav.config', icon: 'settings' },
   { id: 'knowledge', key: 'botnav.knowledge', icon: 'book-open' },
   { id: 'facts', key: 'botnav.facts', icon: 'database' },
-  { id: 'memories', key: 'botnav.memories', icon: 'brain' },
   { id: 'tasks', key: 'botnav.tasks', icon: 'clock' },
   { id: 'settings', key: 'botnav.settings', icon: 'sliders-horizontal' },
   { id: 'usage', key: 'botnav.usage', icon: 'bar-chart-3' },

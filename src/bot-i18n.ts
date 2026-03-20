@@ -16,7 +16,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'agent.error': '⚠️ Agent error:',
 
     // Start / Help
-    'cmd.start': "BotVa online.\n\nYour chat ID: <code>{chatId}</code>\n\n/new -- new session\n/cancel -- cancel current request\n/model -- switch AI model\n/memory -- recent memories\n/usage -- usage stats\n/settings -- voice, language, style & more\n/session -- switch sessions, import from CLI\n/admin -- admin panel",
+    'cmd.start': "BotVa online.\n\nYour chat ID: <code>{chatId}</code>\n\n/new -- new session\n/cancel -- cancel current request\n/model -- switch AI model\n/usage -- usage stats\n/settings -- voice, language, style & more\n/session -- switch sessions, import from CLI\n/admin -- admin panel",
     'cmd.chatid': 'Your chat ID: <code>{chatId}</code>',
 
     // Session
@@ -26,10 +26,6 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cancel.request': 'request cancelled',
     'cancel.queue': '{n} in queue cleared',
     'cancel.nothing': 'Nothing to cancel.',
-
-    // Memory
-    'cmd.memory.empty': 'No memories yet.',
-    'cmd.memory.title': 'Recent memories:',
 
     // Voice
     'cmd.voice.noTts': 'TTS not configured. Voice replies unavailable.',
@@ -246,7 +242,6 @@ const translations: Record<BotLang, Record<string, string>> = {
     'menu.new': 'New session (clear context)',
     'menu.cancel': 'Cancel current request',
     'menu.model': 'Switch AI model',
-    'menu.memory': 'Show recent memories',
     'menu.usage': 'Usage stats',
     'menu.settings': 'Settings',
     'menu.admin': 'Start/stop admin panel',
@@ -265,7 +260,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'agent.error': '⚠️ Помилка агента:',
 
     // Start / Help
-    'cmd.start': "BotVa на зв'язку.\n\nТвій chat ID: <code>{chatId}</code>\n\n/new -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/memory -- останні спогади\n/usage -- статистика використання\n/settings -- голос, мова, стиль та інше\n/session -- перемикання сесій, імпорт з CLI\n/admin -- адмін панель",
+    'cmd.start': "BotVa на зв'язку.\n\nТвій chat ID: <code>{chatId}</code>\n\n/new -- нова сесія\n/cancel -- скасувати поточний запит\n/model -- змінити модель AI\n/usage -- статистика використання\n/settings -- голос, мова, стиль та інше\n/session -- перемикання сесій, імпорт з CLI\n/admin -- адмін панель",
     'cmd.chatid': 'Твій chat ID: <code>{chatId}</code>',
 
     // Session
@@ -275,10 +270,6 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cancel.request': 'запит скасовано',
     'cancel.queue': '{n} в черзі очищено',
     'cancel.nothing': 'Нічого скасовувати.',
-
-    // Memory
-    'cmd.memory.empty': 'Спогадів поки немає.',
-    'cmd.memory.title': 'Останні спогади:',
 
     // Voice
     'cmd.voice.noTts': 'TTS не налаштовано. Голосові відповіді недоступні.',
@@ -495,7 +486,6 @@ const translations: Record<BotLang, Record<string, string>> = {
     'menu.new': 'Нова сесія (очистити контекст)',
     'menu.cancel': 'Скасувати поточний запит',
     'menu.model': 'Змінити модель AI',
-    'menu.memory': 'Показати останні спогади',
     'menu.usage': 'Статистика використання',
     'menu.settings': 'Налаштування',
     'menu.admin': 'Запустити/зупинити адмін панель',

@@ -51,10 +51,6 @@ export const EMBEDDINGS_ENABLED = (env['EMBEDDINGS_ENABLED'] ?? 'true') === 'tru
 export const EMBEDDING_SOCK_PATH = env['EMBEDDING_SOCK_PATH'] ?? resolve(PROJECT_ROOT, 'store', 'embedding.sock')
 
 // Memory system
-export const MEMORY_SALIENCE_DECAY = parseFloat(env['MEMORY_SALIENCE_DECAY'] ?? '0.98')
-export const MEMORY_SALIENCE_MIN = parseFloat(env['MEMORY_SALIENCE_MIN'] ?? '0.1')
-export const MEMORY_SALIENCE_MAX = parseFloat(env['MEMORY_SALIENCE_MAX'] ?? '5.0')
-export const MEMORY_SALIENCE_BOOST = parseFloat(env['MEMORY_SALIENCE_BOOST'] ?? '0.1')
 export const NIGHT_OWL_HOUR = parseInt(env['NIGHT_OWL_HOUR'] ?? '4', 10)
 export const USER_PREVIEW_LEN = parseInt(env['USER_PREVIEW_LEN'] ?? '200', 10)
 export const ASSISTANT_PREVIEW_LEN = parseInt(env['ASSISTANT_PREVIEW_LEN'] ?? '300', 10)

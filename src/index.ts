@@ -5,7 +5,6 @@ import { STORE_DIR, TELEGRAM_BOT_TOKEN, TELEGRAPH_ENABLED, BOT_NAME, PROJECT_ROO
 import { runAgent } from './agent.js'
 import { getManagerName } from './team.js'
 import { initDatabase, getChatSetting } from './db.js'
-import { runDecaySweep } from './memory.js'
 import { cleanupOldUploads, ensureUploadsDir } from './media.js'
 import { createBot, sendMessage, startRelayListener } from './bot.js'
 import { run, sequentialize } from '@grammyjs/runner'
@@ -182,10 +181,6 @@ async function main(): Promise<void> {
     })
   }).catch(() => {})
 
-  // Run memory decay sweep on startup + daily
-  runDecaySweep()
-  const decayInterval = setInterval(runDecaySweep, 24 * 60 * 60 * 1000)
-
   // Schedule daily consolidation (recursive setTimeout to avoid drift)
   const scheduleConsolidation = () => {
     const hour = getConsolidationHour()
@@ -261,7 +256,6 @@ async function main(): Promise<void> {
     stopSocketListener()
     stopScheduler()
     stopDeduplication()
-    clearInterval(decayInterval)
     allowSleep()
     runner.stop()
     releaseLock()
