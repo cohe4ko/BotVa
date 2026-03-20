@@ -26,6 +26,7 @@ app.get('/api/role-preview/:role', (c) => {
     .replace(/\{\{BOT_NAME\}\}/g, '(ім\'я бота)')
     .replace(/\{\{BOT_EMOJI\}\}/g, '🤖')
     .replace('{{включено _base.md}}', '(спільні правила команди)')
+    .replace(/^---\s*(IDENTITY|ROLE|TOOLS)\s*---$/gm, '')
 
   return c.json({ content: preview })
 })

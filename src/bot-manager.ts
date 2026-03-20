@@ -31,7 +31,7 @@ export function getAvailableRoles(): { slug: string; description: string }[] {
   if (!existsSync(rolesDir)) return []
 
   return readdirSync(rolesDir)
-    .filter(f => f.endsWith('.md') && f !== '_base.md')
+    .filter(f => f.endsWith('.md') && !f.startsWith('_'))
     .map(f => f.replace('.md', ''))
     .map(slug => ({ slug, description: ROLE_DESCRIPTIONS[slug] || slug }))
 }
