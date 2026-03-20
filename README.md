@@ -406,6 +406,33 @@ npm run typecheck   # Перевірка типів
 npm test            # Запустити тести
 ```
 
+### Тести
+
+Фреймворк: [vitest](https://vitest.dev/) 4.x. Тести лежать поруч з кодом (`src/*.test.ts`).
+
+```bash
+npm test                                  # Всі тести
+npx vitest run src/bounded-map.test.ts    # Один файл
+npx vitest run --coverage                 # З coverage-звітом
+npx vitest                                # Watch mode
+```
+
+| Модуль | Тестів | Що покрито |
+|--------|--------|------------|
+| `bounded-map` | 8 | FIFO eviction, set/get/delete/clear |
+| `deduplication` | 4 | TTL cleanup, duplicate detection |
+| `memory` | 5 | Night-owl date logic, month boundary |
+| `model` | 9 | getModelLabel, getModel, getTemperature |
+| `db` | 13 | Facts CRUD + FTS, chat settings, memories |
+| `builtin-tools` | 6 | Tool defs integrity, defaults |
+| `telegraph` | 3 | shouldUseTelegraph threshold |
+| `workspace-files` | 12 | Read/write, validation, assembly |
+| `config` | 6 | Env parsing, type coercion |
+| `email-template` | 7 | HTML generation, signature, markdown |
+| `auto-react` | 4 | Guard clauses (empty, commands, long) |
+| `disk-sessions` | 2 | Project dir mapping |
+| `mcp-config` | 10 | CRUD, env filtering, enable/disable |
+
 ## Backup та відновлення
 
 ### Що бекапити

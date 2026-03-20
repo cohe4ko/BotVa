@@ -159,6 +159,45 @@ pptx, ship-learn-next
 4. **Не дублюй** — якщо фіча вже описана (наприклад через попередній коміт), не додавай повторно
 5. **Фікси не документуються** — баг-фікси, рефакторинг, UI-правки не потребують змін в README
 
+## Тести
+
+Фреймворк: vitest 4.x. Тести поруч з кодом: `src/foo.ts` → `src/foo.test.ts`.
+
+### Запуск
+
+```bash
+npm test                                  # всі тести
+npx vitest run src/bounded-map.test.ts    # один файл
+npx vitest run --coverage                 # з coverage
+```
+
+### Правила
+
+- **При зміні модуля** — оновити або додати відповідний `.test.ts` файл
+- **При додаванні нового модуля в `src/`** — створити `*.test.ts` поруч
+- **Мокати зовнішні залежності** (`./config.js`, `./db.js`, `./logger.js`, `./env.js`), не реальні сервіси
+- **Для `db.test.ts`** — використовувати temp dir через `vi.hoisted()`, не production базу
+- **Тести не мають містити** персональних даних, реальних токенів, шляхів з іменами користувачів
+- **Після додавання тестів** — переконатися що `npm test` проходить перед комітом
+
+### Структура тесту
+
+```ts
+import { describe, it, expect, vi } from 'vitest'
+
+// Мокаємо залежності перед імпортом модуля
+vi.mock('./config.js', () => ({ ... }))
+vi.mock('./logger.js', () => ({ logger: { info: vi.fn(), ... } }))
+
+import { myFunction } from './my-module.js'
+
+describe('myFunction', () => {
+  it('does something', () => {
+    expect(myFunction('input')).toBe('expected')
+  })
+})
+```
+
 ## Архітектура даних
 
 **КОД (git tracked):**
