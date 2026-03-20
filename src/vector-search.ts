@@ -3,6 +3,7 @@
  * Falls back to FTS-only when embedding service is unavailable.
  */
 
+import type { DatabaseSync } from 'node:sqlite'
 import { searchFacts, type Fact, getFactsWithEmbeddings, getLinkedFacts } from './db.js'
 import { embed, cosineSim, isReady } from './embeddings.js'
 import { logger } from './logger.js'
@@ -48,6 +49,7 @@ interface ScoredFact {
 
 export interface HybridSearchResult {
   facts: Fact[]
+  scores: number[]         // combined scores aligned with facts[]
   totalCandidates: number  // how many facts found before filtering
   hasMore: boolean         // there are more relevant facts beyond limit
 }
@@ -103,12 +105,13 @@ function deduplicateByContent(scored: ScoredFact[], factsWithEmb: Map<number, Fl
 
 export async function searchFactsHybrid(
   chatId: string, query: string, limit = 10, topic?: string,
-  opts?: { hops?: 1 | 2 }
+  opts?: { hops?: 1 | 2; db?: DatabaseSync }
 ): Promise<HybridSearchResult> {
   const hops = opts?.hops ?? 2
+  const extDb = opts?.db
 
   // 1. FTS5 search (always runs)
-  const ftsResults = searchFacts(chatId, query, limit * 2, topic)
+  const ftsResults = searchFacts(chatId, query, limit * 2, topic, extDb)
 
   // 2. Vector search hop 1 (if available)
   const allScored: ScoredFact[] = []
@@ -136,7 +139,7 @@ export async function searchFactsHybrid(
       }
 
       if (queryVec) {
-        factsWithEmb = getFactsWithEmbeddings(chatId, topic)
+        factsWithEmb = getFactsWithEmbeddings(chatId, topic, extDb)
 
         // Build embedding map for diversity check
         for (const f of factsWithEmb) {
@@ -211,7 +214,7 @@ export async function searchFactsHybrid(
 
             // Graph expansion: follow explicit links
             try {
-              const linked = getLinkedFacts(sf.fact.id, chatId, 3)
+              const linked = getLinkedFacts(sf.fact.id, chatId, 3, extDb)
               for (const lf of linked) {
                 if (!seen.has(lf.id)) {
                   seen.add(lf.id)
@@ -245,8 +248,10 @@ export async function searchFactsHybrid(
   const hasMore = filtered.length > limit &&
     filtered.slice(limit).filter(sf => combinedScore(sf) > 0.4).length >= 2
 
+  const final = filtered.slice(0, limit)
   return {
-    facts: filtered.slice(0, limit).map(sf => sf.fact),
+    facts: final.map(sf => sf.fact),
+    scores: final.map(sf => combinedScore(sf)),
     totalCandidates,
     hasMore,
   }

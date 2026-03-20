@@ -53,46 +53,51 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
 
   if (mode === 'recall' && q) {
     try {
-      const { embed, cosineSim, isReady } = await import('../../embeddings.js')
-      if (!(await isReady())) {
-        recallError = t('facts.recallUnavailable')
-      } else {
-        const queryVec = await embed(q, 'query')
-        if (!queryVec) {
-          recallError = t('facts.recallUnavailable')
-        } else {
-          const db = getBotDb(name)
-          let rows: (FactRow & { embedding: Buffer | null })[]
-          if (topicFilter) {
-            rows = db.prepare('SELECT * FROM facts WHERE embedding IS NOT NULL AND topic = ?').all(topicFilter) as unknown as (FactRow & { embedding: Buffer | null })[]
-          } else {
-            rows = db.prepare('SELECT * FROM facts WHERE embedding IS NOT NULL').all() as unknown as (FactRow & { embedding: Buffer | null })[]
-          }
-          const VECTOR_THRESHOLD = 0.4
-          const PREFERENCE_THRESHOLD = 0.3
-          const scored: { fact: FactRow; score: number }[] = []
-          for (const row of rows) {
-            if (!row.embedding) continue
-            const vec = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4)
-            const score = cosineSim(queryVec, vec)
-            const threshold = row.sector === 'preference' ? PREFERENCE_THRESHOLD : VECTOR_THRESHOLD
-            if (score > threshold) scored.push({ fact: row, score })
-          }
-          scored.sort((a, b) => b.score - a.score)
-          recallResults = scored.slice(0, 30)
-        }
+      const { searchFactsHybrid } = await import('../../vector-search.js')
+      const db = getBotDb(name)
+
+      // Get primary chatId from the bot's DB
+      const chatRow = db.prepare('SELECT chat_id FROM facts GROUP BY chat_id ORDER BY COUNT(*) DESC LIMIT 1').get() as { chat_id: string } | undefined
+      const chatId = chatRow?.chat_id || '0'
+
+      const searchResult = await searchFactsHybrid(chatId, q, 30, topicFilter || undefined, { db })
+      recallResults = searchResult.facts.map((f, i) => ({ fact: f as unknown as FactRow, score: searchResult.scores[i] ?? 0 }))
+
+      // Build injection preview (same format as buildMemoryContext)
+      const preferences = searchResult.facts.filter(f => f.sector === 'preference')
+      const wordCount = q.trim().split(/\s+/).length
+      const regularFacts = wordCount >= 3
+        ? searchResult.facts.filter(f => f.sector !== 'preference').slice(0, 7)
+        : []
+
+      const previewParts: string[] = []
+      if (preferences.length > 0) {
+        const lines = preferences.map(f => `- ${f.content}`)
+        previewParts.push(`[⚠️ IMPORTANT — User preferences. Follow these instructions.]\n${lines.join('\n')}`)
       }
+      if (regularFacts.length > 0) {
+        const TOKEN_BUDGET = 1500
+        let budget = TOKEN_BUDGET
+        const lines: string[] = []
+        for (const f of regularFacts) {
+          const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
+          const sectorLabel = f.sector === 'semantic' ? 'fact' : 'event'
+          const imp = f.importance !== undefined && f.importance !== 0.5 ? ` ⚡${f.importance.toFixed(1)}` : ''
+          const line = `- #${f.id} [${f.topic}] [${date}] (${sectorLabel})${imp} ${f.content}`
+          if (budget - line.length < 0 && lines.length > 0) break
+          lines.push(line)
+          budget -= line.length
+        }
+        let factsBlock = `[Potentially relevant facts from memory — auto-search. No need to call SearchMemory for these.]\n${lines.join('\n')}`
+        if (searchResult.hasMore) {
+          factsBlock += '\n\n[💡 На цю тему є ще факти в пам\'яті. Використай SearchMemory для детальнішого пошуку.]'
+        }
+        previewParts.push(factsBlock)
+      }
+      injectionPreview = previewParts.join('\n\n')
     } catch (err) {
       recallError = err instanceof Error ? err.message : String(err)
     }
-
-    // Generate injection preview
-    try {
-      const { buildMemoryContext } = await import('../../memory.js')
-      const { ALLOWED_CHAT_ID } = await import('../../config.js')
-      const chatId = ALLOWED_CHAT_ID || '0'
-      injectionPreview = await buildMemoryContext(chatId, q)
-    } catch { /* ignore */ }
   }
 
   let total = 0

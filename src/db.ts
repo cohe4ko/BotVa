@@ -561,14 +561,15 @@ export function deleteFact(id: number, chatId: string): boolean {
   return (result as unknown as { changes: number }).changes > 0
 }
 
-export function searchFacts(chatId: string, query: string, limit = 10, topic?: string): Fact[] {
+export function searchFacts(chatId: string, query: string, limit = 10, topic?: string, extDb?: DatabaseSync): Fact[] {
   const sanitized = query.replace(/[^\w\s\u0400-\u04FF]/g, '').trim()
   if (!sanitized) return []
 
+  const d = extDb ?? getDb()
   const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' OR ')
   try {
     if (topic) {
-      return getDb().prepare(`
+      return d.prepare(`
         SELECT f.* FROM facts f
         JOIN facts_fts ff ON ff.rowid = f.id
         WHERE facts_fts MATCH ? AND f.chat_id IN (?, 'admin') AND f.topic = ?
@@ -576,7 +577,7 @@ export function searchFacts(chatId: string, query: string, limit = 10, topic?: s
         LIMIT ?
       `).all(ftsQuery, chatId, topic, limit) as unknown as Fact[]
     }
-    return getDb().prepare(`
+    return d.prepare(`
       SELECT f.* FROM facts f
       JOIN facts_fts ff ON ff.rowid = f.id
       WHERE facts_fts MATCH ? AND f.chat_id IN (?, 'admin')
@@ -647,8 +648,9 @@ export function insertFactLink(id1: number, id2: number, strength: number): void
   ).run(id2, id1, strength, now)
 }
 
-export function getLinkedFacts(factId: number, chatId: string, limit = 5): (Fact & { linkStrength: number })[] {
-  return getDb().prepare(`
+export function getLinkedFacts(factId: number, chatId: string, limit = 5, extDb?: DatabaseSync): (Fact & { linkStrength: number })[] {
+  const d = extDb ?? getDb()
+  return d.prepare(`
     SELECT f.*, fl.strength AS linkStrength
     FROM fact_links fl
     JOIN facts f ON f.id = fl.fact_id_2
@@ -669,13 +671,14 @@ export function updateFactEmbedding(id: number, embedding: Float32Array): void {
   getDb().prepare('UPDATE facts SET embedding = ? WHERE id = ?').run(buf, id)
 }
 
-export function getFactsWithEmbeddings(chatId: string, topic?: string): (Fact & { embedding: Buffer | null })[] {
+export function getFactsWithEmbeddings(chatId: string, topic?: string, extDb?: DatabaseSync): (Fact & { embedding: Buffer | null })[] {
+  const d = extDb ?? getDb()
   if (topic) {
-    return getDb().prepare(
+    return d.prepare(
       "SELECT * FROM facts WHERE chat_id IN (?, 'admin') AND topic = ? AND embedding IS NOT NULL"
     ).all(chatId, topic) as unknown as (Fact & { embedding: Buffer | null })[]
   }
-  return getDb().prepare(
+  return d.prepare(
     "SELECT * FROM facts WHERE chat_id IN (?, 'admin') AND embedding IS NOT NULL"
   ).all(chatId) as unknown as (Fact & { embedding: Buffer | null })[]
 }
