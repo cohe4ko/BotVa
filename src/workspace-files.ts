@@ -310,12 +310,12 @@ export function getUserNudge(botDir: string): string | null {
     return '[USER.md порожній — ти не знаєш хто ця людина. Спершу виконай запит користувача, а в кінці відповіді запитай як її звати. Потім оновити USER.md.]'
   }
 
-  const hasName = /\*\*Ім'я:\*\*\s*\S/.test(content)
-  const hasTimezone = /\*\*Timezone:\*\*\s*\S/.test(content)
-  const hasLang = /\*\*Мова:\*\*\s*\S/.test(content)
+  const hasName = /\*\*Ім'я:\*\*[ \t]*\S/.test(content)
+  const hasTimezone = /\*\*Timezone:\*\*[ \t]*\S/.test(content)
+  const hasLang = /\*\*Мова:\*\*[ \t]*\S/.test(content)
 
   // Extract name for personalized nudge
-  const nameMatch = content.match(/\*\*Ім'я:\*\*\s*(.+)/)
+  const nameMatch = content.match(/\*\*Ім'я:\*\*[ \t]*(.+)/)
   const name = nameMatch ? nameMatch[1].trim() : 'користувача'
 
   // Level 1: no name — ask right away (can't even address them properly)
