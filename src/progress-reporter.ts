@@ -123,8 +123,8 @@ function toolIcon(name: string): string {
   return mcpPrefix ? MCP_ICONS[mcpPrefix] : '🔧'
 }
 
-// Regex matching any tool icon (for replacement in progress/result)
-const TOOL_ICON_RE = /^(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐🎨][\uFE0F]?/
+// Regex matching any tool icon (for replacement in progress/result), works inside <blockquote>
+const TOOL_ICON_RE = /^(<blockquote>)?(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐🎨][\uFE0F]?/
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   const i = input
@@ -361,9 +361,9 @@ export class ProgressReporter {
               const mcpPrefix = Object.keys(cuteMcpKeys).find(p => name.startsWith(p + '_'))
               cute = mcpPrefix ? this.t(cuteMcpKeys[mcpPrefix]) : this.t('progress.cute.default')
             }
-            this.addLine(`${indent}${cute}${detailStr}`)
+            this.addLine(`<blockquote>${indent}${cute}${detailStr}</blockquote>`)
           } else {
-            this.addLine(`${indent}${toolIcon(name)} <b>${escapeHtml(name)}</b>${detailStr}`)
+            this.addLine(`<blockquote>${indent}${toolIcon(name)} <b>${escapeHtml(name)}</b>${detailStr}</blockquote>`)
           }
           hadContent = true
         } else if (block.type === 'text' && block.text) {
@@ -422,8 +422,9 @@ export class ProgressReporter {
       const idx = this.toolLines.get(event.tool_use_id)
       if (idx !== undefined && idx < this.lines.length) {
         const original = this.lines[idx]
-        const withoutTime = original.replace(/\s*\(\d+s\)$/g, '')
-        this.lines[idx] = withoutTime.replace(TOOL_ICON_RE, '$1⏳') + ` (${elapsed}s)`
+        // Strip trailing </blockquote>, previous time, then re-add
+        const stripped = original.replace(/<\/blockquote>$/, '').replace(/\s*\(\d+s\)$/, '')
+        this.lines[idx] = stripped.replace(TOOL_ICON_RE, '$1$2⏳') + ` (${elapsed}s)</blockquote>`
       }
       return true
     }
@@ -434,20 +435,21 @@ export class ProgressReporter {
         const idx = this.toolLines.get(event.parent_tool_use_id)
         const toolName = this.toolNames.get(event.parent_tool_use_id)
         if (idx !== undefined && idx < this.lines.length) {
-          this.lines[idx] = this.lines[idx]
-            .replace(TOOL_ICON_RE, '$1✅')
+          // Strip </blockquote> before modifications, re-add after
+          let line = this.lines[idx].replace(/<\/blockquote>$/, '')
+          line = line
+            .replace(TOOL_ICON_RE, '$1$2✅')
             .replace(/\s*\(\d+s\)$/g, '')
 
           if (toolName && !this.subagentTools.has(event.parent_tool_use_id)) {
             const preview = resultPreview(event.tool_use_result)
             if (preview) {
-              // Inline short result on the same line as tool
               const shortPreview = preview.length > 60 ? preview.slice(0, 57) + '...' : preview
-              this.lines[idx] += ` → <i>${escapeHtml(shortPreview)}</i>`
-              // Also collect full result for final expandable blockquote
+              line += ` → <i>${escapeHtml(shortPreview)}</i>`
               this.toolResults.set(event.parent_tool_use_id, preview)
             }
           }
+          this.lines[idx] = line + '</blockquote>'
         }
       }
       return true
@@ -655,41 +657,16 @@ export class ProgressReporter {
     }
   }
 
-  /** Build structured display text: streaming visible, tools in expandable blockquote */
+  /** Build display text: chronological order, active streaming line always last */
   private buildDisplayText(): string {
-    // Categorize lines: tools vs streaming vs other (system messages, errors, etc.)
-    const toolIdxSet = new Set<number>()
-    for (const idx of this.toolLines.values()) {
-      toolIdxSet.add(idx)
-    }
-
-    const toolParts: string[] = []
-    const otherParts: string[] = []
-    let streamPart = ''
-
-    for (let i = 0; i < this.lines.length; i++) {
-      if (toolIdxSet.has(i)) {
-        toolParts.push(this.lines[i])
-      } else if (i === this.streamingLineIdx) {
-        streamPart = this.lines[i]
-      } else {
-        otherParts.push(this.lines[i])
-      }
-    }
-
     const parts: string[] = []
-
-    // Streaming text first (most important — what the bot is thinking)
-    if (streamPart) parts.push(streamPart)
-
-    // System messages (errors, compacting, auth, rate limit)
-    if (otherParts.length) parts.push(otherParts.join('\n'))
-
-    // Tools in blockquote
-    if (toolParts.length) {
-      parts.push(`<blockquote>${toolParts.join('\n')}</blockquote>`)
+    for (let i = 0; i < this.lines.length; i++) {
+      if (i === this.streamingLineIdx) continue
+      parts.push(this.lines[i])
     }
-
+    if (this.streamingLineIdx !== null && this.streamingLineIdx < this.lines.length) {
+      parts.push(this.lines[this.streamingLineIdx])
+    }
     return parts.join('\n') || '...'
   }
 
