@@ -103,6 +103,9 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'PinMessage', icon: 'pin', category: 'telegram', description: 'Pin/unpin messages in chat', available: true },
     { name: 'ForwardMessage', icon: 'forward', category: 'telegram', description: 'Forward or copy messages to another chat', available: true },
     { name: 'OpenWebApp', icon: 'layout', category: 'telegram', description: 'Open interactive Mini App (HTML) in Telegram', condition: 'PUBLISH_BASE_URL (HTTPS)', available: hasPublish },
+    { name: 'SendLocation', icon: 'map-pin', category: 'telegram', description: 'Send location or venue (place) on map', available: true },
+    { name: 'SendSticker', icon: 'smile', category: 'telegram', description: 'Send sticker to chat', available: true },
+    { name: 'SendAnimation', icon: 'film', category: 'telegram', description: 'Send GIF animation to chat', available: true },
     // User interaction
     { name: 'AskUser', icon: 'message-circle', category: 'telegram', description: 'Ask user to choose from options via buttons', available: true },
     // Bot management
@@ -1489,6 +1492,159 @@ Do NOT use for simple text/buttons — use AskUser for that.`,
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'OpenWebApp failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- SendLocation / SendVenue ---
+
+  if (isOn('SendLocation')) tools.push(
+    tool(
+      'SendLocation',
+      `Send a clickable location pin or venue (place with name) on the map.
+
+Use when:
+- "де знаходиться", "покажи на карті", "адреса ресторану", "координати"
+- You found an address/place and want to show it visually
+- User asks about a location of a business, restaurant, hotel, etc.
+
+If title + address are provided → sends as Venue (place card with name).
+Otherwise → sends as plain location pin.`,
+      {
+        latitude: z.coerce.number().describe('Latitude (-90 to 90)'),
+        longitude: z.coerce.number().describe('Longitude (-180 to 180)'),
+        title: z.string().optional().describe('Venue name (e.g. "Starbucks"). If provided with address, sends as Venue'),
+        address: z.string().optional().describe('Venue address (e.g. "вул. Шевченка, 1"). Required together with title for Venue'),
+        foursquare_id: z.string().optional().describe('Foursquare place ID for rich venue card'),
+      },
+      async (args) => {
+        usedTools.add('SendLocation')
+        try {
+          if (args.title && args.address) {
+            await ctx.replyWithVenue(args.latitude, args.longitude, args.title, args.address, {
+              ...(args.foursquare_id ? { foursquare_id: args.foursquare_id } : {}),
+            })
+            return { content: [{ type: 'text' as const, text: `Venue sent: ${args.title} (${args.latitude}, ${args.longitude})` }] }
+          }
+          await ctx.replyWithLocation(args.latitude, args.longitude)
+          return { content: [{ type: 'text' as const, text: `Location sent: (${args.latitude}, ${args.longitude})` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SendLocation failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- SendSticker ---
+
+  if (isOn('SendSticker')) tools.push(
+    tool(
+      'SendSticker',
+      `Send a sticker to the chat. Two modes:
+
+**Mode 1 — Send by sticker_set_name + emoji:**
+  Provide sticker_set_name (e.g. "AnimatedEmojies", "HotCherry", "DucksDuckoo") and emoji.
+  The tool finds a matching sticker from the pack and sends it.
+  Popular packs: "AnimatedEmojies" (animated emoji), "HotCherry" (cherry girl), "DucksDuckoo" (duck),
+  "CatsPack" (cats), "StickerFace" (face expressions), "FunkyMonkey" (monkey),
+  "LoveIs" (love), "PandaFace" (panda), "BrownAndCony" (LINE bear & rabbit).
+
+**Mode 2 — Send by file_id / URL / path:**
+  Provide sticker directly (file_id string, HTTP URL to .webp, or local file path).
+
+Use when:
+- You want to react emotionally or humorously
+- User asks "надішли стікер", "відправ стікер"
+- A sticker would be more expressive than text or emoji`,
+      {
+        sticker: z.string().optional().describe('Sticker file_id, HTTP URL to .webp, or absolute local file path (use this OR sticker_set_name+emoji)'),
+        sticker_set_name: z.string().optional().describe('Telegram sticker pack name (e.g. "AnimatedEmojies", "HotCherry"). Used with emoji to find a sticker.'),
+        emoji: z.string().optional().describe('Emoji to match in the sticker pack (e.g. "😂", "👍"). Used with sticker_set_name.'),
+      },
+      async (args) => {
+        usedTools.add('SendSticker')
+        try {
+          let fileId: string | InstanceType<typeof InputFile> | undefined = undefined
+
+          // Mode 1: find sticker from pack by emoji
+          if (args.sticker_set_name && args.emoji) {
+            const stickerSet = await ctx.api.getStickerSet(args.sticker_set_name)
+            // Find sticker matching the emoji
+            let match = stickerSet.stickers.find(s => s.emoji === args.emoji)
+            if (!match) {
+              // Try partial match (emoji can be multi-codepoint)
+              match = stickerSet.stickers.find(s => s.emoji?.includes(args.emoji!) || args.emoji!.includes(s.emoji || ''))
+            }
+            if (!match) {
+              // Pick random sticker from the pack
+              match = stickerSet.stickers[Math.floor(Math.random() * stickerSet.stickers.length)]
+            }
+            fileId = match.file_id
+          } else if (args.sticker) {
+            // Mode 2: direct file_id / URL / path
+            if (args.sticker.startsWith('/')) {
+              fileId = new InputFile(args.sticker)
+            } else {
+              fileId = args.sticker
+            }
+          } else {
+            return { content: [{ type: 'text' as const, text: 'Provide sticker (file_id/URL/path) or sticker_set_name + emoji' }], isError: true }
+          }
+
+          await ctx.replyWithSticker(fileId)
+          return { content: [{ type: 'text' as const, text: `Sticker sent${args.emoji ? ` ${args.emoji}` : ''}${args.sticker_set_name ? ` from ${args.sticker_set_name}` : ''}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SendSticker failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  // --- SendAnimation (GIF) ---
+
+  if (isOn('SendAnimation')) tools.push(
+    tool(
+      'SendAnimation',
+      `Send a GIF animation to the chat.
+
+Use when:
+- "надішли гіфку", "відправ GIF", "gif"
+- A GIF would be more fitting than text (humor, illustration, meme)
+- User shares or asks for an animated reaction
+
+animation parameter accepts:
+- HTTP URL to a .gif/.mp4
+- Local file path to a .gif/.mp4 file
+- file_id from Telegram`,
+      {
+        animation: z.string().describe('Animation file_id, HTTP URL, or absolute local file path (.gif/.mp4)'),
+        caption: z.string().optional().describe('Caption text under the animation'),
+        width: z.coerce.number().optional().describe('Animation width in pixels'),
+        height: z.coerce.number().optional().describe('Animation height in pixels'),
+      },
+      async (args) => {
+        usedTools.add('SendAnimation')
+        try {
+          await ctx.replyWithChatAction('upload_video')
+          let animInput: string | InstanceType<typeof InputFile> = args.animation
+          if (args.animation.startsWith('/')) {
+            animInput = new InputFile(args.animation)
+          }
+          await ctx.replyWithAnimation(animInput, {
+            caption: args.caption?.slice(0, 1024),
+            ...(args.width ? { width: args.width } : {}),
+            ...(args.height ? { height: args.height } : {}),
+          })
+          return { content: [{ type: 'text' as const, text: `Animation sent${args.caption ? ` with caption` : ''}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SendAnimation failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
