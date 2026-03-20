@@ -54,7 +54,8 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
       localStorage.setItem('theme', next);
     }
     function toggleMobileMenu() {
-      document.querySelector('.nav-links').classList.toggle('open');
+      document.getElementById('sidebar').classList.toggle('open');
+      document.querySelector('.sidebar-overlay').classList.toggle('open');
       document.querySelector('.burger-toggle').classList.toggle('open');
     }
     function switchLang() {
@@ -64,7 +65,8 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
   </script>
 </head>
 <body>
-  <nav class="top-nav">
+  <!-- Mobile top bar -->
+  <div class="mobile-topbar">
     <a href="/" class="logo">
       <span class="logo-icon"><i data-lucide="sprout" style="width:14px;height:14px"></i></span>
       BotVa
@@ -72,55 +74,68 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
     <button class="burger-toggle" onclick="toggleMobileMenu()" aria-label="Menu">
       <i data-lucide="menu" style="width:20px;height:20px"></i>
     </button>
-    <div class="nav-links">
-      <a href="/" class="${activePath === '/' ? 'active' : ''}"><i data-lucide="layout-dashboard" style="width:14px;height:14px"></i> ${_t('nav.dashboard')}</a>
-      <div class="nav-dropdown${bots.some(b => activePath.startsWith(`/bot/${b}`)) || activePath === '/create-bot' ? ' active' : ''}">
-        <button class="nav-dropdown-toggle"><i data-lucide="bot" style="width:14px;height:14px"></i> ${_t('nav.bots')} <i data-lucide="chevron-down" style="width:12px;height:12px"></i></button>
-        <div class="nav-dropdown-menu">
-          ${bots.map(b => html`
-            <a href="/bot/${b}/config" class="${activePath.startsWith(`/bot/${b}`) ? 'active' : ''}">${b}</a>
-          `)}
-          <div class="nav-dropdown-divider"></div>
-          <a href="/create-bot" class="${activePath === '/create-bot' ? 'active' : ''}"><i data-lucide="plus" style="width:13px;height:13px"></i> ${_t('nav.new')}</a>
-        </div>
-      </div>
-      <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:14px;height:14px"></i> ${_t('nav.team')}</a>
-      <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:14px;height:14px"></i> ${_t('nav.gallery')}</a>
-      <a href="/records" class="${activePath === '/records' ? 'active' : ''}"><i data-lucide="mic" style="width:14px;height:14px"></i> ${_t('nav.records')}</a>
-      <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:14px;height:14px"></i> ${_t('nav.storage')}</a>
-      <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:14px;height:14px"></i> ${_t('nav.backup')}</a>
-      <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:14px;height:14px"></i> ${_t('nav.diagnostics')}</a>
-      <a href="/terminal" class="${activePath === '/terminal' ? 'active' : ''}"><i data-lucide="terminal" style="width:14px;height:14px"></i> ${_t('nav.terminal')}</a>
-      <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:14px;height:14px"></i> ${_t('nav.system')}</a>
-      <div class="nav-actions">
-        <a href="/docs" class="theme-toggle" title="${_t('nav.docs')}">
-          <i data-lucide="book-open" style="width:16px;height:16px"></i>
+  </div>
+
+  <div class="sidebar-overlay" onclick="toggleMobileMenu()"></div>
+  <div class="app-layout">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <a href="/" class="logo">
+          <span class="logo-icon"><i data-lucide="sprout" style="width:14px;height:14px"></i></span>
+          BotVa
         </a>
-        <button class="theme-toggle" onclick="switchLang()" title="Switch language" style="font-size:0.75rem;font-weight:600;min-width:28px">
-          ${langLabel}
+      </div>
+      <div class="nav-links">
+        <a href="/" class="${activePath === '/' ? 'active' : ''}"><i data-lucide="layout-dashboard" style="width:15px;height:15px"></i> ${_t('nav.dashboard')}</a>
+        <div class="nav-dropdown${bots.some(b => activePath.startsWith(`/bot/${b}`)) || activePath === '/create-bot' ? ' active' : ''}">
+          <button class="nav-dropdown-toggle"><i data-lucide="bot" style="width:15px;height:15px"></i> ${_t('nav.bots')} <i data-lucide="chevron-down" style="width:12px;height:12px;margin-left:auto"></i></button>
+          <div class="nav-dropdown-menu">
+            ${bots.map(b => html`
+              <a href="/bot/${b}/config" class="${activePath.startsWith(`/bot/${b}`) ? 'active' : ''}">${b}</a>
+            `)}
+            <div class="nav-dropdown-divider"></div>
+            <a href="/create-bot" class="${activePath === '/create-bot' ? 'active' : ''}"><i data-lucide="plus" style="width:13px;height:13px"></i> ${_t('nav.new')}</a>
+          </div>
+        </div>
+        <a href="/team" class="${activePath === '/team' ? 'active' : ''}"><i data-lucide="users" style="width:15px;height:15px"></i> ${_t('nav.team')}</a>
+        <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:15px;height:15px"></i> ${_t('nav.gallery')}</a>
+        <a href="/records" class="${activePath === '/records' ? 'active' : ''}"><i data-lucide="mic" style="width:15px;height:15px"></i> ${_t('nav.records')}</a>
+        <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:15px;height:15px"></i> ${_t('nav.storage')}</a>
+        <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:15px;height:15px"></i> ${_t('nav.backup')}</a>
+        <a href="/diagnostics" class="${activePath === '/diagnostics' ? 'active' : ''}"><i data-lucide="stethoscope" style="width:15px;height:15px"></i> ${_t('nav.diagnostics')}</a>
+        <a href="/terminal" class="${activePath === '/terminal' ? 'active' : ''}"><i data-lucide="terminal" style="width:15px;height:15px"></i> ${_t('nav.terminal')}</a>
+        <a href="/system" class="${activePath === '/system' ? 'active' : ''}"><i data-lucide="server" style="width:15px;height:15px"></i> ${_t('nav.system')}</a>
+      </div>
+      <div class="sidebar-footer">
+        <a href="/docs" class="sidebar-action" title="${_t('nav.docs')}">
+          <i data-lucide="book-open" style="width:15px;height:15px"></i> ${_t('nav.docs')}
+        </a>
+        <button class="sidebar-action" onclick="switchLang()" title="Switch language">
+          <i data-lucide="globe" style="width:15px;height:15px"></i> ${langLabel}
         </button>
-        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-          <i data-lucide="sun" style="width:16px;height:16px"></i>
+        <button class="sidebar-action" onclick="toggleTheme()" title="Toggle theme">
+          <i data-lucide="sun" style="width:15px;height:15px"></i>
         </button>
       </div>
+    </nav>
+
+    <div class="content-area">
+      ${(() => {
+        if (pageIcon) return html`<div class="page-bg-icon"><i data-lucide="${pageIcon}"></i></div>`
+        const botMatch = activePath.match(/^\/bot\/[^/]+\/(\w+)/)
+        if (botMatch) {
+          const sectionIcon = NAV_SECTIONS.find(s => s.id === botMatch[1])?.icon
+          if (sectionIcon) return html`<div class="page-bg-icon"><i data-lucide="${sectionIcon}"></i></div>`
+        }
+        const topIcon = PAGE_ICONS[activePath]
+        return topIcon ? html`<div class="page-bg-icon"><i data-lucide="${topIcon}"></i></div>` : ''
+      })()}
+      <main class="mc-main">
+        ${content}
+      </main>
+      <footer class="mc-footer">${_t('nav.footer')}</footer>
     </div>
-  </nav>
-  ${(() => {
-    if (pageIcon) return html`<div class="page-bg-icon"><i data-lucide="${pageIcon}"></i></div>`
-    // Bot pages: extract section from path like /bot/name/section
-    const botMatch = activePath.match(/^\/bot\/[^/]+\/(\w+)/)
-    if (botMatch) {
-      const sectionIcon = NAV_SECTIONS.find(s => s.id === botMatch[1])?.icon
-      if (sectionIcon) return html`<div class="page-bg-icon"><i data-lucide="${sectionIcon}"></i></div>`
-    }
-    // Top-level pages
-    const topIcon = PAGE_ICONS[activePath]
-    return topIcon ? html`<div class="page-bg-icon"><i data-lucide="${topIcon}"></i></div>` : ''
-  })()}
-  <main class="mc-main">
-    ${content}
-  </main>
-  <footer class="mc-footer">${_t('nav.footer')}</footer>
+  </div>
   <script>lucide.createIcons();</script>
   <script>
     // Re-init icons after htmx swaps
