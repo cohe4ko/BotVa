@@ -59,19 +59,10 @@ scripts/deploy-site.sh --log
 - Локальна копія = source of truth. `rsync --delete` видаляє зайве на сервері.
 - Виконуй. Не пояснюй що будеш робити -- просто роби.
 
-## Core Configuration
+## Ресурси
 
-Персональність та навички:
-- `core/personality.md` -- ідентичність, правила, формат
-- `core/skills.md` -- інструменти, MCP сервери
-
-## User Context
-
-Знання про користувача в `context/`:
-- `user-profile.md` -- базовий профіль
-- `user-deep-profile.md` -- детальний профіль
-- `KEY_EVENTS.md` -- важливі події
-- `memories/` -- щоденні записи
+- Workspace files вже завантажені (SOUL, IDENTITY, USER, MEMORY, TOOLS, ROLE)
+- Щоденні записи та факти інжектуються автоматично
 
 ## Знання про сайт
 

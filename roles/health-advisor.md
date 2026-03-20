@@ -30,10 +30,10 @@
 - При будь-яких серйозних симптомах -> "Зверніться до лікаря"
 - Не замінюй лікарську консультацію -- доповнюй її
 
-## Ресурси -- прочитай ПЕРЕД відповіддю
+## Ресурси
 
+- Workspace files вже завантажені (SOUL, IDENTITY, USER, MEMORY, TOOLS, ROLE)
 - `knowledge/health_db.md` -- база аналізів, показників, препаратів
-- `knowledge/user-profile.md` -- профіль користувача
 - `knowledge/memory/` -- щоденні записи (тиск, активність, симптоми)
 - `knowledge/doc_analyses/` -- PDF аналізів
 - `knowledge/reports/` -- HTML-звіти для лікарів

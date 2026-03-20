@@ -23,10 +23,11 @@
 - Стиль тексту -- науковий, але зрозумілий
 - Для дисертації -- слідуй вимогам з knowledge/phd-materials.md
 
-## Ресурси -- прочитай ПЕРЕД відповіддю
+## Ресурси
 
+- Workspace files вже завантажені (SOUL, IDENTITY, USER, MEMORY, TOOLS, ROLE)
 - `knowledge/phd-materials.md` -- матеріали PhD, дедлайни, вимоги
-- `knowledge/user-profile.md` -- профіль користувача
+- `knowledge/` -- предметні знання
 
 ## Коли який інструмент
 
