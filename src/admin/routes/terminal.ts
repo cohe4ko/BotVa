@@ -97,13 +97,8 @@ app.get('/terminal', (c) => {
       .session-btn.active { background: var(--mc-accent); border-color: var(--mc-accent); color: #fff; opacity: 1 !important; }
     </style>
 
-    <div class="term-title-row" style="margin-bottom:0.25rem">
-      <p style="color:var(--mc-text-secondary);font-size:0.85rem;margin:0">${t('terminal.desc')}</p>
-    </div>
-
     <div class="term-toolbar">
       <h2>${icon('terminal')} ${t('terminal.title')}</h2>
-      ${guideBlock(t('guide.terminal.title'), [t('guide.terminal.1'), t('guide.terminal.2'), t('guide.terminal.3')])}
       <div class="term-sessions">
         ${activeSessions.map((s, i) => html`
           <button class="btn btn-sm btn-outline session-btn${s.alive ? '' : ' dead'}" data-session="${s.id}"

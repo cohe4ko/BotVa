@@ -150,6 +150,8 @@ export function createBackup(options: BackupOptions): BackupInfo {
     }
 
     const archiveSize = statSync(archivePath).size
+    // Cache manifest as sidecar file for fast listing
+    writeFileSync(archivePath + '.manifest.json', JSON.stringify(manifest, null, 2) + '\n')
     return {
       filename: archiveName,
       path: archivePath,
@@ -202,6 +204,8 @@ export function createBackup(options: BackupOptions): BackupInfo {
     }
 
     const archiveSize = statSync(archivePath).size
+    // Cache manifest as sidecar file for fast listing
+    writeFileSync(archivePath + '.manifest.json', JSON.stringify(manifest, null, 2) + '\n')
     return {
       filename: archiveName,
       path: archivePath,
@@ -392,7 +396,16 @@ export function listBackups(dir?: string): BackupInfo[] {
   for (const filename of files) {
     const filePath = resolve(backupsDir, filename)
     try {
-      const manifest = readManifest(filePath)
+      // Read from sidecar cache first (instant), fall back to tar extraction
+      const cachePath = filePath + '.manifest.json'
+      let manifest: BackupManifest
+      if (existsSync(cachePath)) {
+        manifest = JSON.parse(readFileSync(cachePath, 'utf-8'))
+      } else {
+        manifest = readManifest(filePath)
+        // Write cache for next time
+        try { writeFileSync(cachePath, JSON.stringify(manifest, null, 2) + '\n') } catch { /* ignore */ }
+      }
       const stat = statSync(filePath)
       results.push({
         filename,
@@ -416,6 +429,9 @@ export function deleteBackup(filename: string, dir?: string): boolean {
   if (!existsSync(filePath)) return false
 
   unlinkSync(filePath)
+  // Remove sidecar manifest cache
+  const cachePath = filePath + '.manifest.json'
+  try { if (existsSync(cachePath)) unlinkSync(cachePath) } catch { /* ignore */ }
   return true
 }
 
