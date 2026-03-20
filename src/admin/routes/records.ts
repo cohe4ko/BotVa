@@ -445,10 +445,42 @@ app.get('/records/:date', (c) => {
           </div>
 
           ${chunk.audioFile ? html`
-            <div style="margin-bottom:0.5rem">
-              <audio controls preload="none" style="width:100%;max-width:400px;height:32px">
+            <div style="margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+              <audio controls preload="none" style="max-width:400px;height:32px;flex:1;min-width:200px">
                 <source src="/records-audio/${date}/${chunk.audioFile}" type="${chunk.audioFile?.endsWith('.ogg') ? 'audio/ogg' : 'audio/wav'}">
               </audio>
+              <div style="display:flex;align-items:center;gap:0.3rem" id="retrans-${chunk.filename.replace('.json', '')}">
+                <select style="height:28px;padding:0 0.4rem;font-size:0.7rem;border-radius:4px;border:1px solid var(--mc-border);background:var(--mc-bg);color:var(--mc-text);min-width:80px" id="retrans-lang-${chunk.filename.replace('.json', '')}">
+                  <option value="auto">🌐 Auto</option>
+                  <option value="uk">🇺🇦 UK</option>
+                  <option value="ru">🇷🇺 RU</option>
+                  <option value="en">🇬🇧 EN</option>
+                  <option value="de">🇩🇪 DE</option>
+                  <option value="fr">🇫🇷 FR</option>
+                  <option value="es">🇪🇸 ES</option>
+                  <option value="it">🇮🇹 IT</option>
+                  <option value="pt">🇵🇹 PT</option>
+                  <option value="pl">🇵🇱 PL</option>
+                  <option value="nl">🇳🇱 NL</option>
+                  <option value="ja">🇯🇵 JA</option>
+                  <option value="ko">🇰🇷 KO</option>
+                  <option value="zh">🇨🇳 ZH</option>
+                  <option value="ar">🇸🇦 AR</option>
+                  <option value="hi">🇮🇳 HI</option>
+                  <option value="tr">🇹🇷 TR</option>
+                  <option value="sv">🇸🇪 SV</option>
+                  <option value="da">🇩🇰 DA</option>
+                  <option value="no">🇳🇴 NO</option>
+                  <option value="fi">🇫🇮 FI</option>
+                  <option value="cs">🇨🇿 CS</option>
+                  <option value="hu">🇭🇺 HU</option>
+                </select>
+                <button
+                  class="btn-sm outline"
+                  style="height:28px;padding:0 0.5rem;font-size:0.7rem;white-space:nowrap"
+                  onclick="retranscribe('${date}', '${chunk.filename}', '${chunk.filename.replace('.json', '')}')"
+                >${icon('refresh-cw', 10)} Re-STT</button>
+              </div>
             </div>
           ` : ''}
 
@@ -469,7 +501,39 @@ app.get('/records/:date', (c) => {
     }
   `
 
-  return c.html(layout(`Records: ${date}`, content, '/records', t, lang))
+  const retranscribeScript = html`
+    <script>
+    async function retranscribe(date, file, baseId) {
+      const lang = document.getElementById('retrans-lang-' + baseId).value;
+      const container = document.getElementById('retrans-' + baseId);
+      const btn = container.querySelector('button');
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ ...';
+
+      try {
+        const res = await fetch('/records/retranscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date, file, language: lang })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          btn.innerHTML = '✅';
+          setTimeout(() => location.reload(), 800);
+        } else {
+          btn.innerHTML = '❌ ' + (data.error || 'Error');
+          setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+        }
+      } catch (e) {
+        btn.innerHTML = '❌ Failed';
+        setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+      }
+    }
+    </script>
+  `
+
+  return c.html(layout(`Records: ${date}`, html`${content}${retranscribeScript}`, '/records', t, lang))
 })
 
 function renderAnalyzed(analyzed: any) {
@@ -508,6 +572,30 @@ function renderAnalyzed(analyzed: any) {
     </div>
   `
 }
+
+// POST /records/retranscribe -- proxy to receiver's /retranscribe
+app.post('/records/retranscribe', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { date, file, language } = body
+    if (!date || !file) return c.json({ error: 'date and file required' }, 400)
+
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 120_000) // 2 min timeout for transcription
+    const res = await fetch('http://localhost:3847/retranscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, file, language: language || 'auto' }),
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+
+    const data = await res.json() as any
+    return c.json(data, res.status as any)
+  } catch (e) {
+    return c.json({ error: 'Receiver offline or timeout' }, 502)
+  }
+})
 
 // GET /records/transcript/:date/:file -- full transcript JSON API
 app.get('/records/transcript/:date/:file', (c) => {

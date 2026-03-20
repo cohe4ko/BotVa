@@ -146,7 +146,7 @@ async function parseMultipart(req: IncomingMessage): Promise<ParsedUpload> {
 
 // ── Transcription ──────────────────────────────────────────────────
 
-async function transcribeGroq(wavPath: string): Promise<string | null> {
+async function transcribeGroq(wavPath: string, langOverride?: string): Promise<string | null> {
   if (GROQ_API_KEYS.length === 0) {
     console.error("No GROQ API keys configured");
     return null;
@@ -174,8 +174,9 @@ async function transcribeGroq(wavPath: string): Promise<string | null> {
     form.append("file", blob, "audio.wav");
     form.append("model", "whisper-large-v3");
     form.append("response_format", "verbose_json");
-    if (sttLanguage) {
-      form.append("language", sttLanguage);
+    const lang = langOverride || sttLanguage;
+    if (lang) {
+      form.append("language", lang);
     }
 
     try {
@@ -252,9 +253,9 @@ async function transcribeXai(wavPath: string): Promise<string | null> {
   }
 }
 
-async function transcribe(wavPath: string): Promise<string | null> {
+async function transcribe(wavPath: string, langOverride?: string): Promise<string | null> {
   if (STT_PROVIDER === "xai") return transcribeXai(wavPath);
-  return transcribeGroq(wavPath);
+  return transcribeGroq(wavPath, langOverride);
 }
 
 // ── LLM Analysis ───────────────────────────────────────────────────
@@ -604,6 +605,89 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       console.error("Request error:", e);
       res.writeHead(500);
       res.end("Internal error");
+    }
+    return;
+  }
+
+  // Retranscribe an existing audio file with a different language
+  if (req.method === "POST" && req.url === "/retranscribe") {
+    try {
+      const body = await readJsonBody(req);
+      const { date, file, language } = body;
+      if (!date || !file) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "date and file required" }));
+        return;
+      }
+
+      // Find audio file (ogg or wav)
+      const audioDir = join(DATA_DIR, "audio", date);
+      const baseName = file.replace(/\.(json|ogg|wav)$/, "");
+      let audioPath = join(audioDir, `${baseName}.ogg`);
+      let isOgg = true;
+      if (!existsSync(audioPath)) {
+        audioPath = join(audioDir, `${baseName}.wav`);
+        isOgg = false;
+        if (!existsSync(audioPath)) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Audio file not found" }));
+          return;
+        }
+      }
+
+      // If OGG, convert back to WAV temporarily for Groq
+      let wavPath = audioPath;
+      const tmpWav = join(tmpdir(), `retranscribe-${baseName}.wav`);
+      if (isOgg) {
+        try {
+          execFileSync("ffmpeg", ["-y", "-i", audioPath, "-ar", "16000", "-ac", "1", tmpWav], { timeout: 60_000, stdio: "pipe" });
+          wavPath = tmpWav;
+        } catch (e) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Failed to convert OGG to WAV" }));
+          return;
+        }
+      }
+
+      const lang = language === "auto" ? "" : (language || "");
+      console.log(`[${timestamp()}] Retranscribing ${baseName} with language: ${lang || "auto"}`);
+      const text = await transcribe(wavPath, lang);
+
+      // Clean up temp file
+      if (isOgg && existsSync(tmpWav)) {
+        try { unlinkSync(tmpWav); } catch {}
+      }
+
+      if (!text) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, text: "", message: "Empty transcription" }));
+        return;
+      }
+
+      // Update transcript file
+      const transcriptDir = join(DATA_DIR, "transcripts", date);
+      const transcriptPath = join(transcriptDir, `${baseName}.json`);
+      const existing = existsSync(transcriptPath) ? JSON.parse(readFileSync(transcriptPath, "utf-8")) : {};
+      existing.text = text;
+      existing.provider = `${STT_PROVIDER}${lang ? ` (${lang})` : ""}`;
+      writeFileSync(transcriptPath, JSON.stringify(existing, null, 2));
+
+      // Re-analyze
+      const analysis = await analyzeTranscript(text);
+      const analyzedDir = join(DATA_DIR, "analyzed", date);
+      ensureDir(analyzedDir);
+      writeFileSync(
+        join(analyzedDir, `${baseName}.json`),
+        JSON.stringify({ ...existing, ...analysis }, null, 2)
+      );
+
+      console.log(`[${timestamp()}] Retranscribed: ${text.length} chars`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, text, language: lang || "auto" }));
+    } catch (e) {
+      console.error("Retranscribe error:", e);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal error" }));
     }
     return;
   }
