@@ -117,9 +117,16 @@ const MCP_ICONS: Record<string, string> = {
   'miro': '🎨',
 }
 
+/** Strip mcp__server__ prefix → short display name */
+function shortToolName(name: string): string {
+  const m = name.match(/^mcp__[^_]+__(.+)$/)
+  return m ? m[1] : name
+}
+
 function toolIcon(name: string): string {
-  if (TOOL_ICONS[name]) return TOOL_ICONS[name]
-  const mcpPrefix = Object.keys(MCP_ICONS).find(p => name.startsWith(p + '_'))
+  const short = shortToolName(name)
+  if (TOOL_ICONS[short]) return TOOL_ICONS[short]
+  const mcpPrefix = Object.keys(MCP_ICONS).find(p => name.includes(p))
   return mcpPrefix ? MCP_ICONS[mcpPrefix] : '🔧'
 }
 
@@ -128,7 +135,8 @@ const TOOL_ICON_RE = /^(<code>)?(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖�
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   const i = input
-  switch (name) {
+  const short = shortToolName(name)
+  switch (short) {
     case 'Read':
       return shortPath(String(i.file_path ?? ''))
     case 'Write':
@@ -356,14 +364,15 @@ export class ProgressReporter {
               'spacedome': 'progress.cute.spacedome', 'freecad': 'progress.cute.freecad',
               'miro': 'progress.cute.miro',
             }
-            let cute = cuteToolKeys[name] ? this.t(cuteToolKeys[name]) : undefined
+            const sn = shortToolName(name)
+            let cute = cuteToolKeys[sn] ? this.t(cuteToolKeys[sn]) : undefined
             if (!cute) {
-              const mcpPrefix = Object.keys(cuteMcpKeys).find(p => name.startsWith(p + '_'))
+              const mcpPrefix = Object.keys(cuteMcpKeys).find(p => name.includes(p))
               cute = mcpPrefix ? this.t(cuteMcpKeys[mcpPrefix]) : this.t('progress.cute.default')
             }
             this.addLine(`<code>${indent}${cute}${detailStr}</code>`)
           } else {
-            this.addLine(`<code>${indent}${toolIcon(name)} ${escapeHtml(name)}${detailStr}</code>`)
+            this.addLine(`<code>${indent}${toolIcon(name)} ${escapeHtml(shortToolName(name))}${detailStr}</code>`)
           }
           hadContent = true
         } else if (block.type === 'text' && block.text) {
