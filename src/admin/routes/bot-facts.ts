@@ -338,7 +338,7 @@ app.post('/bot/:name/facts/rebuild', validateBot, async (c) => {
 
   const botDir = getBotDir(name)
   const files: { name: string; content: string }[] = []
-  for (const dir of ['context', 'knowledge']) {
+  for (const dir of ['knowledge']) {
     const fullDir = join(botDir, dir)
     if (!existsSync(fullDir)) continue
     collectFiles(fullDir, files, fullDir)

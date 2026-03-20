@@ -3,10 +3,7 @@ import { join } from 'path'
 import { BOT_DIR, BOT_NAME, NIGHT_OWL_HOUR, USER_PREVIEW_LEN, ASSISTANT_PREVIEW_LEN, MIN_MSG_LEN_TO_SAVE, MIN_ASSISTANT_LEN_TO_SAVE, MAX_ASSISTANT_MEMORY_LEN } from './config.js'
 import { logger } from './logger.js'
 
-// Support both 'context' (new) and 'knowledge' (legacy) folder names
-const MEMORIES_DIR = existsSync(join(BOT_DIR, 'context', 'memories'))
-  ? join(BOT_DIR, 'context', 'memories')
-  : join(BOT_DIR, 'knowledge', 'memories')
+const MEMORIES_DIR = join(BOT_DIR, 'knowledge', 'memories')
 const DAILY_CONTEXT_LIMIT = 2000
 
 /**

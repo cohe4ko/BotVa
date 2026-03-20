@@ -7,10 +7,9 @@ import { logger } from './logger.js'
 import { memoryDate } from './memory.js'
 import { enqueue, dequeue, markDone, markFailed } from './consolidation-queue.js'
 
-// Support both 'context' (new) and 'knowledge' (legacy) folder names
-const CONTEXT_DIR = existsSync(join(BOT_DIR, 'context')) ? 'context' : 'knowledge'
-const MEMORIES_DIR = join(BOT_DIR, CONTEXT_DIR, 'memories')
-const KEY_EVENTS_PATH = join(BOT_DIR, CONTEXT_DIR, 'KEY_EVENTS.md')
+const KNOWLEDGE_DIR = 'knowledge'
+const MEMORIES_DIR = join(BOT_DIR, KNOWLEDGE_DIR, 'memories')
+const KEY_EVENTS_PATH = join(BOT_DIR, KNOWLEDGE_DIR, 'KEY_EVENTS.md')
 const MIN_SIZE_FOR_CONSOLIDATION = 500
 const MAX_QUEUE_ITEMS_PER_RUN = 7
 
@@ -130,7 +129,7 @@ async function consolidateDay(targetDate: string): Promise<void> {
     ? `### 2. Консолідуй щоденник
 - Видали дублікати, шум, незначні деталі
 - Залиш: ключові рішення, задачі, факти, уподобання, емоції, ідеї
-- Перезапиши файл ${CONTEXT_DIR}/memories/${targetDate}.md
+- Перезапиши файл ${KNOWLEDGE_DIR}/memories/${targetDate}.md
 - Заголовок: # ${targetDate} — Консолідовано`
     : `### 2. Щоденник короткий — НЕ переписуй файл, але виконай крок 3.`
 
@@ -139,7 +138,7 @@ async function consolidateDay(targetDate: string): Promise<void> {
 ## Завдання на ${targetDate}
 
 ### 1. Прочитай щоденник
-Файл: ${CONTEXT_DIR}/memories/${targetDate}.md
+Файл: ${KNOWLEDGE_DIR}/memories/${targetDate}.md
 
 ${consolidateStep}
 
@@ -167,7 +166,7 @@ d) Якщо факт вже є але ЗМІНИВСЯ -- DeleteFact(old) + Save
 - Загальновідоме: ціни API, фічі продуктів, що гуглиться за 5 сек
 - Шляхи до файлів (можна знайти через ls)
 - Новини дня, військові зведення
-- Що вже є в CLAUDE.md або context/ файлах
+- Що вже є в CLAUDE.md або knowledge/ файлах
 
 Очікуваний результат: 0-3 нових факти на день. Якщо більше 5 -- ти зберігаєш забагато.
 
@@ -184,7 +183,7 @@ d) Якщо факт вже є але ЗМІНИВСЯ -- DeleteFact(old) + Save
  * Weekly consolidation: summarize the week + save weekly patterns as facts.
  */
 async function consolidateWeek(weekStartDate: string): Promise<void> {
-  const weeklyDir = join(BOT_DIR, CONTEXT_DIR, 'memories', 'weekly')
+  const weeklyDir = join(BOT_DIR, KNOWLEDGE_DIR, 'memories', 'weekly')
   mkdirSync(weeklyDir, { recursive: true })
 
   // Collect 7 daily files (Mon-Sun)
@@ -197,7 +196,7 @@ async function consolidateWeek(weekStartDate: string): Promise<void> {
     const date = formatDate(d)
     const filePath = join(MEMORIES_DIR, `${date}.md`)
     if (existsSync(filePath)) {
-      files.push(`${CONTEXT_DIR}/memories/${date}.md`)
+      files.push(`${KNOWLEDGE_DIR}/memories/${date}.md`)
     }
     d.setDate(d.getDate() + 1)
   }
@@ -219,7 +218,7 @@ async function consolidateWeek(weekStartDate: string): Promise<void> {
 ${files.map(f => `- ${f}`).join('\n')}
 
 ### 2. Створи тижневий підсумок
-Збережи у ${CONTEXT_DIR}/memories/weekly/${weekId}.md
+Збережи у ${KNOWLEDGE_DIR}/memories/weekly/${weekId}.md
 
 Структура:
 # Тиждень ${weekId} (${weekStartDate} — ${weekEndStr})
@@ -263,7 +262,7 @@ async function migrateKeyEvents(): Promise<void> {
 
   const prompt = `Ти — система міграції пам'яті ${BOT_NAME}.
 
-Прочитай файл ${CONTEXT_DIR}/KEY_EVENTS.md.
+Прочитай файл ${KNOWLEDGE_DIR}/KEY_EVENTS.md.
 
 Для КОЖНОГО запису:
 1. SearchMemory по 2-3 різних запитах щоб перевірити чи факт вже є

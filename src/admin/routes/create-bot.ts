@@ -178,11 +178,9 @@ app.post('/create-bot', async (c) => {
   .env              -- Telegram token, API keys
   CLAUDE.md         -- Bot personality and instructions${role ? ` (role: ${role})` : ''}
   core/             -- Bot personality and skills (transferable)
-  context/          -- User knowledge (can be cleared to reset)
-    KEY_EVENTS.md   -- Event index
+  knowledge/        -- Domain knowledge, diary, user context
     memories/       -- Daily diary files
-  knowledge/        -- Domain knowledge
-    memory/         -- Knowledge memory logs
+    KEY_EVENTS.md   -- Event index
   store/
     botva.db   -- SQLite database (initialized)</pre>
       <div class="btn-group">

@@ -26,11 +26,8 @@ function listFiles(dir: string, base: string) {
 function getKnowledgeDirs(name: string): string[] {
   const botDir = getBotDir(name)
   const dirs: string[] = []
-  for (const folder of ['context', 'knowledge']) {
-    const d = resolve(botDir, folder)
-    if (existsSync(d)) dirs.push(folder)
-  }
-  // fallback: at least show knowledge even if empty
+  const d = resolve(botDir, 'knowledge')
+  if (existsSync(d)) dirs.push('knowledge')
   if (dirs.length === 0) dirs.push('knowledge')
   return dirs
 }

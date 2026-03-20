@@ -324,8 +324,7 @@ export function createBot(params: CreateBotParams): CreateBotResult {
   // Create directory structure
   mkdirSync(resolve(botDir, 'store'), { recursive: true })
   mkdirSync(resolve(botDir, 'core'), { recursive: true })
-  mkdirSync(resolve(botDir, 'context', 'memories'), { recursive: true })
-  mkdirSync(resolve(botDir, 'knowledge', 'memory'), { recursive: true })
+  mkdirSync(resolve(botDir, 'knowledge', 'memories'), { recursive: true })
 
   // Write .env
   writeFileSync(resolve(botDir, '.env'), ENV_TEMPLATE(token, chatId, groqKey, googleKey))
