@@ -123,8 +123,8 @@ function toolIcon(name: string): string {
   return mcpPrefix ? MCP_ICONS[mcpPrefix] : '🔧'
 }
 
-// Regex matching any tool icon (for replacement in progress/result), works inside <blockquote>
-const TOOL_ICON_RE = /^(<blockquote>)?(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐🎨][\uFE0F]?/
+// Regex matching any tool icon (for replacement in progress/result), works inside <code>
+const TOOL_ICON_RE = /^(<code>)?(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐🎨][\uFE0F]?/
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   const i = input
@@ -336,7 +336,7 @@ export class ProgressReporter {
           this.toolLines.set(block.id, idx)
           this.toolNames.set(block.id, name)
           if (name === 'Agent') this.subagentTools.add(block.id)
-          const detailStr = detail ? ` <code>${escapeHtml(detail)}</code>` : ''
+          const detailStr = detail ? ` ${escapeHtml(detail)}` : ''
           if (this.cuteMode) {
             const cuteToolKeys: Record<string, string> = {
               Read: 'progress.cute.read', Write: 'progress.cute.write', Edit: 'progress.cute.edit',
@@ -361,9 +361,9 @@ export class ProgressReporter {
               const mcpPrefix = Object.keys(cuteMcpKeys).find(p => name.startsWith(p + '_'))
               cute = mcpPrefix ? this.t(cuteMcpKeys[mcpPrefix]) : this.t('progress.cute.default')
             }
-            this.addLine(`<blockquote>${indent}${cute}${detailStr}</blockquote>`)
+            this.addLine(`<code>${indent}${cute}${detailStr}</code>`)
           } else {
-            this.addLine(`<blockquote>${indent}${toolIcon(name)} <b>${escapeHtml(name)}</b>${detailStr}</blockquote>`)
+            this.addLine(`<code>${indent}${toolIcon(name)} ${escapeHtml(name)}${detailStr}</code>`)
           }
           hadContent = true
         } else if (block.type === 'text' && block.text) {
@@ -422,9 +422,9 @@ export class ProgressReporter {
       const idx = this.toolLines.get(event.tool_use_id)
       if (idx !== undefined && idx < this.lines.length) {
         const original = this.lines[idx]
-        // Strip trailing </blockquote>, previous time, then re-add
-        const stripped = original.replace(/<\/blockquote>$/, '').replace(/\s*\(\d+s\)$/, '')
-        this.lines[idx] = stripped.replace(TOOL_ICON_RE, '$1$2⏳') + ` (${elapsed}s)</blockquote>`
+        // Strip trailing </code>, previous time, then re-add
+        const stripped = original.replace(/<\/code>$/, '').replace(/\s*\(\d+s\)$/, '')
+        this.lines[idx] = stripped.replace(TOOL_ICON_RE, '$1$2⏳') + ` (${elapsed}s)</code>`
       }
       return true
     }
@@ -435,8 +435,8 @@ export class ProgressReporter {
         const idx = this.toolLines.get(event.parent_tool_use_id)
         const toolName = this.toolNames.get(event.parent_tool_use_id)
         if (idx !== undefined && idx < this.lines.length) {
-          // Strip </blockquote> before modifications, re-add after
-          let line = this.lines[idx].replace(/<\/blockquote>$/, '')
+          // Strip </code> before modifications, re-add after
+          let line = this.lines[idx].replace(/<\/code>$/, '')
           line = line
             .replace(TOOL_ICON_RE, '$1$2✅')
             .replace(/\s*\(\d+s\)$/g, '')
@@ -445,11 +445,11 @@ export class ProgressReporter {
             const preview = resultPreview(event.tool_use_result)
             if (preview) {
               const shortPreview = preview.length > 60 ? preview.slice(0, 57) + '...' : preview
-              line += ` → <i>${escapeHtml(shortPreview)}</i>`
+              line += ` → ${escapeHtml(shortPreview)}`
               this.toolResults.set(event.parent_tool_use_id, preview)
             }
           }
-          this.lines[idx] = line + '</blockquote>'
+          this.lines[idx] = line + '</code>'
         }
       }
       return true
