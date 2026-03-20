@@ -203,9 +203,27 @@ export function initDatabase(): void {
     }
   } catch { /* already migrated or fresh db */ }
 
+  // Migration: add importance, usefulness, access_count columns (savant memory)
+  try { d.exec('ALTER TABLE facts ADD COLUMN importance REAL NOT NULL DEFAULT 0.5') } catch { /* already exists */ }
+  try { d.exec('ALTER TABLE facts ADD COLUMN usefulness REAL NOT NULL DEFAULT 0.0') } catch { /* already exists */ }
+  try { d.exec('ALTER TABLE facts ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
+
   d.exec(`
     CREATE INDEX IF NOT EXISTS idx_facts_chat_topic ON facts(chat_id, topic)
   `)
+
+  // Fact-to-fact associative links (savant memory graph)
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS fact_links (
+      fact_id_1 INTEGER NOT NULL,
+      fact_id_2 INTEGER NOT NULL,
+      strength REAL NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (fact_id_1, fact_id_2)
+    )
+  `)
+  d.exec('CREATE INDEX IF NOT EXISTS idx_fact_links_1 ON fact_links(fact_id_1)')
+  d.exec('CREATE INDEX IF NOT EXISTS idx_fact_links_2 ON fact_links(fact_id_2)')
 
   d.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
@@ -464,6 +482,9 @@ export interface Fact {
   tags: string
   source: string
   sector: FactSector
+  importance: number
+  usefulness: number
+  access_count: number
   created_at: number
   updated_at: number
 }
@@ -473,13 +494,14 @@ export interface FactInput {
   topic: string
   tags: string
   sector: FactSector
+  importance?: number
 }
 
-export function insertFact(chatId: string, content: string, topic: string, sector: FactSector, tags = '', source = 'conversation'): number {
+export function insertFact(chatId: string, content: string, topic: string, sector: FactSector, tags = '', source = 'conversation', importance = 0.5): number {
   const now = Math.floor(Date.now() / 1000)
   const result = getDb().prepare(
-    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(chatId, topic, content, tags, source, sector, now, now)
+    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, importance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(chatId, topic, content, tags, source, sector, importance, now, now)
   return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
 }
 
@@ -487,13 +509,13 @@ export function insertFactsBatch(chatId: string, facts: FactInput[], source = 'c
   const now = Math.floor(Date.now() / 1000)
   const d = getDb()
   const stmt = d.prepare(
-    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, importance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   )
   const ids: number[] = []
   d.exec('BEGIN')
   try {
     for (const f of facts) {
-      const result = stmt.run(chatId, f.topic, f.content, f.tags, source, f.sector, now, now)
+      const result = stmt.run(chatId, f.topic, f.content, f.tags, source, f.sector, f.importance ?? 0.5, now, now)
       ids.push(Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid))
     }
     d.exec('COMMIT')
@@ -592,6 +614,52 @@ export function getFactsBySector(chatId: string, sector: FactSector, limit = 100
   return getDb().prepare(
     'SELECT * FROM facts WHERE chat_id = ? AND sector = ? ORDER BY updated_at DESC LIMIT ?'
   ).all(chatId, sector, limit) as unknown as Fact[]
+}
+
+// --- Fact importance & usefulness (savant memory) ---
+
+export function boostFactUsefulness(id: number, chatId: string): boolean {
+  const result = getDb().prepare(
+    "UPDATE facts SET usefulness = usefulness + 0.2, access_count = access_count + 1 WHERE id = ? AND chat_id IN (?, 'admin')"
+  ).run(id, chatId)
+  return (result as unknown as { changes: number }).changes > 0
+}
+
+export function touchFactAccess(ids: number[]): void {
+  if (ids.length === 0) return
+  const placeholders = ids.map(() => '?').join(',')
+  getDb().prepare(
+    `UPDATE facts SET access_count = access_count + 1 WHERE id IN (${placeholders})`
+  ).run(...ids)
+}
+
+// --- Fact-to-fact links (associative graph) ---
+
+export function insertFactLink(id1: number, id2: number, strength: number): void {
+  const now = Math.floor(Date.now() / 1000)
+  // Store both directions for efficient lookup
+  const d = getDb()
+  d.prepare(
+    'INSERT OR REPLACE INTO fact_links (fact_id_1, fact_id_2, strength, created_at) VALUES (?, ?, ?, ?)'
+  ).run(id1, id2, strength, now)
+  d.prepare(
+    'INSERT OR REPLACE INTO fact_links (fact_id_1, fact_id_2, strength, created_at) VALUES (?, ?, ?, ?)'
+  ).run(id2, id1, strength, now)
+}
+
+export function getLinkedFacts(factId: number, chatId: string, limit = 5): (Fact & { linkStrength: number })[] {
+  return getDb().prepare(`
+    SELECT f.*, fl.strength AS linkStrength
+    FROM fact_links fl
+    JOIN facts f ON f.id = fl.fact_id_2
+    WHERE fl.fact_id_1 = ? AND f.chat_id IN (?, 'admin')
+    ORDER BY fl.strength DESC
+    LIMIT ?
+  `).all(factId, chatId, limit) as unknown as (Fact & { linkStrength: number })[]
+}
+
+export function getFactById(id: number): Fact | undefined {
+  return getDb().prepare('SELECT * FROM facts WHERE id = ?').get(id) as unknown as Fact | undefined
 }
 
 // --- Fact embeddings (vector search) ---

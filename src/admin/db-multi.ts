@@ -282,6 +282,9 @@ export interface FactRow {
   tags: string
   source: string
   sector: 'semantic' | 'episodic' | 'preference'
+  importance: number
+  usefulness: number
+  access_count: number
   created_at: number
   updated_at: number
 }

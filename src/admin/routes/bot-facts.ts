@@ -49,6 +49,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
   // Semantic recall mode
   let recallResults: { fact: FactRow; score: number }[] | null = null
   let recallError = ''
+  let injectionPreview = ''
 
   if (mode === 'recall' && q) {
     try {
@@ -84,6 +85,14 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
     } catch (err) {
       recallError = err instanceof Error ? err.message : String(err)
     }
+
+    // Generate injection preview
+    try {
+      const { buildMemoryContext } = await import('../../memory.js')
+      const { ALLOWED_CHAT_ID } = await import('../../config.js')
+      const chatId = ALLOWED_CHAT_ID || '0'
+      injectionPreview = await buildMemoryContext(chatId, q)
+    } catch { /* ignore */ }
   }
 
   let total = 0
@@ -153,6 +162,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
               <th style="width:80px">${t('facts.topic')}</th>
               <th>${t('facts.content')}</th>
               <th style="width:50px" class="hide-mobile">Score</th>
+              <th style="width:40px" class="hide-mobile">⚡</th>
               <th style="width:40px"></th>
             </tr></thead>
             <tbody>
@@ -160,6 +170,8 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
                 const sectorIcon = f.sector === 'preference' ? 'star' : f.sector === 'semantic' ? 'bookmark' : 'calendar'
                 const sectorTitle = f.sector === 'preference' ? 'preference' : f.sector === 'semantic' ? 'fact' : 'event'
                 const tags = f.tags ? f.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
+                const imp = f.importance ?? 0.5
+                const impColor = imp >= 0.7 ? '#22c55e' : imp >= 0.4 ? '#eab308' : '#9ca3af'
                 return html`
                 <tr id="fact-${f.id}">
                   <td class="hide-mobile" title="${sectorTitle}">${icon(sectorIcon, 14)}</td>
@@ -173,6 +185,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
                     ` : ''}
                   </td>
                   <td class="hide-mobile"><small style="color:var(--mc-text-dim)">${(score * 100).toFixed(0)}%</small></td>
+                  <td class="hide-mobile"><small style="color:${impColor}" title="importance: ${imp.toFixed(1)}, usefulness: ${(f.usefulness ?? 0).toFixed(1)}">${imp.toFixed(1)}${(f.usefulness ?? 0) > 0 ? html` <span style="color:#3b82f6">+${(f.usefulness ?? 0).toFixed(1)}</span>` : ''}</small></td>
                   <td>
                     <button hx-post="/bot/${name}/facts/${f.id}/delete" hx-target="#fact-${f.id}" hx-swap="outerHTML"
                       hx-confirm="${t('facts.deleteConfirm')}" class="danger btn-sm">${icon('trash-2', 12)}</button>
@@ -183,6 +196,14 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
           </table>
         </div>
       `) : ''}
+    ${injectionPreview ? html`
+      <details style="margin:1rem 0">
+        <summary style="cursor:pointer;font-size:0.8rem;color:var(--mc-text-dim)">
+          ${icon('eye', 13)} Context Injection Preview
+        </summary>
+        <pre style="margin-top:0.5rem;padding:0.75rem;background:var(--mc-surface);border:1px solid var(--mc-border);border-radius:6px;font-size:0.7rem;white-space:pre-wrap;overflow-x:auto;max-height:400px;overflow-y:auto">${injectionPreview}</pre>
+      </details>
+    ` : ''}
     ${recallResults === null ? (facts.length === 0
       ? html`<div class="empty-state"><div class="empty-icon">${icon('database', 32)}</div><p>${t('facts.noFacts')}</p></div>`
       : html`
@@ -193,6 +214,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
               <th style="width:80px">${t('facts.topic')}</th>
               <th>${t('facts.content')}</th>
               <th style="width:80px" class="hide-mobile">${t('facts.date')}</th>
+              <th style="width:40px" class="hide-mobile">⚡</th>
               <th style="width:40px"></th>
             </tr></thead>
             <tbody>
@@ -201,6 +223,8 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
                 const sectorTitle = f.sector === 'preference' ? 'preference' : f.sector === 'semantic' ? 'fact' : 'event'
                 const dateStr = new Date(f.created_at * 1000).toISOString().slice(0, 10)
                 const tags = f.tags ? f.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []
+                const imp = f.importance ?? 0.5
+                const impColor = imp >= 0.7 ? '#22c55e' : imp >= 0.4 ? '#eab308' : '#9ca3af'
                 return html`
                 <tr id="fact-${f.id}">
                   <td class="hide-mobile" title="${sectorTitle}">${icon(sectorIcon, 14)}</td>
@@ -227,6 +251,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
                     </form>
                   </td>
                   <td class="hide-mobile"><small style="color:var(--mc-text-dim)">${dateStr}</small>${f.source && f.source !== 'conversation' ? html`<br><small style="font-size:0.55rem;color:var(--mc-text-dim)" title="${f.source}">${truncate(f.source, 15)}</small>` : ''}</td>
+                  <td class="hide-mobile">${imp !== 0.5 ? html`<small style="color:${impColor}" title="importance: ${imp.toFixed(1)}, usefulness: ${(f.usefulness ?? 0).toFixed(1)}, accessed: ${f.access_count ?? 0}x">${imp.toFixed(1)}${(f.usefulness ?? 0) > 0 ? html` <span style="color:#3b82f6">+${(f.usefulness ?? 0).toFixed(1)}</span>` : ''}</small>` : ''}</td>
                   <td>
                     <button hx-post="/bot/${name}/facts/${f.id}/delete" hx-target="#fact-${f.id}" hx-swap="outerHTML"
                       hx-confirm="${t('facts.deleteConfirm')}" class="danger btn-sm">${icon('trash-2', 12)}</button>

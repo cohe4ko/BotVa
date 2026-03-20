@@ -114,10 +114,10 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
     const { searchFactsHybrid } = await import('./vector-search.js')
 
     // Single search, split results by sector
-    const allFacts = await searchFactsHybrid(chatId, userMessage, 15)
-    const preferences = allFacts.filter(f => f.sector === 'preference')
+    const searchResult = await searchFactsHybrid(chatId, userMessage, 15)
+    const preferences = searchResult.facts.filter(f => f.sector === 'preference')
     const regularFacts = wordCount >= 3
-      ? allFacts.filter(f => f.sector !== 'preference').slice(0, 7)
+      ? searchResult.facts.filter(f => f.sector !== 'preference').slice(0, 7)
       : [] // skip regular facts for short messages
 
     // Preferences — separate block with higher priority, injected FIRST
@@ -126,14 +126,27 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
       parts.unshift(`[⚠️ IMPORTANT — User preferences. Follow these instructions.]\n${lines.join('\n')}`)
     }
 
-    // Regular facts — as context
+    // Regular facts — as context with token budget (~1500 chars)
     if (regularFacts.length > 0) {
-      const lines = regularFacts.map(f => {
+      const TOKEN_BUDGET = 1500
+      let budget = TOKEN_BUDGET
+      const lines: string[] = []
+      for (const f of regularFacts) {
         const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
         const sectorLabel = f.sector === 'semantic' ? 'fact' : 'event'
-        return `- #${f.id} [${f.topic}] [${date}] (${sectorLabel}) ${f.content}`
-      })
-      parts.push(`[Potentially relevant facts from memory — auto-search. No need to call SearchMemory for these.]\n${lines.join('\n')}`)
+        const imp = f.importance !== undefined && f.importance !== 0.5 ? ` ⚡${f.importance.toFixed(1)}` : ''
+        const line = `- #${f.id} [${f.topic}] [${date}] (${sectorLabel})${imp} ${f.content}`
+        if (budget - line.length < 0 && lines.length > 0) break
+        lines.push(line)
+        budget -= line.length
+      }
+      let factsBlock = `[Potentially relevant facts from memory — auto-search. No need to call SearchMemory for these.]\n${lines.join('\n')}`
+
+      // Hint: there are more relevant facts available
+      if (searchResult.hasMore) {
+        factsBlock += '\n\n[💡 На цю тему є ще факти в пам\'яті. Використай SearchMemory для детальнішого пошуку.]'
+      }
+      parts.push(factsBlock)
     }
   } catch (err) {
     logger.warn({ err }, 'Proactive facts search failed')
