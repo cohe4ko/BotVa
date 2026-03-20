@@ -153,6 +153,13 @@ while true; do
     break
   fi
 
+  # Intentional restart (exit 42 from /restart command) → restart without crash count
+  if [ $EXIT_CODE -eq 42 ]; then
+    notify "🔄 <b>${BOT}</b> restarting (requested)"
+    sleep $RESTART_DELAY
+    continue
+  fi
+
   # Crash!
   CRASH_COUNT=$((CRASH_COUNT + 1))
   PROBATION=$(is_probation)

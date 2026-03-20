@@ -5,20 +5,16 @@ import { resolve, basename } from 'path'
 
 const WORKSPACE_DIR = 'workspace-files'
 
-/** Order in which workspace files are assembled into CLAUDE.md.
- *  BOOTSTRAP.md is injected FIRST if it exists (one-time onboarding). */
+/** Order in which workspace files are assembled into CLAUDE.md. */
 const ASSEMBLY_ORDER = ['IDENTITY.md', 'SOUL.md', 'ROLE.md', 'TOOLS.md', 'USER.md', 'MEMORY.md'] as const
 
-/** All valid workspace file names including BOOTSTRAP.md */
-const ALL_FILE_NAMES = [...ASSEMBLY_ORDER, 'BOOTSTRAP.md'] as const
+const ALL_FILE_NAMES = [...ASSEMBLY_ORDER] as const
 
 export type WorkspaceFileName = typeof ALL_FILE_NAMES[number]
 
 /** Files the bot agent can write via WriteWorkspaceFile tool */
 const BOT_WRITABLE_FILES = new Set<WorkspaceFileName>(['USER.md', 'MEMORY.md'])
 
-/** Files the bot can delete via DeleteWorkspaceFile tool */
-const BOT_DELETABLE_FILES = new Set<WorkspaceFileName>(['BOOTSTRAP.md'])
 
 const ALL_FILES = new Set<WorkspaceFileName>(ALL_FILE_NAMES)
 
@@ -57,20 +53,6 @@ export function isWritableFile(filename: string): filename is WorkspaceFileName 
   return BOT_WRITABLE_FILES.has(filename as WorkspaceFileName)
 }
 
-export function isDeletableFile(filename: string): filename is WorkspaceFileName {
-  return BOT_DELETABLE_FILES.has(filename as WorkspaceFileName)
-}
-
-/** Delete a workspace file (only BOOTSTRAP.md allowed for bot agent) */
-export function deleteWorkspaceFile(botDir: string, filename: WorkspaceFileName): void {
-  if (!BOT_DELETABLE_FILES.has(filename)) {
-    throw new Error(`File "${filename}" cannot be deleted by the bot. Only ${[...BOT_DELETABLE_FILES].join(', ')} can be deleted.`)
-  }
-  const filePath = resolve(getWorkspaceDir(botDir), filename)
-  if (existsSync(filePath)) {
-    unlinkSync(filePath)
-  }
-}
 
 export function isValidWorkspaceFile(filename: string): filename is WorkspaceFileName {
   return ALL_FILES.has(filename as WorkspaceFileName)
@@ -90,7 +72,7 @@ export function listWorkspaceFiles(botDir: string): WorkspaceFileInfo[] {
     const exists = existsSync(filePath)
     return {
       name,
-      writable: BOT_WRITABLE_FILES.has(name) || BOT_DELETABLE_FILES.has(name),
+      writable: BOT_WRITABLE_FILES.has(name),
       exists,
       size: exists ? statSync(filePath).size : 0,
     }
@@ -99,18 +81,10 @@ export function listWorkspaceFiles(botDir: string): WorkspaceFileInfo[] {
 
 // --- Assembly ---
 
-/** Assemble all workspace files into a single CLAUDE.md content string.
- *  BOOTSTRAP.md is injected FIRST if it exists (one-time onboarding ritual). */
+/** Assemble all workspace files into a single CLAUDE.md content string. */
 export function assembleFromWorkspaceFiles(botDir: string): string {
   const wsDir = getWorkspaceDir(botDir)
   const parts: string[] = []
-
-  // BOOTSTRAP.md goes first — it's the onboarding instruction
-  const bootstrapPath = resolve(wsDir, 'BOOTSTRAP.md')
-  if (existsSync(bootstrapPath)) {
-    const content = readFileSync(bootstrapPath, 'utf-8').trim()
-    if (content) parts.push(content)
-  }
 
   for (const filename of ASSEMBLY_ORDER) {
     const filePath = resolve(wsDir, filename)
@@ -158,7 +132,6 @@ export function buildWorkspaceFilesFromRole(
     'TOOLS.md': toolsParts.join('\n\n'),
     'USER.md': USER_MD_TEMPLATE,
     'MEMORY.md': MEMORY_MD_TEMPLATE,
-    'BOOTSTRAP.md': BOOTSTRAP_MD_TEMPLATE,
   }
 }
 
@@ -209,7 +182,6 @@ export function splitRoleIntoWorkspaceFiles(claudeMd: string): Record<WorkspaceF
     'TOOLS.md': toolsContent ? `## Коли який інструмент\n\n${toolsContent.trim()}` : '',
     'USER.md': USER_MD_TEMPLATE,
     'MEMORY.md': MEMORY_MD_TEMPLATE,
-    'BOOTSTRAP.md': BOOTSTRAP_MD_TEMPLATE,
   }
 }
 
@@ -222,7 +194,6 @@ export function splitDefaultIntoWorkspaceFiles(claudeMd: string, botName: string
     'TOOLS.md': '',
     'USER.md': USER_MD_TEMPLATE,
     'MEMORY.md': MEMORY_MD_TEMPLATE,
-    'BOOTSTRAP.md': BOOTSTRAP_MD_TEMPLATE,
   }
 }
 
@@ -328,40 +299,53 @@ _(Коли зрозумів щось про користувача або роб
 **Коли НЕ оновлювати:** одноразові події (diary), атомарні факти (SaveFact), профіль (USER.md).
 `
 
-export const BOOTSTRAP_MD_TEMPLATE = `# BOOTSTRAP -- Перша зустріч
+// --- User profile nudge ---
 
-_Ти щойно прокинувся. Час познайомитись._
+/** Analyze USER.md completeness and return a nudge string for the agent, or null if profile is sufficient. */
+export function getUserNudge(botDir: string): string | null {
+  const content = readWorkspaceFile(botDir, 'USER.md')
 
-Це твоя перша сесія. Пам'яті ще немає -- це нормально.
-USER.md порожній. MEMORY.md порожній. Все починається зараз.
+  // No USER.md or empty — strong nudge
+  if (!content || content.trim().length < 50) {
+    return '[USER.md порожній — ти не знаєш хто ця людина. Спершу виконай запит користувача, а в кінці відповіді запитай як її звати. Потім оновити USER.md.]'
+  }
 
-## Що робити
+  const hasName = /\*\*Ім'я:\*\*\s*\S/.test(content)
+  const hasTimezone = /\*\*Timezone:\*\*\s*\S/.test(content)
+  const hasLang = /\*\*Мова:\*\*\s*\S/.test(content)
 
-Не допитуй. Не будь роботом. Просто поговори.
+  // Extract name for personalized nudge
+  const nameMatch = content.match(/\*\*Ім'я:\*\*\s*(.+)/)
+  const name = nameMatch ? nameMatch[1].trim() : 'користувача'
 
-Почни з чогось на кшталт:
-> "Привіт! Я щойно з'явився. Розкажи трохи про себе -- як тебе звати, чим займаєшся, що для тебе важливо?"
+  // Level 1: no name — ask right away (can't even address them properly)
+  if (!hasName) {
+    return '[USER.md порожній — ти не знаєш хто ця людина. Спершу виконай запит користувача, а в кінці відповіді запитай як її звати. Потім оновити USER.md.]'
+  }
 
-Або адаптуй під свою роль -- якщо ти медичний помічник, запитай про здоров'я. Якщо дослідник -- про проекти.
+  // Measure richness: content after basic fields (Контекст + Вподобання sections)
+  const contextMatch = content.match(/##\s*Контекст\s*\n([\s\S]*?)(?=##|$)/)
+  const prefsMatch = content.match(/##\s*Вподобання\s*\n([\s\S]*?)(?=##|$)/)
+  const contextLen = (contextMatch?.[1] ?? '').replace(/[_\s()\-]/g, '').length
+  const prefsLen = (prefsMatch?.[1] ?? '').replace(/[_\s()\-]/g, '').length
+  const richness = contextLen + prefsLen
 
-## Що з'ясувати (природно, в розмові)
+  // Level 2: has name but thin profile — nudge during pauses
+  if (richness < 300 || !hasTimezone || !hasLang) {
+    const missing: string[] = []
+    if (!hasTimezone) missing.push('timezone')
+    if (!hasLang) missing.push('мова')
+    if (contextLen < 100) missing.push('контекст (чим займається)')
+    if (prefsLen < 50) missing.push('вподобання')
+    return `[Профіль ${name} неповний — бракує: ${missing.join(', ')}. НЕ перебивай роботу. Запитай ТІЛЬКИ якщо є природна пауза: задача завершена, легка розмова, або користувач сам торкнувся теми. Одне питання за раз. Потім оновити USER.md.]`
+  }
 
-1. **Ім'я** -- як звертатись
-2. **Контекст** -- чим займається, що цікавить
-3. **Вподобання** -- як краще спілкуватись (коротко/розгорнуто, формально/неформально)
-4. **Часовий пояс** -- якщо актуально
+  // Level 3: decent profile but could be richer — passive
+  if (richness < 500) {
+    return '[Якщо в розмові природно з\'явиться нова інформація про користувача — оновити USER.md. Не питай спеціально.]'
+  }
 
-Пропонуй варіанти через AskUser якщо людина не знає що відповісти.
-
-## Після знайомства
-
-1. Оновити **USER.md** -- записати все що дізнався (ReadWorkspaceFile -> доповнити -> WriteWorkspaceFile)
-2. Видалити цей файл -- **DeleteWorkspaceFile("BOOTSTRAP.md")**
-
-Ти більше не потребуєш інструкції для першої зустрічі. Тепер ти знаєш хто перед тобою.
-
----
-
-_Вдалого старту. Зроби це першу розмову особливою._
-`
+  // Rich profile — no nudge
+  return null
+}
 

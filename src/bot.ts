@@ -26,6 +26,7 @@ import { chatT, getChatLang, setChatLang, createBotT, type BotLang, type BotT } 
 import { createBuiltinMcpServer } from './builtin-tools.js'
 import { listDiskSessions, listDiskSessionsByKey, listClaudeProjects, getSessionDetail, type DiskSession, type ClaudeProject } from './disk-sessions.js'
 import { hasSessionTitle } from './session-titles.js'
+import { getUserNudge } from './workspace-files.js'
 import { classifyReaction } from './auto-react.js'
 import { appendFileSync } from 'node:fs'
 import { resolve as pathResolve } from 'node:path'
@@ -846,6 +847,12 @@ async function handleMessage(
       // Nudge LLM to name untitled sessions
       if (sessionId && !hasSessionTitle(sessionId)) {
         fullMessage += '\n\n[Session has no title yet. Call NameSession now with a short 3-5 word title.]'
+      }
+
+      // Nudge LLM to gather user data if USER.md is incomplete
+      const userNudge = getUserNudge(BOT_DIR)
+      if (userNudge) {
+        fullMessage += '\n\n' + userNudge
       }
 
       // Start typing
@@ -1832,7 +1839,7 @@ export function createBot(): Bot {
   bot.command('restart', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     await ctx.reply('🔄 Restarting...')
-    setTimeout(() => process.exit(1), 500)
+    setTimeout(() => process.exit(42), 500)
   })
 
   // /stop — reset group iteration counter

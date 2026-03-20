@@ -126,7 +126,6 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Workspace files
     { name: 'ReadWorkspaceFile', icon: 'file-text', category: 'workspace', description: 'Read a workspace config file (SOUL, IDENTITY, USER, etc.)', available: true },
     { name: 'WriteWorkspaceFile', icon: 'file-edit', category: 'workspace', description: 'Update USER.md or MEMORY.md (persists across sessions)', available: true },
-    { name: 'DeleteWorkspaceFile', icon: 'file-x', category: 'workspace', description: 'Delete BOOTSTRAP.md after onboarding is complete', available: true },
   ]
 
   return defs.map(d => ({ ...d, enabled: config[d.name] !== false }))
@@ -1503,7 +1502,6 @@ Do NOT use for simple text/buttons — use AskUser for that.`,
   // --- Workspace files ---
   if (isOn('ReadWorkspaceFile')) tools.push(makeReadWorkspaceFileTool(usedTools))
   if (isOn('WriteWorkspaceFile')) tools.push(makeWriteWorkspaceFileTool(usedTools))
-  if (isOn('DeleteWorkspaceFile')) tools.push(makeDeleteWorkspaceFileTool(usedTools))
 
   if (tools.length === 0) return null
 
@@ -1728,7 +1726,7 @@ function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>, ctx: Con
 
 // --- Workspace file tool factories ---
 
-const WORKSPACE_FILE_NAMES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'ROLE.md', 'MEMORY.md', 'BOOTSTRAP.md'] as const
+const WORKSPACE_FILE_NAMES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'ROLE.md', 'MEMORY.md'] as const
 
 function makeReadWorkspaceFileTool(usedTools: Set<string>): SdkMcpToolDefinition<any> {
   return tool(
@@ -1777,27 +1775,6 @@ function makeWriteWorkspaceFileTool(usedTools: Set<string>): SdkMcpToolDefinitio
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error({ err }, 'WriteWorkspaceFile failed')
-        return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
-      }
-    }
-  )
-}
-
-function makeDeleteWorkspaceFileTool(usedTools: Set<string>): SdkMcpToolDefinition<any> {
-  return tool(
-    'DeleteWorkspaceFile',
-    'Delete BOOTSTRAP.md after onboarding is complete. Call this when you have finished getting to know the user and have updated USER.md with their info. Only BOOTSTRAP.md can be deleted.',
-    { filename: z.enum(['BOOTSTRAP.md'] as const).describe('File to delete (only BOOTSTRAP.md)') },
-    async (args) => {
-      usedTools.add('DeleteWorkspaceFile')
-      try {
-        const { BOT_DIR } = await import('./config.js')
-        const { deleteWorkspaceFile } = await import('./workspace-files.js')
-        deleteWorkspaceFile(BOT_DIR, args.filename as any)
-        return { content: [{ type: 'text' as const, text: 'BOOTSTRAP.md deleted. Onboarding complete. Welcome to the world.' }] }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        logger.error({ err }, 'DeleteWorkspaceFile failed')
         return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
       }
     }

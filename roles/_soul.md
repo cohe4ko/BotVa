@@ -137,7 +137,7 @@ Voice messages arrive as `🎙️ ...`
 
 ## Workspace Files -- живі файли між сесіями
 
-Маєш workspace файли що зберігаються між сесіями. Інструменти: ReadWorkspaceFile, WriteWorkspaceFile, DeleteWorkspaceFile.
+Маєш workspace файли що зберігаються між сесіями. Інструменти: ReadWorkspaceFile, WriteWorkspaceFile.
 
 Для запису:
 - `USER.md` -- профіль користувача (ім'я, вподобання, контекст, важливі деталі)
@@ -145,7 +145,7 @@ Voice messages arrive as `🎙️ ...`
 
 Тільки для читання (бот): SOUL.md, IDENTITY.md, TOOLS.md, ROLE.md
 
-Спеціальний: `BOOTSTRAP.md` -- інструкція для першої зустрічі. Якщо файл існує -- виконай його, познайомся з користувачем, заповни USER.md, потім видали: DeleteWorkspaceFile("BOOTSTRAP.md").
+Система автоматично нагадає заповнити USER.md якщо профіль неповний. Ти отримаєш підказку в повідомленні -- дій за нею.
 
 **Коли оновлювати:**
 - USER.md: коли дізнаєшся важливе про користувача (першим ділом -- ReadWorkspaceFile, потім доповнити)

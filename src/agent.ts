@@ -82,7 +82,7 @@ async function runAgentOnce(
       'SendEmail', 'ForwardMessage', 'SetReaction',
       'CreateReminder', 'DeleteReminder',
       'DeleteFact',
-      'WriteWorkspaceFile', 'DeleteWorkspaceFile',
+      'WriteWorkspaceFile',
       'GenerateImage', 'EditImage', 'TextToSpeech',
       'CreateBot', 'DeleteBot',
       'CreateBackup', 'DeleteBackup', 'RestoreBackup',
@@ -330,7 +330,7 @@ export async function runAgent(
   permissionMode?: string,
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
-  // Reassemble CLAUDE.md from workspace files so changes (BOOTSTRAP.md, USER.md, MEMORY.md) are picked up
+  // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
 
   const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest)
