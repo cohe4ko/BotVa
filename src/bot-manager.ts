@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { getBotNames, getBotDir, getProjectRoot, type BotName } from './admin/db-multi.js'
 import { getBotStatus, getBotUptime, stopBot } from './admin/bot-control.js'
 import { createBackup } from './backup/engine.js'
-import { hasWorkspaceFiles, assembleFromWorkspaceFiles, splitRoleIntoWorkspaceFiles, splitDefaultIntoWorkspaceFiles, createWorkspaceFiles } from './workspace-files.js'
+import { hasWorkspaceFiles, assembleFromWorkspaceFiles, buildWorkspaceFilesFromRole, splitRoleIntoWorkspaceFiles, splitDefaultIntoWorkspaceFiles, createWorkspaceFiles } from './workspace-files.js'
 
 // --- Roles ---
 
@@ -38,15 +38,32 @@ export function getAvailableRoles(): { slug: string; description: string }[] {
 
 export function buildClaudeMd(role: string, botName: string, emoji: string): string {
   const rolesDir = getRolesDir()
-  const basePath = resolve(rolesDir, '_base.md')
+
+  // New marker-based templates: build directly from workspace files
   const rolePath = resolve(rolesDir, `${role}.md`)
+  const roleContent = readFileSync(rolePath, 'utf-8')
 
-  const base = readFileSync(basePath, 'utf-8')
-  let content = readFileSync(rolePath, 'utf-8')
+  if (roleContent.includes('--- IDENTITY ---')) {
+    // New format: assemble via workspace files
+    const wsFiles = buildWorkspaceFilesFromRole(role, botName, emoji, rolesDir)
+    const parts = [
+      wsFiles['IDENTITY.md'],
+      wsFiles['SOUL.md'],
+      wsFiles['ROLE.md'],
+      wsFiles['TOOLS.md'],
+    ].filter(Boolean)
+    return parts.join('\n\n')
+  }
 
+  // Legacy format: inline _base.md
+  const soul = readFileSync(resolve(rolesDir, '_soul.md'), 'utf-8')
+  const tools = readFileSync(resolve(rolesDir, '_tools.md'), 'utf-8')
+  const base = [soul.trim(), tools.trim()].join('\n\n')
+
+  let content = roleContent
   content = content.replaceAll('{{BOT_NAME}}', botName)
   content = content.replaceAll('{{BOT_EMOJI}}', emoji)
-  content = content.replace('{{включено _base.md}}', base.trim())
+  content = content.replace('{{включено _base.md}}', base)
 
   return content
 }
@@ -342,25 +359,34 @@ export function createBot(params: CreateBotParams): CreateBotResult {
   // Write .env
   writeFileSync(resolve(botDir, '.env'), ENV_TEMPLATE(token, chatId, groqKey, googleKey))
 
-  // Write CLAUDE.md (and role.md for template-based bots)
-  let claudeMd: string
+  // Build workspace files and CLAUDE.md
+  let wsFiles: Record<string, string>
   if (role) {
     const roleMd = buildRoleMd(role, displayName, emoji)
     writeFileSync(resolve(botDir, 'role.md'), roleMd)
-    claudeMd = buildClaudeMd(role, displayName, emoji)
-  } else {
-    claudeMd = DEFAULT_CLAUDE_MD(displayName)
-    if (personality) {
-      claudeMd = claudeMd.replace('You are helpful, direct, and concise.', personality)
-    }
-  }
-  writeFileSync(resolve(botDir, 'CLAUDE.md'), claudeMd)
 
-  // Create workspace files from assembled CLAUDE.md
-  const wsFiles = role
-    ? splitRoleIntoWorkspaceFiles(claudeMd)
-    : splitDefaultIntoWorkspaceFiles(claudeMd, displayName, emoji)
+    // New marker-based templates build workspace files directly
+    const rolePath = resolve(getRolesDir(), `${role}.md`)
+    const roleContent = readFileSync(rolePath, 'utf-8')
+    if (roleContent.includes('--- IDENTITY ---')) {
+      wsFiles = buildWorkspaceFilesFromRole(role, displayName, emoji, getRolesDir())
+    } else {
+      // Legacy: inline _base.md then split
+      const claudeMd = buildClaudeMd(role, displayName, emoji)
+      wsFiles = splitRoleIntoWorkspaceFiles(claudeMd)
+    }
+  } else {
+    const claudeMd = DEFAULT_CLAUDE_MD(displayName)
+    const finalClaudeMd = personality
+      ? claudeMd.replace('You are helpful, direct, and concise.', personality)
+      : claudeMd
+    wsFiles = splitDefaultIntoWorkspaceFiles(finalClaudeMd, displayName, emoji)
+  }
   createWorkspaceFiles(botDir, wsFiles)
+
+  // Derive CLAUDE.md from workspace files
+  const claudeMd = assembleFromWorkspaceFiles(botDir)
+  writeFileSync(resolve(botDir, 'CLAUDE.md'), claudeMd)
 
   // Initialize database
   const dbPath = resolve(botDir, 'store', 'botva.db')

@@ -123,45 +123,73 @@ export function assembleFromWorkspaceFiles(botDir: string): string {
   return parts.join('\n\n')
 }
 
-// --- Splitting role template into workspace files ---
+// --- Building workspace files from role templates ---
 
 /**
- * Split a fully-assembled CLAUDE.md (with _base.md already inlined) into workspace files.
- *
- * Role template structure:
- *   # BotName Emoji
- *   Description line(s)
- *   ## Soul
- *   <_base.md content>
- *   ## Спеціалізація / ## Правила / ## Ресурси / ## Робочі сценарії / ...
- *   ## Коли який інструмент
- *   <tool table>
- *   ## Формат відповідей / ## Взаємодія з командою
+ * Build workspace files directly from role template + base files.
+ * Role templates use --- IDENTITY/ROLE/TOOLS --- markers.
+ * Base files: _soul.md → SOUL.md, _tools.md → merged into TOOLS.md.
+ */
+export function buildWorkspaceFilesFromRole(
+  role: string, botName: string, emoji: string, rolesDir: string
+): Record<WorkspaceFileName, string> {
+  const soul = readFileSync(resolve(rolesDir, '_soul.md'), 'utf-8')
+  const baseTools = readFileSync(resolve(rolesDir, '_tools.md'), 'utf-8')
+
+  let template = readFileSync(resolve(rolesDir, `${role}.md`), 'utf-8')
+  template = template.replaceAll('{{BOT_NAME}}', botName)
+  template = template.replaceAll('{{BOT_EMOJI}}', emoji)
+
+  const sections = parseRoleMarkers(template)
+
+  const toolsParts = [baseTools.trim(), sections.TOOLS.trim()].filter(Boolean)
+
+  return {
+    'IDENTITY.md': sections.IDENTITY.trim(),
+    'SOUL.md': soul.trim(),
+    'ROLE.md': sections.ROLE.trim(),
+    'TOOLS.md': toolsParts.join('\n\n'),
+    'USER.md': USER_MD_TEMPLATE,
+    'MEMORY.md': MEMORY_MD_TEMPLATE,
+    'BOOTSTRAP.md': BOOTSTRAP_MD_TEMPLATE,
+  }
+}
+
+/** Parse role template by --- SECTION --- markers */
+export function parseRoleMarkers(md: string): Record<string, string> {
+  const result: Record<string, string> = { IDENTITY: '', ROLE: '', TOOLS: '' }
+  let currentSection = ''
+  const lines: string[] = []
+
+  for (const line of md.split('\n')) {
+    const match = line.match(/^---\s*(IDENTITY|ROLE|TOOLS)\s*---$/)
+    if (match) {
+      if (currentSection) result[currentSection] = lines.join('\n')
+      currentSection = match[1]
+      lines.length = 0
+    } else {
+      lines.push(line)
+    }
+  }
+  if (currentSection) result[currentSection] = lines.join('\n')
+  return result
+}
+
+// --- Legacy: splitting monolithic CLAUDE.md into workspace files ---
+
+/**
+ * @deprecated Use buildWorkspaceFilesFromRole() for new bots.
+ * Kept for migrating legacy bots that have monolithic CLAUDE.md.
  */
 export function splitRoleIntoWorkspaceFiles(claudeMd: string): Record<WorkspaceFileName, string> {
   const sections = parseMarkdownSections(claudeMd)
 
-  // IDENTITY.md: everything before ## Soul (header + description)
   const identityContent = sections.preamble.trim()
-
-  // SOUL.md: the ## Soul section content (which is the inlined _base.md)
   const soulContent = sections.sections.get('Soul') ?? ''
-
-  // TOOLS.md: the tool selection table
   const toolsContent = sections.sections.get('Коли який інструмент') ?? ''
 
-  // ROLE.md: all remaining role-specific sections
-  const roleSections = [
-    'Спеціалізація',
-    'Правила',
-    'Ресурси -- прочитай ПЕРЕД відповіддю',
-    'Робочі сценарії',
-    'Взаємодія з командою',
-    'Формат відповідей',
-  ]
   const roleParts: string[] = []
   for (const [name, content] of sections.sections) {
-    // Skip Soul and Tools (they go to their own files)
     if (name === 'Soul' || name === 'Коли який інструмент') continue
     roleParts.push(`## ${name}\n\n${content.trim()}`)
   }
@@ -268,29 +296,29 @@ _Чим більше знаєш -- тим краще допомагаєш. Ал�
 
 export const MEMORY_MD_TEMPLATE = `# Курована пам'ять
 
-_Не сирі логи, а дистильована суть. Інсайти, патерни, рішення._
+_Не сирі логи, а дистильована суть. Записуй одразу -- сесія може обірватись._
 
-## Як працює ця пам'ять
+## Важливі правила (уроки з досвіду)
 
-Кожна сесія починається з нуля. Цей файл -- твоя неперервність між сесіями.
+_(Помилки, баги, рішення що спрацювали. "Не робити X -- зламало Y", "Для Z завжди використовувати W".)_
 
-**Що записувати:**
-- Прийняті рішення з наслідками ("Вирішили робити X, тому що Y")
-- Патерни ("Коли користувач питає A, зазвичай має на увазі B")
-- Уроки з помилок ("Не робити X -- минулого разу це зламало Y")
-- Важливий контекст що впливає на майбутні розмови
+## Поточні проекти / контекст
 
-**Що НЕ записувати:**
-- Одноразові події (погода, курс валют, новини дня)
-- Те що можна нагуглити за 5 секунд
-- Implementation details (це є в коді)
-- Дублі того, що вже є в USER.md або SaveFact
+_(Активна робота. Що роблю, на якому етапі, що далі. Оновлюй коли статус змінюється.)_
 
-**Принцип:** записуй тільки те, що буде корисне через 3 місяці.
+## Прийняті рішення
+
+_(Рішення з наслідками та reasoning. "Обрали X замість Y, тому що Z". Не записуй рішення без "тому що".)_
+
+## Патерни
+
+_(Коли зрозумів щось про користувача або роботу. "Коли питає A, зазвичай має на увазі B".)_
 
 ---
 
-_"Ментальні нотатки" не виживають після перезапуску. Файли -- виживають._
+**Коли оновлювати:** помилка з уроком, рішення з "тому що", зрозумів патерн, змінився статус проекту.
+
+**Коли НЕ оновлювати:** одноразові події (diary), атомарні факти (SaveFact), профіль (USER.md).
 `
 
 export const BOOTSTRAP_MD_TEMPLATE = `# BOOTSTRAP -- Перша зустріч

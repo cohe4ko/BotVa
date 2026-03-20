@@ -12,7 +12,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from '
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { deleteBot, removeFromTeamJson, getAvailableRoles, buildClaudeMd, buildRoleMd, assembleClaudeMd } from '../../bot-manager.js'
-import { hasWorkspaceFiles, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, isWritableFile, splitRoleIntoWorkspaceFiles, createWorkspaceFiles, type WorkspaceFileName } from '../../workspace-files.js'
+import { hasWorkspaceFiles, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, isWritableFile, buildWorkspaceFilesFromRole, splitRoleIntoWorkspaceFiles, createWorkspaceFiles, type WorkspaceFileName } from '../../workspace-files.js'
+import { getRolesDir } from '../../bot-manager.js'
 
 function getModelLabels(t: TFunc) {
   return [
@@ -279,8 +280,29 @@ app.post('/bot/:name/config/apply-template', validateBot, async (c) => {
   try {
     const roleMd = buildRoleMd(slug, name, '🤖')
     writeRoleMd(name, roleMd)
+
+    // Check if new marker-based template
+    const rolesDir = getRolesDir()
+    const roleContent = readFileSync(resolve(rolesDir, `${slug}.md`), 'utf-8')
+    const dir = getBotDir(name)
+
+    if (roleContent.includes('--- IDENTITY ---')) {
+      // New format: build workspace files directly, preserve USER.md and MEMORY.md
+      const wsFiles = buildWorkspaceFilesFromRole(slug, name, '🤖', rolesDir)
+
+      // Preserve existing user data
+      const existingUser = readWorkspaceFile(dir, 'USER.md')
+      const existingMemory = readWorkspaceFile(dir, 'MEMORY.md')
+      if (existingUser) wsFiles['USER.md'] = existingUser
+      if (existingMemory) wsFiles['MEMORY.md'] = existingMemory
+
+      createWorkspaceFiles(dir, wsFiles as Record<WorkspaceFileName, string>)
+    }
+
+    // Always regenerate CLAUDE.md
     const claudeMd = buildClaudeMd(slug, name, '🤖')
     writeClaudeMd(name, claudeMd)
+
     return c.html(html`
       ${alert('success', t('config.templateApplied', { slug }))}
       <script>setTimeout(function(){ location.reload(); }, 600);</script>

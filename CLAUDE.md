@@ -51,27 +51,27 @@
 
 ### Як це працює
 
-1. `_base.md` -- спільна основа (soul, правила, інструменти). Включається через `{{включено _base.md}}`
-2. Кожна роль -- повний шаблон з плейсхолдерами `{{BOT_NAME}}`, `{{BOT_EMOJI}}`
-3. При створенні бота: `buildClaudeMd()` в `src/admin/routes/create-bot.ts` інлайнить _base.md і замінює плейсхолдери
-4. Результат -> `bots/<name>/CLAUDE.md` (системний промпт для Claude Agent SDK)
+1. `_soul.md` -- характер, правила, формат, workspace files (-> SOUL.md)
+2. `_tools.md` -- generic tool routing, SaveFact, AskUser (-> TOOLS.md base)
+3. Кожна роль -- шаблон з маркерами `--- IDENTITY/ROLE/TOOLS ---` та плейсхолдерами `{{BOT_NAME}}`, `{{BOT_EMOJI}}`
+4. При створенні бота: `buildWorkspaceFilesFromRole()` в `src/workspace-files.ts` збирає workspace files напряму
+5. Результат -> `bots/<name>/workspace-files/` + `bots/<name>/CLAUDE.md`
 
 ### Обов'язкова структура файлу ролі
 
 ```
+--- IDENTITY ---
 # {{BOT_NAME}} {{BOT_EMOJI}}
 Ти -- {{BOT_NAME}}, [конкретна роль].     ← НЕ "helpful assistant"
 
-## Soul
-{{включено _base.md}}
-
+--- ROLE ---
 ## Спеціалізація                          ← 5-8 конкретних пунктів
 ## Правила                                ← guardrails + domain safety
-## Ресурси                                ← knowledge/ та інші джерела
-## Коли який інструмент                   ← НАЙВАЖЛИВІША СЕКЦІЯ (trigger->action->when NOT)
 ## Робочі сценарії                        ← 2-3 покрокових workflows
-## Взаємодія з командою                   ← ask_manager / ask_colleague
 ## Формат відповідей                      ← стиль для Telegram
+
+--- TOOLS ---
+## Коли який інструмент                   ← НАЙВАЖЛИВІША СЕКЦІЯ (trigger->action->when NOT)
 ```
 
 ### Секція "Коли який інструмент" -- як писати
@@ -110,6 +110,7 @@ ReadWorkspaceFile, WriteWorkspaceFile
 - meta-ads -- Facebook/Instagram реклама
 - stagehand -- AI-браузер (act, extract, observe)
 - pubmed -- наукові статті (медицина)
+- miro -- дошки, діаграми, схеми (remote HTTP)
 - playwright-remote -- headless Chrome
 
 **Skills** (~/.claude/skills/):
@@ -123,15 +124,15 @@ pptx, ship-learn-next
 ### Чеклист якості ролі
 
 При створенні або редагуванні ролі:
+- [ ] Файл має маркери `--- IDENTITY ---`, `--- ROLE ---`, `--- TOOLS ---`
 - [ ] Є "Коли який інструмент" з таблицею trigger->action->when NOT
 - [ ] Trigger написані мовою КОРИСТУВАЧА (не розробника)
 - [ ] Tools конкретні (bitrix24_get_deal, не "CRM")
 - [ ] Для кожного tool є "Коли НЕ використовувати"
 - [ ] Є 2-3 робочих сценарії (workflows) з кроками
 - [ ] Є guardrails (що НЕ робити)
-- [ ] Є "Ресурси" з посиланням на workspace files та knowledge/
-- [ ] Немає дублювання з _base.md
-- [ ] Розмір: 40-100 рядків (без _base.md)
+- [ ] Немає дублювання з _soul.md або _tools.md
+- [ ] Розмір: 30-80 рядків (без base files)
 
 ## Документація
 
