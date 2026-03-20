@@ -388,6 +388,13 @@ export function createBot(params: CreateBotParams): CreateBotResult {
   const claudeMd = assembleFromWorkspaceFiles(botDir)
   writeFileSync(resolve(botDir, 'CLAUDE.md'), claudeMd)
 
+  // Create .claude/settings.json — exclude project-level CLAUDE.md so bot only sees its own
+  const claudeSettingsDir = resolve(botDir, '.claude')
+  mkdirSync(claudeSettingsDir, { recursive: true })
+  writeFileSync(resolve(claudeSettingsDir, 'settings.json'), JSON.stringify({
+    claudeMdExcludes: [resolve(root, 'CLAUDE.md')]
+  }, null, 2))
+
   // Initialize database
   const dbPath = resolve(botDir, 'store', 'botva.db')
   const db = new DatabaseSync(dbPath)
