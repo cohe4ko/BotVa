@@ -1,6 +1,7 @@
 import { query, type SDKMessage, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
 import { buildMcpServers } from './mcp-config.js'
+import { refreshClaudeMd } from './workspace-files.js'
 import { readEnvFile } from './env.js'
 import { isManager } from './team.js'
 import { logger } from './logger.js'
@@ -73,23 +74,21 @@ async function runAgentOnce(
 
     logger.debug({ chatId, model, sessionId: sessionId?.slice(0, 8) }, 'Starting agent query')
 
-    // Plan mode: read/analyze everything, block all write operations.
-    // Like Claude Code /plan — agent can research, search, read files, use MCP reads, but not modify anything.
-    const PLAN_BLOCKED_TOOLS = [
-      'Write', 'Edit', 'Bash', 'NotebookEdit',
-      // Builtin write tools blocked via tool_name prefix
-    ]
+    // Plan mode: research & analyze freely, block destructive/modifying operations.
+    // Like Claude Code /plan — agent reads, searches, saves facts, sends plan to user.
+    // Bash allowed for read commands (ls, git log, cat), blocked for destructive ones.
+    const PLAN_BLOCKED_TOOLS = ['Write', 'Edit', 'NotebookEdit']
     const PLAN_BLOCKED_BUILTIN = new Set([
-      'SendEmail', 'SendMedia', 'ForwardMessage', 'SetReaction',
+      'SendEmail', 'ForwardMessage', 'SetReaction',
       'CreateReminder', 'DeleteReminder',
-      'SaveFact', 'DeleteFact',
+      'DeleteFact',
       'WriteWorkspaceFile', 'DeleteWorkspaceFile',
       'GenerateImage', 'EditImage', 'TextToSpeech',
       'CreateBot', 'DeleteBot',
       'CreateBackup', 'DeleteBackup', 'RestoreBackup',
-      'DeleteGalleryImage', 'SendGalleryImage',
-      'PublishTelegraph', 'ShareFile',
+      'DeleteGalleryImage',
     ])
+    const BASH_DESTRUCTIVE = /^\s*(rm\s|mv\s|cp\s|chmod\s|chown\s|sudo\s|kill\s|pkill\s|git\s+(push|reset|checkout|clean|rebase|merge|commit|stash)|npm\s+(publish|run)|node\s|python|pip\s|docker\s|rsync\s|scp\s|ssh\s|curl\s.*-X\s*(POST|PUT|DELETE|PATCH))/i
     const planHooks = permissionMode === 'plan' ? {
       hooks: {
         PreToolUse: [{
@@ -99,12 +98,20 @@ async function runAgentOnce(
             if (PLAN_BLOCKED_TOOLS.includes(toolName)) {
               return { decision: 'block' as const, reason: `${toolName} blocked in plan mode. Finish planning first.` }
             }
+            // Bash: allow read commands, block destructive
+            if (toolName === 'Bash') {
+              const cmd = String(input.tool_input?.command ?? '')
+              if (BASH_DESTRUCTIVE.test(cmd)) {
+                return { decision: 'block' as const, reason: `Destructive bash command blocked in plan mode: ${cmd.slice(0, 60)}` }
+              }
+              return { decision: 'approve' as const }
+            }
             // Block builtin write tools (called via MCP as mcp__builtin__ToolName)
             const builtinMatch = toolName.match(/^mcp__builtin__(.+)$/)
             if (builtinMatch && PLAN_BLOCKED_BUILTIN.has(builtinMatch[1])) {
               return { decision: 'block' as const, reason: `${builtinMatch[1]} blocked in plan mode. Finish planning first.` }
             }
-            // Allow everything else: Read, Glob, Grep, Task, WebSearch, WebFetch, all MCP reads
+            // Allow everything else: Read, Glob, Grep, Task, WebSearch, WebFetch, SendMedia, SaveFact, MCP reads
             return { decision: 'approve' as const }
           }],
         }],
@@ -323,6 +330,9 @@ export async function runAgent(
   permissionMode?: string,
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
+  // Reassemble CLAUDE.md from workspace files so changes (BOOTSTRAP.md, USER.md, MEMORY.md) are picked up
+  refreshClaudeMd(BOT_DIR)
+
   const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest)
 
   // If failed with a session, retry without session (fresh start)

@@ -123,6 +123,13 @@ export function assembleFromWorkspaceFiles(botDir: string): string {
   return parts.join('\n\n')
 }
 
+/** Reassemble CLAUDE.md from workspace files if they exist. Called before each agent query. */
+export function refreshClaudeMd(botDir: string): void {
+  if (!hasWorkspaceFiles(botDir)) return
+  const content = assembleFromWorkspaceFiles(botDir)
+  writeFileSync(resolve(botDir, 'CLAUDE.md'), content, 'utf-8')
+}
+
 // --- Building workspace files from role templates ---
 
 /**
