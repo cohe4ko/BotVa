@@ -73,10 +73,43 @@ async function runAgentOnce(
 
     logger.debug({ chatId, model, sessionId: sessionId?.slice(0, 8) }, 'Starting agent query')
 
-    // Tool restrictions based on permission mode
-    const toolRestrictions = permissionMode === 'plan'
-      ? { tools: ['Read', 'Glob', 'Grep'] as string[], allowedTools: ['Read', 'Glob', 'Grep'] as string[] }
-      : {}
+    // Plan mode: read/analyze everything, block all write operations.
+    // Like Claude Code /plan — agent can research, search, read files, use MCP reads, but not modify anything.
+    const PLAN_BLOCKED_TOOLS = [
+      'Write', 'Edit', 'Bash', 'NotebookEdit',
+      // Builtin write tools blocked via tool_name prefix
+    ]
+    const PLAN_BLOCKED_BUILTIN = new Set([
+      'SendEmail', 'SendMedia', 'ForwardMessage', 'SetReaction',
+      'CreateReminder', 'DeleteReminder',
+      'SaveFact', 'DeleteFact',
+      'WriteWorkspaceFile', 'DeleteWorkspaceFile',
+      'GenerateImage', 'EditImage', 'TextToSpeech',
+      'CreateBot', 'DeleteBot',
+      'CreateBackup', 'DeleteBackup', 'RestoreBackup',
+      'DeleteGalleryImage', 'SendGalleryImage',
+      'PublishTelegraph', 'ShareFile',
+    ])
+    const planHooks = permissionMode === 'plan' ? {
+      hooks: {
+        PreToolUse: [{
+          hooks: [async (input: any) => {
+            const toolName = input.tool_name ?? ''
+            // Block core write tools
+            if (PLAN_BLOCKED_TOOLS.includes(toolName)) {
+              return { decision: 'block' as const, reason: `${toolName} blocked in plan mode. Finish planning first.` }
+            }
+            // Block builtin write tools (called via MCP as mcp__builtin__ToolName)
+            const builtinMatch = toolName.match(/^mcp__builtin__(.+)$/)
+            if (builtinMatch && PLAN_BLOCKED_BUILTIN.has(builtinMatch[1])) {
+              return { decision: 'block' as const, reason: `${builtinMatch[1]} blocked in plan mode. Finish planning first.` }
+            }
+            // Allow everything else: Read, Glob, Grep, Task, WebSearch, WebFetch, all MCP reads
+            return { decision: 'approve' as const }
+          }],
+        }],
+      },
+    } : {}
 
     // Debate mode: allow read tools + MCP (WebSearch, WebFetch, PubMed), block write tools (Bash, Write, Edit, etc.)
     const DEBATE_ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch']
@@ -86,15 +119,12 @@ async function runAgentOnce(
         PreToolUse: [{
           hooks: [async (input: any) => {
             const toolName = input.tool_name ?? ''
-            // Allow read tools explicitly
             if (DEBATE_ALLOWED_TOOLS.includes(toolName)) {
               return { decision: 'approve' as const }
             }
-            // Block write tools explicitly
             if (DEBATE_BLOCKED_TOOLS.includes(toolName)) {
               return { decision: 'block' as const, reason: 'Write tools disabled in debate mode' }
             }
-            // Allow all MCP tools (they start with mcp__ prefix or are passed through mcpServers)
             return { decision: 'approve' as const }
           }],
         }],
@@ -130,14 +160,14 @@ async function runAgentOnce(
       prompt: message,
       options: {
         cwd: BOT_DIR,
-        permissionMode: permissionMode === 'plan' ? 'plan' as any : 'bypassPermissions' as any,
-        allowDangerouslySkipPermissions: permissionMode !== 'plan',
+        permissionMode: 'bypassPermissions' as any,
+        allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
         abortController,
         mcpServers,
         includePartialMessages: true,
         agentProgressSummaries: true,
-        ...toolRestrictions,
+        ...planHooks,
         ...debateHooks,
         ...permissionHooks,
         ...(model ? { model } : {}),
