@@ -10,7 +10,8 @@ import type { ProvisionParams } from './steps.js'
 import type { ClientChannel } from 'ssh2'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PORT = 3456
+const PORT = parseInt(process.env.PORT || '3456', 10)
+const IS_LOCAL = !process.env.PORT && !process.env.RENDER && !process.env.RAILWAY_ENVIRONMENT && !process.env.FLY_APP_NAME
 
 const app = new Hono()
 
@@ -21,17 +22,19 @@ app.get('/', (c) => {
 })
 
 // Start HTTP server
-const server = serve({ fetch: app.fetch, port: PORT }, () => {
+const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, () => {
   const url = `http://localhost:${PORT}`
   console.log(`\n  BotVa Installer: ${url}\n`)
 
-  // Auto-open browser
-  const cmd = process.platform === 'darwin'
-    ? `open "${url}"`
-    : process.platform === 'win32'
-      ? `start "${url}"`
-      : `xdg-open "${url}" 2>/dev/null || true`
-  exec(cmd)
+  // Auto-open browser only when running locally
+  if (IS_LOCAL) {
+    const cmd = process.platform === 'darwin'
+      ? `open "${url}"`
+      : process.platform === 'win32'
+        ? `start "${url}"`
+        : `xdg-open "${url}" 2>/dev/null || true`
+    exec(cmd)
+  }
 })
 
 // WebSocket server

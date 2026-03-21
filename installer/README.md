@@ -85,6 +85,50 @@ npm start
 | Caddy | Reverse proxy з автоматичним SSL сертифікатом |
 | Бот | Конфіг, systemd сервіс, автозапуск |
 
+## Деплой як standalone сервер
+
+Інсталятор можна розмістити в інтернеті, щоб будь-хто міг відкрити URL і встановити BotVa.
+
+### Render (найпростіший, безкоштовний)
+
+1. Fork або push цей репо на GitHub
+2. Зайдіть на [render.com](https://render.com), створіть акаунт
+3. New → Web Service → підключіть GitHub репо
+4. Root Directory: `installer`
+5. Build Command: `npm install && npm run build`
+6. Start Command: `npm start`
+7. Instance Type: Free
+8. Deploy
+
+Або через Blueprint: `render.yaml` вже є в папці.
+
+### Railway
+
+1. Зайдіть на [railway.app](https://railway.app)
+2. New Project → Deploy from GitHub
+3. Root Directory: `installer`
+4. Deploy (Railway автоматично визначить Node.js)
+
+### Docker (Fly.io, VPS, будь-який хост)
+
+```bash
+cd installer
+docker build -t botva-installer .
+docker run -p 3456:3456 botva-installer
+```
+
+### Fly.io
+
+```bash
+cd installer
+fly launch --no-deploy
+fly deploy
+```
+
+### Важливо
+
+Credentials (пароль сервера, bot token) передаються через WebSocket і **не зберігаються** на сервері інсталятора. Але рекомендується використовувати HTTPS (Render/Railway надають автоматично).
+
 ## FAQ
 
 ### Помилка "Authentication failed"

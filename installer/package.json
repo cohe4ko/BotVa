@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "start": "tsx src/server.ts",
+    "build": "tsc && cp -r src/static dist/static",
+    "start": "node dist/server.js",
     "dev": "tsx --watch src/server.ts"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",
