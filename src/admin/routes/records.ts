@@ -723,6 +723,23 @@ app.post('/records/retranscribe', async (c) => {
     clearTimeout(timer)
 
     const data = await res.json() as any
+
+    // Clean hallucinations from retranscribed text and update saved file
+    if (data.ok && data.text) {
+      const cleaned = cleanWhisperHallucinations(data.text)
+      if (cleaned !== data.text) {
+        data.text = cleaned
+        // Update transcript file with cleaned text
+        const baseName = file.replace(/\.(json|ogg|wav)$/, '')
+        const transcriptPath = join(DATA_DIR, 'transcripts', date, `${baseName}.json`)
+        const transcript = safeReadJson(transcriptPath)
+        if (transcript) {
+          transcript.text = cleaned
+          writeFileSync(transcriptPath, JSON.stringify(transcript, null, 2))
+        }
+      }
+    }
+
     return c.json(data, res.status as any)
   } catch (e) {
     return c.json({ error: 'Receiver offline / timeout' }, 502)
