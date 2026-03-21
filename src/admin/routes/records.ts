@@ -492,18 +492,20 @@ app.get('/records/:date', (c) => {
             </div>
           ` : ''}
 
-          <div style="font-size:0.88rem;line-height:1.6;white-space:pre-wrap">${chunk.text}</div>
-
-          <div style="margin-top:0.4rem;display:flex;align-items:center;gap:0.4rem">
-            <button
-              class="btn-sm outline"
-              style="height:26px;padding:0 0.5rem;font-size:0.7rem;white-space:nowrap"
-              id="analyze-btn-${chunk.filename.replace('.json', '')}"
-              onclick="reanalyze('${date}', '${chunk.filename}', '${chunk.filename.replace('.json', '')}')"
-            >${icon('zap', 10)} ${t('records.extractFacts')}</button>
-          </div>
-
           ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, chunk.timestamp, reviewItems, t) : ''}
+
+          <details style="margin-top:0.4rem">
+            <summary style="cursor:pointer;font-size:0.78rem;color:var(--mc-text-dim);display:flex;align-items:center;gap:0.4rem">
+              ${icon('file-text', 11)} ${t('records.transcript')} (${chunk.text.length} chars)
+              <button
+                class="btn-sm outline"
+                style="height:22px;padding:0 0.4rem;font-size:0.65rem;white-space:nowrap;margin-left:auto"
+                id="analyze-btn-${chunk.filename.replace('.json', '')}"
+                onclick="event.stopPropagation();reanalyze('${date}', '${chunk.filename}', '${chunk.filename.replace('.json', '')}')"
+              >${icon('zap', 10)} ${t('records.extractFacts')}</button>
+            </summary>
+            <div style="font-size:0.82rem;line-height:1.5;white-space:pre-wrap;margin-top:0.4rem;padding:0.5rem;background:var(--mc-surface2);border-radius:6px;color:var(--mc-text-secondary)">${chunk.text}</div>
+          </details>
         </div>
       `)
     }
@@ -582,17 +584,27 @@ app.get('/records/:date', (c) => {
   return c.html(layout(`${t('records.title')}: ${date}`, html`${content}${retranscribeScript}`, '/records', t, lang))
 })
 
-function getReviewBadge(timestamp: string, type: string, index: number, reviewItems: FactReviewItem[]) {
+function renderFactItem(content: string, typeIcon: string, timestamp: string, type: string, index: number, reviewItems: FactReviewItem[]) {
   const id = `${timestamp}:${type}:${index}`
   const item = reviewItems.find(r => r.id === id)
-  if (!item) return ''
-  if (item.status === 'approved') return html`<span class="badge badge-set" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem">✅</span>`
-  if (item.status === 'declined') return html`<span class="badge badge-missing" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem">❌</span>`
-  // Pending — show approve/decline buttons
-  return html`<span style="margin-left:0.3rem;display:inline-flex;gap:0.15rem;vertical-align:middle">
-    <button class="btn-sm" style="height:20px;padding:0 0.3rem;font-size:0.6rem;cursor:pointer;line-height:1" onclick="reviewFact('${id}','approved')">✅</button>
-    <button class="btn-sm outline" style="height:20px;padding:0 0.3rem;font-size:0.6rem;cursor:pointer;line-height:1" onclick="reviewFact('${id}','declined')">❌</button>
-  </span>`
+  const status = item?.status
+
+  const statusBadge = status === 'approved'
+    ? html`<span class="badge badge-set" style="font-size:0.7rem">✅ saved</span>`
+    : status === 'declined'
+    ? html`<span class="badge badge-missing" style="font-size:0.7rem">❌</span>`
+    : html`<span style="display:inline-flex;gap:0.2rem">
+        <button class="btn-sm" style="height:24px;padding:0 0.5rem;font-size:0.7rem;cursor:pointer" onclick="reviewFact('${id}','approved')">✅ Save</button>
+        <button class="btn-sm outline" style="height:24px;padding:0 0.5rem;font-size:0.7rem;cursor:pointer" onclick="reviewFact('${id}','declined')">❌</button>
+      </span>`
+
+  return html`
+    <div style="display:flex;align-items:flex-start;gap:0.5rem;padding:0.4rem 0;${status === 'declined' ? 'opacity:0.4;' : ''}">
+      <span style="flex-shrink:0;margin-top:0.1rem">${typeIcon}</span>
+      <span style="flex:1;font-size:0.88rem;line-height:1.5">${content}</span>
+      ${statusBadge}
+    </div>
+  `
 }
 
 function renderAnalyzed(analyzed: any, timestamp: string, reviewItems: FactReviewItem[], t: TFunc) {
@@ -600,32 +612,25 @@ function renderAnalyzed(analyzed: any, timestamp: string, reviewItems: FactRevie
   const hasData = (facts?.length || decisions?.length || tasks?.length || topics?.length || aSummary)
   if (!hasData) return ''
 
+  const allItems = [
+    ...(facts ?? []).map((f: string, i: number) => renderFactItem(f, '💡', timestamp, 'fact', i, reviewItems)),
+    ...(decisions ?? []).map((d: string, i: number) => renderFactItem(d, '✅', timestamp, 'decision', i, reviewItems)),
+    ...(tasks ?? []).map((tk: string, i: number) => renderFactItem(tk, '📌', timestamp, 'task', i, reviewItems)),
+  ]
+
   return html`
-    <div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--mc-border)">
+    <div style="margin-top:0.25rem">
       ${topics?.length ? html`
-        <div style="margin-bottom:0.35rem">
-          ${topics.map((tp: string) => html`<span class="badge" style="font-size:0.65rem;margin-right:0.25rem;margin-bottom:0.2rem">${icon('tag', 9)} ${tp}</span>`)}
+        <div style="margin-bottom:0.3rem">
+          ${topics.map((tp: string) => html`<span class="badge" style="font-size:0.7rem;margin-right:0.25rem">${icon('tag', 10)} ${tp}</span>`)}
         </div>
       ` : ''}
       ${aSummary ? html`
-        <div style="font-size:0.78rem;color:var(--mc-text-secondary);margin-bottom:0.35rem">${icon('align-left', 10)} ${aSummary}</div>
+        <div style="font-size:0.82rem;color:var(--mc-text-secondary);margin-bottom:0.4rem">${icon('align-left', 11)} ${aSummary}</div>
       ` : ''}
-      ${facts?.length ? html`
-        <div style="font-size:0.75rem;margin-bottom:0.25rem">
-          ${icon('lightbulb', 10)} <strong>${t('records.facts')}:</strong>
-          ${facts.map((f: string, i: number) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${f}${getReviewBadge(timestamp, 'fact', i, reviewItems)}</span>`)}
-        </div>
-      ` : ''}
-      ${decisions?.length ? html`
-        <div style="font-size:0.75rem;margin-bottom:0.25rem">
-          ${icon('check-circle', 10)} <strong>${t('records.decisions')}:</strong>
-          ${decisions.map((d: string, i: number) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${d}${getReviewBadge(timestamp, 'decision', i, reviewItems)}</span>`)}
-        </div>
-      ` : ''}
-      ${tasks?.length ? html`
-        <div style="font-size:0.75rem;margin-bottom:0.25rem">
-          ${icon('circle-dot', 10)} <strong>${t('records.tasks')}:</strong>
-          ${tasks.map((tk: string, i: number) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${tk}${getReviewBadge(timestamp, 'task', i, reviewItems)}</span>`)}
+      ${allItems.length > 0 ? html`
+        <div style="border-top:1px solid var(--mc-border);padding-top:0.3rem">
+          ${allItems}
         </div>
       ` : ''}
     </div>
