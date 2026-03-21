@@ -2,8 +2,11 @@ import fetch from 'node-fetch';
 import { z } from 'zod';
 
 // Environment configuration
-const BITRIX24_WEBHOOK_URL = process.env.BITRIX24_WEBHOOK_URL || 
-  'https://sviluppofranchising.bitrix24.it/rest/27/wwugdez6m774803q/';
+const BITRIX24_WEBHOOK_URL = process.env.BITRIX24_WEBHOOK_URL || '';
+
+if (!BITRIX24_WEBHOOK_URL) {
+  throw new Error('BITRIX24_WEBHOOK_URL environment variable is required but not set');
+}
 
 // Validation schemas
 const BitrixResponseSchema = z.object({
