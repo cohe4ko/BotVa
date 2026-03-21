@@ -254,8 +254,39 @@ async function transcribeXai(wavPath: string): Promise<string | null> {
 }
 
 async function transcribe(wavPath: string, langOverride?: string): Promise<string | null> {
-  if (STT_PROVIDER === "xai") return transcribeXai(wavPath);
-  return transcribeGroq(wavPath, langOverride);
+  const raw = STT_PROVIDER === "xai" ? await transcribeXai(wavPath) : await transcribeGroq(wavPath, langOverride);
+  if (!raw) return null;
+  return cleanWhisperHallucinations(raw);
+}
+
+// Whisper hallucinates repetitive phrases on silence/noise (YouTube training data artifacts)
+const HALLUCINATION_PATTERNS = [
+  /Дякую за перегляд!?/gi,
+  /Дякую за підписку!?/gi,
+  /Підписуйтесь на канал!?/gi,
+  /Ставте лайки!?/gi,
+  /Thank you for watching!?/gi,
+  /Thanks for watching!?/gi,
+  /Please subscribe!?/gi,
+  /Like and subscribe!?/gi,
+  /Субтитры сделал DimaTorzworker/gi,
+  /Субтитри зроблені/gi,
+  /Редактор субтитрів/gi,
+]
+
+function cleanWhisperHallucinations(text: string): string | null {
+  let cleaned = text;
+  for (const pattern of HALLUCINATION_PATTERNS) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+  // Collapse multiple spaces/newlines
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  // Also strip standalone "Дякую." repeated multiple times (hallucination pattern)
+  cleaned = cleaned.replace(/(\bДякую\.\s*){3,}/gi, '');
+  cleaned = cleaned.trim();
+  // If nothing meaningful remains, return null
+  if (!cleaned || cleaned.length < 5) return null;
+  return cleaned;
 }
 
 // ── LLM Analysis ───────────────────────────────────────────────────
