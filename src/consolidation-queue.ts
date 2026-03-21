@@ -37,12 +37,11 @@ export function enqueue(targetDate: string, type: 'daily' | 'weekly'): void {
   logger.debug({ targetDate, type }, 'Enqueued consolidation')
 }
 
-export function dequeue(): QueueItem | null {
+/** Return all pending items sorted oldest-first (each item appears only once). */
+export function dequeueAll(): QueueItem[] {
   const queue = loadQueue()
-  if (queue.length === 0) return null
-  // Sort by createdAt — oldest first
   queue.sort((a, b) => a.createdAt - b.createdAt)
-  return queue[0]
+  return queue
 }
 
 export function markDone(targetDate: string, type: 'daily' | 'weekly'): void {

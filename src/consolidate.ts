@@ -5,7 +5,7 @@ import { runAgent } from './agent.js'
 import { createConsolidationMcpServer } from './builtin-tools.js'
 import { logger } from './logger.js'
 import { memoryDate } from './memory.js'
-import { enqueue, dequeue, markDone, markFailed } from './consolidation-queue.js'
+import { enqueue, dequeueAll, markDone, markFailed } from './consolidation-queue.js'
 
 const KNOWLEDGE_DIR = 'knowledge'
 const MEMORIES_DIR = join(BOT_DIR, KNOWLEDGE_DIR, 'memories')
@@ -84,9 +84,10 @@ export async function runDailyConsolidation(
 async function processQueue(
   sendMessage?: (chatId: string, text: string) => Promise<void>
 ): Promise<void> {
-  for (let i = 0; i < MAX_QUEUE_ITEMS_PER_RUN; i++) {
-    const item = dequeue()
-    if (!item) break
+  const items = dequeueAll()
+
+  for (let i = 0; i < Math.min(items.length, MAX_QUEUE_ITEMS_PER_RUN); i++) {
+    const item = items[i]
 
     logger.info({ item }, 'Processing consolidation queue item')
 
