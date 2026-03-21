@@ -1904,8 +1904,8 @@ export function createBot(): Bot {
   // /restart — restart bot process (watchdog will auto-restart)
   bot.command('restart', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
-    await ctx.reply('🔄 Restarting...')
-    setTimeout(() => process.exit(42), 500)
+    await ctx.reply('🔄 Restarting in 5s...')
+    setTimeout(() => process.exit(42), 5000)
   })
 
   // /update — git pull, rebuild, restart

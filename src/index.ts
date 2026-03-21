@@ -18,6 +18,7 @@ import { runDailyConsolidation } from './consolidate.js'
 
 const PID_FILE = join(STORE_DIR, 'botva.pid')
 const SOCK_PATH = join(STORE_DIR, 'colleague.sock')
+const RESTART_FLAG = join(STORE_DIR, 'restart.flag')
 let socketServer: NetServer | null = null
 
 function startSocketListener(): void {
@@ -264,6 +265,16 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+
+  // Poll for restart flag file (allows agent to schedule non-blocking restart)
+  const restartPoll = setInterval(() => {
+    if (existsSync(RESTART_FLAG)) {
+      try { unlinkSync(RESTART_FLAG) } catch {}
+      logger.info('Restart flag detected, exiting in 2s...')
+      clearInterval(restartPoll)
+      setTimeout(() => process.exit(42), 2000)
+    }
+  }, 3000)
 
   // Catch unhandled rejections from SDK internals (e.g. ProcessTransport race conditions)
   // so they don't crash the entire bot process
