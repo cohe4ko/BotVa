@@ -492,6 +492,15 @@ app.get('/records/:date', (c) => {
 
           <div style="font-size:0.88rem;line-height:1.6;white-space:pre-wrap">${chunk.text}</div>
 
+          <div style="margin-top:0.4rem;display:flex;align-items:center;gap:0.4rem">
+            <button
+              class="btn-sm outline"
+              style="height:26px;padding:0 0.5rem;font-size:0.7rem;white-space:nowrap"
+              id="analyze-btn-${chunk.filename.replace('.json', '')}"
+              onclick="reanalyze('${date}', '${chunk.filename}', '${chunk.filename.replace('.json', '')}')"
+            >${icon('zap', 10)} ${t('records.extractFacts')}</button>
+          </div>
+
           ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, chunk.timestamp, reviewItems, t) : ''}
         </div>
       `)
@@ -518,6 +527,31 @@ app.get('/records/:date', (c) => {
         if (data.ok) {
           btn.innerHTML = '✅';
           setTimeout(() => location.reload(), 800);
+        } else {
+          btn.innerHTML = '❌ ' + (data.error || 'Error');
+          setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+        }
+      } catch (e) {
+        btn.innerHTML = '❌ Failed';
+        setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+      }
+    }
+    async function reanalyze(date, file, baseId) {
+      const btn = document.getElementById('analyze-btn-' + baseId);
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ ...';
+
+      try {
+        const res = await fetch('/records/reanalyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date, file })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          btn.innerHTML = '✅ ' + data.facts + ' items';
+          setTimeout(() => location.reload(), 1000);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
@@ -592,6 +626,30 @@ app.post('/records/retranscribe', async (c) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date, file, language: language || 'auto' }),
+      signal: ctrl.signal,
+    })
+    clearTimeout(timer)
+
+    const data = await res.json() as any
+    return c.json(data, res.status as any)
+  } catch (e) {
+    return c.json({ error: 'Receiver offline / timeout' }, 502)
+  }
+})
+
+// POST /records/reanalyze -- proxy to receiver's /reanalyze (extract facts)
+app.post('/records/reanalyze', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { date, file } = body
+    if (!date || !file) return c.json({ error: 'date and file required' }, 400)
+
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 120_000)
+    const res = await fetch('http://localhost:3847/reanalyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, file }),
       signal: ctrl.signal,
     })
     clearTimeout(timer)

@@ -765,6 +765,57 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  // Re-analyze existing transcript (extract facts with updated prompt)
+  if (req.method === "POST" && req.url === "/reanalyze") {
+    try {
+      const body = await readJsonBody(req);
+      const { date, file } = body;
+      if (!date || !file) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "date and file required" }));
+        return;
+      }
+
+      const baseName = file.replace(/\.(json|ogg|wav)$/, "");
+      const transcriptPath = join(DATA_DIR, "transcripts", date, `${baseName}.json`);
+      if (!existsSync(transcriptPath)) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Transcript not found" }));
+        return;
+      }
+
+      const transcript = JSON.parse(readFileSync(transcriptPath, "utf-8"));
+      const text = transcript.text;
+      if (!text) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, facts: 0, message: "Empty transcript" }));
+        return;
+      }
+
+      console.log(`[${timestamp()}] Re-analyzing ${baseName}...`);
+      const analysis = await analyzeTranscript(text);
+
+      // Save analysis
+      const analyzedDir = join(DATA_DIR, "analyzed", date);
+      ensureDir(analyzedDir);
+      writeFileSync(
+        join(analyzedDir, `${baseName}.json`),
+        JSON.stringify({ ...transcript, ...analysis }, null, 2)
+      );
+
+      const total = (analysis.facts?.length ?? 0) + (analysis.decisions?.length ?? 0) + (analysis.tasks?.length ?? 0);
+      console.log(`[${timestamp()}] Re-analyzed ${baseName}: ${total} items (quality: ${analysis.transcriptQuality ?? "unknown"})`);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, facts: total, analysis }));
+    } catch (e) {
+      console.error("Reanalyze error:", e);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal error" }));
+    }
+    return;
+  }
+
   // Daily summary
   if (req.method === "GET" && req.url?.startsWith("/summary/")) {
     const dateStr = req.url.replace("/summary/", "");
