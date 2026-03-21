@@ -17,13 +17,15 @@ import { getRolesDir } from '../../bot-manager.js'
 
 function getModelLabels(t: TFunc) {
   return [
+    { id: 'opus-1m', label: t('config.opus1mDesc') },
     { id: 'opus', label: t('config.opusDesc') },
+    { id: 'sonnet-1m', label: t('config.sonnet1mDesc') },
     { id: 'sonnet', label: t('config.sonnetDesc') },
     { id: 'haiku', label: t('config.haikuDesc') },
   ]
 }
 
-const MODEL_IDS = ['opus', 'sonnet', 'haiku']
+const MODEL_IDS = ['opus-1m', 'opus', 'sonnet-1m', 'sonnet', 'haiku']
 
 function getAgentSettings(name: string): { model: string; temperature: string } {
   try {

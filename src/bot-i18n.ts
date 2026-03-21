@@ -54,8 +54,10 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.model.unknown': 'Unknown model: {args}\nAvailable: {models}',
     'cmd.model.set': 'Model: {label}',
     'cmd.model.title': 'Model: <b>{label}</b>',
-    'model.opus': 'Most capable',
-    'model.sonnet': 'Balanced',
+    'model.opus-1m': 'Most capable, 1M context',
+    'model.opus': 'Most capable, 200k context',
+    'model.sonnet-1m': 'Balanced, 1M context',
+    'model.sonnet': 'Balanced, 200k context',
     'model.haiku': 'Fast & light',
 
     // Lang
@@ -298,8 +300,10 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.model.unknown': 'Невідома модель: {args}\nДоступні: {models}',
     'cmd.model.set': 'Модель: {label}',
     'cmd.model.title': 'Модель: <b>{label}</b>',
-    'model.opus': 'Найпотужніший',
-    'model.sonnet': 'Збалансований',
+    'model.opus-1m': 'Найпотужніший, 1M контекст',
+    'model.opus': 'Найпотужніший, 200k контекст',
+    'model.sonnet-1m': 'Збалансований, 1M контекст',
+    'model.sonnet': 'Збалансований, 200k контекст',
     'model.haiku': 'Швидкий і легкий',
 
     // Lang

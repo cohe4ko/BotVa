@@ -1,5 +1,6 @@
 import { query, type SDKMessage, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
+import { parseModelConfig } from './model.js'
 import { buildMcpServers } from './mcp-config.js'
 import { refreshClaudeMd } from './workspace-files.js'
 import { readEnvFile } from './env.js'
@@ -164,6 +165,8 @@ async function runAgentOnce(
       },
     } : {}
 
+    const { model: baseModel, use1m } = model ? parseModelConfig(model) : { model: undefined as string | undefined, use1m: false }
+
     const conversation = query({
       prompt: message,
       options: {
@@ -178,7 +181,8 @@ async function runAgentOnce(
         ...planHooks,
         ...debateHooks,
         ...permissionHooks,
-        ...(model ? { model } : {}),
+        ...(baseModel ? { model: baseModel } : {}),
+        ...(use1m ? { betas: ['context-1m-2025-08-07' as const] } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
       },
     })

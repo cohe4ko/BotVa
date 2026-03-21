@@ -5,13 +5,15 @@ vi.mock('./db.js', () => ({
   setChatSetting: vi.fn(),
 }))
 
-import { getModelLabel, getModel, setModel, getTemperature, MODELS } from './model.js'
+import { getModelLabel, getModel, setModel, getTemperature, parseModelConfig, MODELS } from './model.js'
 import { getChatSetting, setChatSetting } from './db.js'
 
 describe('getModelLabel', () => {
   it('returns label for known model', () => {
-    expect(getModelLabel('opus')).toBe('Opus')
-    expect(getModelLabel('sonnet')).toBe('Sonnet')
+    expect(getModelLabel('opus')).toBe('Opus 200k')
+    expect(getModelLabel('opus-1m')).toBe('Opus 1M')
+    expect(getModelLabel('sonnet')).toBe('Sonnet 200k')
+    expect(getModelLabel('sonnet-1m')).toBe('Sonnet 1M')
     expect(getModelLabel('haiku')).toBe('Haiku')
   })
 
@@ -21,8 +23,8 @@ describe('getModelLabel', () => {
 })
 
 describe('MODELS', () => {
-  it('has 3 models', () => {
-    expect(MODELS).toHaveLength(3)
+  it('has 5 models', () => {
+    expect(MODELS).toHaveLength(5)
   })
 
   it('each model has id, label, description', () => {
@@ -31,6 +33,19 @@ describe('MODELS', () => {
       expect(m.label).toBeTruthy()
       expect(m.description).toBeTruthy()
     }
+  })
+})
+
+describe('parseModelConfig', () => {
+  it('parses 1m model', () => {
+    expect(parseModelConfig('sonnet-1m')).toEqual({ model: 'sonnet', use1m: true })
+    expect(parseModelConfig('opus-1m')).toEqual({ model: 'opus', use1m: true })
+  })
+
+  it('parses regular model', () => {
+    expect(parseModelConfig('sonnet')).toEqual({ model: 'sonnet', use1m: false })
+    expect(parseModelConfig('opus')).toEqual({ model: 'opus', use1m: false })
+    expect(parseModelConfig('haiku')).toEqual({ model: 'haiku', use1m: false })
   })
 })
 

@@ -7,8 +7,10 @@ export interface ModelInfo {
 }
 
 export const MODELS: ModelInfo[] = [
-  { id: 'opus', label: 'Opus', description: 'Most capable' },
-  { id: 'sonnet', label: 'Sonnet', description: 'Balanced' },
+  { id: 'opus-1m', label: 'Opus 1M', description: 'Most capable, 1M context' },
+  { id: 'opus', label: 'Opus 200k', description: 'Most capable' },
+  { id: 'sonnet-1m', label: 'Sonnet 1M', description: 'Balanced, 1M context' },
+  { id: 'sonnet', label: 'Sonnet 200k', description: 'Balanced' },
   { id: 'haiku', label: 'Haiku', description: 'Fast & light' },
 ]
 
@@ -33,6 +35,13 @@ export function setModel(chatId: string, model: string): void {
 
 export function getModelLabel(modelId: string): string {
   return MODELS.find(m => m.id === modelId)?.label ?? modelId
+}
+
+export function parseModelConfig(modelId: string): { model: string; use1m: boolean } {
+  if (modelId.endsWith('-1m')) {
+    return { model: modelId.replace('-1m', ''), use1m: true }
+  }
+  return { model: modelId, use1m: false }
 }
 
 export function getTemperature(chatId: string): number | undefined {
