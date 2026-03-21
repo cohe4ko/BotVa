@@ -680,8 +680,9 @@ function renderFactItem(rawItem: string | AnalysisItem, typeIcon: string, timest
   const status = review?.status
   const isPending = !status || status === 'pending'
 
+  const savedTo = review?.savedTo
   const statusBadge = status === 'approved'
-    ? html`<span class="badge badge-set" style="font-size:0.7rem">✅</span>`
+    ? html`<span class="badge badge-set" style="font-size:0.7rem">✅${savedTo ? ` ${savedTo}` : ''}</span>`
     : status === 'declined'
     ? html`<span class="badge badge-missing" style="font-size:0.7rem">❌</span>`
     : html`<span style="display:inline-flex;gap:0.2rem">
@@ -865,7 +866,7 @@ app.post('/records/review-fact', async (c) => {
     if (!id || !['approved', 'declined'].includes(status)) {
       return c.json({ error: 'id and status (approved/declined) required' }, 400)
     }
-    const item = reviewFact(id, status)
+    const item = reviewFact(id, status, status === 'approved' ? bot : undefined)
     if (!item) return c.json({ error: 'Fact not found' }, 404)
 
     // On approve — insert fact into bot's DB with full procedure

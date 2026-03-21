@@ -124,7 +124,7 @@ describe('reviewFact', () => {
 
     collectPendingFacts(TEST_ROOT)
     const id = '2026-03-19T20-50-14:fact:0'
-    const result = reviewFact(id, 'approved', TEST_ROOT)
+    const result = reviewFact(id, 'approved', undefined, TEST_ROOT)
     expect(result).not.toBeNull()
     expect(result!.status).toBe('approved')
     expect(result!.reviewedAt).toBeGreaterThan(0)
@@ -148,12 +148,12 @@ describe('reviewFact', () => {
     })
 
     collectPendingFacts(TEST_ROOT)
-    const result = reviewFact('2026-03-19T20-50-14:fact:0', 'declined', TEST_ROOT)
+    const result = reviewFact('2026-03-19T20-50-14:fact:0', 'declined', undefined, TEST_ROOT)
     expect(result!.status).toBe('declined')
   })
 
   it('returns null for unknown id', () => {
-    const result = reviewFact('nonexistent:fact:0', 'approved', TEST_ROOT)
+    const result = reviewFact('nonexistent:fact:0', 'approved', undefined, TEST_ROOT)
     expect(result).toBeNull()
   })
 })
@@ -212,18 +212,18 @@ describe('Tinder flow', () => {
     // Review first
     const first = getNextPendingFact(TEST_ROOT)
     expect(first!.content).toBe('Fact A')
-    reviewFact(first!.id, 'approved', TEST_ROOT)
+    reviewFact(first!.id, 'approved', undefined, TEST_ROOT)
 
     // Review second
     const second = getNextPendingFact(TEST_ROOT)
     expect(second!.content).toBe('Fact B')
-    reviewFact(second!.id, 'declined', TEST_ROOT)
+    reviewFact(second!.id, 'declined', undefined, TEST_ROOT)
 
     // Review third
     const third = getNextPendingFact(TEST_ROOT)
     expect(third!.content).toBe('Decision C')
     expect(third!.type).toBe('decision')
-    reviewFact(third!.id, 'approved', TEST_ROOT)
+    reviewFact(third!.id, 'approved', undefined, TEST_ROOT)
 
     // No more
     const none = getNextPendingFact(TEST_ROOT)

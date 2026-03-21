@@ -1049,7 +1049,8 @@ export function createBot(): Bot {
       const _t = chatT(chatIdStr)
 
       if (action === 'approve' && factId) {
-        const item = reviewFact(factId, 'approved')
+        const { BOT_NAME: currentBot } = await import('./config.js')
+        const item = reviewFact(factId, 'approved', currentBot)
         if (item) {
           // Insert into Facts DB
           const { insertFact } = await import('./db.js')

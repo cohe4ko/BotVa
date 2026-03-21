@@ -23,6 +23,7 @@ export interface FactReviewItem {
   topics: string[]              // legacy: chunk-level topics
   status: FactReviewStatus
   reviewedAt: number | null     // unix timestamp
+  savedTo?: string              // bot name where fact was saved
 }
 
 interface ReviewStore {
@@ -153,12 +154,13 @@ export function getNextPendingFact(projectRoot?: string): FactReviewItem | null 
 }
 
 /** Update fact status */
-export function reviewFact(id: string, status: 'approved' | 'declined', projectRoot?: string): FactReviewItem | null {
+export function reviewFact(id: string, status: 'approved' | 'declined', savedTo?: string, projectRoot?: string): FactReviewItem | null {
   const store = loadStore(projectRoot)
   const item = store.items.find(i => i.id === id)
   if (!item) return null
   item.status = status
   item.reviewedAt = Math.floor(Date.now() / 1000)
+  if (savedTo) item.savedTo = savedTo
   saveStore(store, projectRoot)
   return item
 }
