@@ -427,10 +427,6 @@ app.get('/records/:date', (c) => {
   // Day-level analysis (from "extract facts for day")
   const dayAnalysis = safeReadJson(join(DATA_DIR, 'analyzed', date, `${date}-day.json`))
 
-  // Daily summary
-  const summaryPath = join(DATA_DIR, 'summaries', `${date}.md`)
-  const summary = safeReadText(summaryPath)
-
   const content = html`
     <style>
       @keyframes highlight-fade {
@@ -443,13 +439,6 @@ app.get('/records/:date', (c) => {
       <a href="/records" style="color:var(--mc-text-dim);text-decoration:none">${icon('arrow-left', 16)}</a>
       <h2 style="margin:0">${icon('mic')} ${date}</h2>
     </div>
-
-    ${summary ? html`
-      <details style="margin-bottom:1.5rem">
-        <summary style="cursor:pointer;font-size:1rem;font-weight:600;padding:0.5rem 0">${icon('file-text')} ${t('records.dailySummary')}</summary>
-        <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:1rem;margin-top:0.5rem;white-space:pre-wrap;font-size:0.85rem;line-height:1.6">${summary}</div>
-      </details>
-    ` : ''}
 
     ${(() => {
       // Collect ALL facts from all chunks + day analysis
