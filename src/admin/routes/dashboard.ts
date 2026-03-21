@@ -9,6 +9,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { resolve, join } from 'path'
 import { execSync } from 'child_process'
 import { getConsolidationHour } from '../../system-settings.js'
+import { AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from '../../config.js'
 import { readEnv } from '../env-parser.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
@@ -339,7 +340,7 @@ app.get('/', (c) => {
           <tr><td><strong>${t('sys.memory')}</strong></td><td>${t('sys.memoryDesc')}</td></tr>
           <tr><td><strong>${t('sys.consolidation')}</strong></td><td>${t('sys.consolidationDesc')}</td></tr>
           <tr><td><strong>${t('sys.scheduler')}</strong></td><td>${t('sys.schedulerDesc')}</td></tr>
-          <tr><td><strong>${t('sys.watchdog')}</strong></td><td>Warn ${process.env.AGENT_WATCHDOG_WARN_SECONDS || '60'}s / timeout ${process.env.AGENT_WATCHDOG_TIMEOUT_MS || '600000'}ms</td></tr>
+          <tr><td><strong>${t('sys.watchdog')}</strong></td><td>Warn ${AGENT_WATCHDOG_WARN_SECONDS}s / timeout ${Math.round(AGENT_WATCHDOG_TIMEOUT_MS / 1000)}s</td></tr>
         </tbody>
       </table>
     </div>
