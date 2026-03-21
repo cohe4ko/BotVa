@@ -5,15 +5,28 @@
 
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
+export interface AnalysisItem {
+  text: string
+  topic: string
+  tags: string
+  time?: string  // HH:MM — which chunk this fact belongs to
+}
+
 export interface AnalysisResult {
-  facts: string[]
-  decisions: string[]
-  tasks: string[]
+  facts: (string | AnalysisItem)[]
+  decisions: (string | AnalysisItem)[]
+  tasks: (string | AnalysisItem)[]
   topics: string[]
   summary: string
   language: string
   transcriptQuality: 'good' | 'poor' | 'garbage'
   suggestedLanguage: string | null
+}
+
+/** Normalize item — handle both old string format and new object format */
+export function normalizeItem(item: string | AnalysisItem): AnalysisItem {
+  if (typeof item === 'string') return { text: item, topic: 'general', tags: '' }
+  return item
 }
 
 const EMPTY: AnalysisResult = {
@@ -36,13 +49,19 @@ JSON response:
 {
   "transcriptQuality": "good | poor | garbage",
   "suggestedLanguage": "uk | ru | en | null",
-  "facts": ["significant facts worth saving to memory"],
-  "decisions": ["firm decisions with consequences"],
-  "tasks": ["concrete action items with clear next step"],
-  "topics": ["main topics discussed"],
+  "facts": [{"text": "fact content", "topic": "one-word-english-topic", "tags": "many,tags,in,both,languages", "time": "HH:MM"}],
+  "decisions": [{"text": "decision content", "topic": "one-word-english-topic", "tags": "tags", "time": "HH:MM"}],
+  "tasks": [{"text": "task content", "topic": "one-word-english-topic", "tags": "tags", "time": "HH:MM"}],
+  "topics": ["one-word English topics for this chunk"],
   "summary": "2-3 sentence summary",
   "language": "primary language code (uk, en, ru, etc.)"
 }
+
+TOPIC & TAGS RULES:
+- topic: ONE English word, lowercase (health, work, family, finance, home, tech, food, travel, education, legal)
+- tags: comma-separated, 5-10 tags in BOTH languages for better search. Include: synonyms, translations, related terms
+  Example fact "Прийом у лікаря в п'ятницю": topic="health", tags="лікар,doctor,прийом,appointment,п'ятниця,friday,медицина,medicine"
+- time: if transcript has [HH:MM] time markers, set the time of the segment where this fact was mentioned. If no markers, omit.
 
 QUALITY CHECK (do first):
 - "good" = coherent text, one primary language

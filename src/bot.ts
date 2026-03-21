@@ -1055,8 +1055,8 @@ export function createBot(): Bot {
           const { insertFact } = await import('./db.js')
           const sector = item.type === 'fact' ? 'semantic' : 'episodic'
           const importance = item.type === 'task' ? 0.7 : item.type === 'decision' ? 0.6 : 0.5
-          const topic = item.topics[0] || 'general'
-          const tags = [...item.topics, item.device, 'listener'].join(',')
+          const topic = item.topic || item.topics[0] || 'general'
+          const tags = item.tags ? `${item.tags},${item.device},listener` : [...item.topics, item.device, 'listener'].join(',')
           const timePrefix = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, ' $1:$2')
           const content = `[${timePrefix}] ${item.content}`
           const factId2 = insertFact(chatIdStr, content, topic, sector, tags, 'listener', importance)

@@ -292,9 +292,9 @@ function cleanWhisperHallucinations(text: string): string | null {
 // ── LLM Analysis ───────────────────────────────────────────────────
 
 interface AnalysisResult {
-  facts: string[];
-  decisions: string[];
-  tasks: string[];
+  facts: (string | { text: string; topic: string; tags: string })[];
+  decisions: (string | { text: string; topic: string; tags: string })[];
+  tasks: (string | { text: string; topic: string; tags: string })[];
   topics: string[];
   summary: string;
   language: string;
@@ -325,13 +325,17 @@ JSON response:
 {
   "transcriptQuality": "good | poor | garbage",
   "suggestedLanguage": "uk | ru | en | null",
-  "facts": ["significant facts worth saving to memory"],
-  "decisions": ["firm decisions with consequences"],
-  "tasks": ["concrete action items with clear next step"],
-  "topics": ["main topics discussed"],
+  "facts": [{"text": "fact content", "topic": "one-word-english-topic", "tags": "many,tags,in,both,languages"}],
+  "decisions": [{"text": "decision content", "topic": "topic", "tags": "tags"}],
+  "tasks": [{"text": "task content", "topic": "topic", "tags": "tags"}],
+  "topics": ["one-word English topics"],
   "summary": "2-3 sentence summary",
   "language": "primary language code (uk, en, ru, etc.)"
 }
+
+TOPIC & TAGS:
+- topic: ONE English word, lowercase (health, work, family, finance, home, tech, food, travel, education, legal)
+- tags: comma-separated, 5-10 tags in BOTH languages for search. Include synonyms, translations, related terms.
 
 QUALITY CHECK (do first):
 - "good" = coherent text, one primary language

@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSy
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { getFactsForDate, collectPendingFacts, reviewFact, type FactReviewItem } from '../../listener-facts.js'
-import { analyzeTranscript, cleanWhisperHallucinations } from '../../listener-analyze.js'
+import { analyzeTranscript, cleanWhisperHallucinations, normalizeItem, type AnalysisItem } from '../../listener-analyze.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -422,6 +422,13 @@ app.get('/records/:date', (c) => {
   const summary = safeReadText(summaryPath)
 
   const content = html`
+    <style>
+      @keyframes highlight-fade {
+        from { background-color: rgba(74, 158, 255, 0.15); }
+        to { background-color: transparent; }
+      }
+      .new-item { animation: highlight-fade 3s ease-out; }
+    </style>
     <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
       <a href="/records" style="color:var(--mc-text-dim);text-decoration:none">${icon('arrow-left', 16)}</a>
       <h2 style="margin:0">${icon('mic')} ${date}</h2>
@@ -512,20 +519,18 @@ app.get('/records/:date', (c) => {
             </div>
           ` : ''}
 
-          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, chunk.timestamp, reviewItems, t) : ''}
+          <div style="font-size:0.85rem;line-height:1.6;white-space:pre-wrap;color:var(--mc-text-secondary)">${chunk.text}</div>
 
-          <details style="margin-top:0.4rem">
-            <summary style="cursor:pointer;font-size:0.78rem;color:var(--mc-text-dim);display:flex;align-items:center;gap:0.4rem">
-              ${icon('file-text', 11)} ${t('records.transcript')} (${chunk.text.length} chars)
-              <button
-                class="btn-sm outline"
-                style="height:22px;padding:0 0.4rem;font-size:0.65rem;white-space:nowrap;margin-left:auto"
-                id="analyze-btn-${chunk.filename.replace('.json', '')}"
-                onclick="event.stopPropagation();reanalyze('${date}', '${chunk.filename}', '${chunk.filename.replace('.json', '')}')"
-              >${icon('zap', 10)} ${t('records.extractFacts')}</button>
-            </summary>
-            <div style="font-size:0.82rem;line-height:1.5;white-space:pre-wrap;margin-top:0.4rem;padding:0.5rem;background:var(--mc-surface2);border-radius:6px;color:var(--mc-text-secondary)">${chunk.text}</div>
-          </details>
+          <div style="margin-top:0.3rem;display:flex;align-items:center;gap:0.4rem">
+            <button
+              class="btn-sm outline"
+              style="height:24px;padding:0 0.5rem;font-size:0.7rem;white-space:nowrap"
+              id="analyze-btn-${chunk.filename.replace('.json', '')}"
+              onclick="reanalyze('${date}', '${chunk.filename}', '${chunk.filename.replace('.json', '')}')"
+            >${icon('zap', 10)} ${t('records.extractFacts')}</button>
+          </div>
+
+          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, chunk.timestamp, reviewItems, t) : ''}
         </div>
       `)
     }
@@ -640,13 +645,14 @@ app.get('/records/:date', (c) => {
   return c.html(layout(`${t('records.title')}: ${date}`, html`${content}${retranscribeScript}`, '/records', t, lang))
 })
 
-function renderFactItem(content: string, typeIcon: string, timestamp: string, type: string, index: number, reviewItems: FactReviewItem[]) {
+function renderFactItem(rawItem: string | AnalysisItem, typeIcon: string, timestamp: string, type: string, index: number, reviewItems: FactReviewItem[], isNew = false) {
+  const item = normalizeItem(rawItem)
   const id = `${timestamp}:${type}:${index}`
-  const item = reviewItems.find(r => r.id === id)
-  const status = item?.status
+  const review = reviewItems.find(r => r.id === id)
+  const status = review?.status
 
   const statusBadge = status === 'approved'
-    ? html`<span class="badge badge-set" style="font-size:0.7rem">✅ saved</span>`
+    ? html`<span class="badge badge-set" style="font-size:0.7rem">✅</span>`
     : status === 'declined'
     ? html`<span class="badge badge-missing" style="font-size:0.7rem">❌</span>`
     : html`<span style="display:inline-flex;gap:0.2rem">
@@ -655,9 +661,17 @@ function renderFactItem(content: string, typeIcon: string, timestamp: string, ty
       </span>`
 
   return html`
-    <div style="display:flex;align-items:flex-start;gap:0.5rem;padding:0.4rem 0;${status === 'declined' ? 'opacity:0.4;' : ''}">
+    <div class="${isNew ? 'new-item' : ''}" style="display:flex;align-items:flex-start;gap:0.5rem;padding:0.35rem 0.4rem;border-radius:6px;${status === 'declined' ? 'opacity:0.35;' : ''}">
       <span style="flex-shrink:0;margin-top:0.1rem">${typeIcon}</span>
-      <span style="flex:1;font-size:0.88rem;line-height:1.5">${content}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.88rem;line-height:1.5">${item.text}</div>
+        ${item.topic || item.tags ? html`
+          <div style="font-size:0.7rem;color:var(--mc-text-dim);margin-top:0.1rem">
+            ${item.topic ? html`<span class="badge" style="font-size:0.6rem;margin-right:0.2rem">${item.topic}</span>` : ''}
+            ${item.tags ? html`<span style="opacity:0.7">${item.tags}</span>` : ''}
+          </div>
+        ` : ''}
+      </div>
       ${statusBadge}
     </div>
   `
@@ -669,23 +683,23 @@ function renderAnalyzed(analyzed: any, timestamp: string, reviewItems: FactRevie
   if (!hasData) return ''
 
   const allItems = [
-    ...(facts ?? []).map((f: string, i: number) => renderFactItem(f, '💡', timestamp, 'fact', i, reviewItems)),
-    ...(decisions ?? []).map((d: string, i: number) => renderFactItem(d, '✅', timestamp, 'decision', i, reviewItems)),
-    ...(tasks ?? []).map((tk: string, i: number) => renderFactItem(tk, '📌', timestamp, 'task', i, reviewItems)),
+    ...(facts ?? []).map((f: any, i: number) => renderFactItem(f, '💡', timestamp, 'fact', i, reviewItems)),
+    ...(decisions ?? []).map((d: any, i: number) => renderFactItem(d, '✅', timestamp, 'decision', i, reviewItems)),
+    ...(tasks ?? []).map((tk: any, i: number) => renderFactItem(tk, '📌', timestamp, 'task', i, reviewItems)),
   ]
 
   return html`
-    <div style="margin-top:0.25rem">
+    <div style="margin-top:0.4rem">
+      ${aSummary ? html`
+        <div style="font-size:0.82rem;color:var(--mc-text-secondary);margin-bottom:0.3rem">${icon('align-left', 11)} ${aSummary}</div>
+      ` : ''}
       ${topics?.length ? html`
         <div style="margin-bottom:0.3rem">
-          ${topics.map((tp: string) => html`<span class="badge" style="font-size:0.7rem;margin-right:0.25rem">${icon('tag', 10)} ${tp}</span>`)}
+          ${topics.map((tp: string) => html`<span class="badge" style="font-size:0.65rem;margin-right:0.2rem">${tp}</span>`)}
         </div>
       ` : ''}
-      ${aSummary ? html`
-        <div style="font-size:0.82rem;color:var(--mc-text-secondary);margin-bottom:0.4rem">${icon('align-left', 11)} ${aSummary}</div>
-      ` : ''}
       ${allItems.length > 0 ? html`
-        <div style="border-top:1px solid var(--mc-border);padding-top:0.3rem">
+        <div style="border-top:1px solid var(--mc-border);padding-top:0.25rem">
           ${allItems}
         </div>
       ` : ''}
@@ -826,8 +840,8 @@ app.post('/records/review-fact', async (c) => {
       const chatId = botEnv['ALLOWED_CHAT_ID']?.split(',')[0]?.trim() || 'admin'
       const sector = item.type === 'fact' ? 'semantic' as const : 'episodic' as const
       const importance = item.type === 'task' ? 0.7 : item.type === 'decision' ? 0.6 : 0.5
-      const topic = item.topics[0] || 'general'
-      const tags = [...item.topics, item.device, 'listener'].join(',')
+      const topic = item.topic || item.topics[0] || 'general'
+      const tags = item.tags ? `${item.tags},${item.device},listener` : [...item.topics, item.device, 'listener'].join(',')
       const timePrefix = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, ' $1:$2')
       const content = `[${timePrefix}] ${item.content}`
       const factId = insertFactForBot(bot, chatId, content, topic, sector, tags, 'listener', importance)

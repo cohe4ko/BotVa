@@ -18,7 +18,9 @@ export interface FactReviewItem {
   device: string
   type: FactReviewType
   content: string
-  topics: string[]
+  topic: string                 // one-word English topic
+  tags: string                  // comma-separated bilingual tags
+  topics: string[]              // legacy: chunk-level topics
   status: FactReviewStatus
   reviewedAt: number | null     // unix timestamp
 }
@@ -108,7 +110,7 @@ export function collectPendingFacts(projectRoot?: string): number {
 
   for (const file of analyzed) {
     const date = file.timestamp.slice(0, 10)
-    const types: { type: FactReviewType; items: string[] }[] = [
+    const types: { type: FactReviewType; items: any[] }[] = [
       { type: 'fact', items: file.facts ?? [] },
       { type: 'decision', items: file.decisions ?? [] },
       { type: 'task', items: file.tasks ?? [] },
@@ -119,13 +121,17 @@ export function collectPendingFacts(projectRoot?: string): number {
         const id = `${file.timestamp}:${type}:${i}`
         if (existingIds.has(id)) continue
 
+        const raw = items[i]
+        const isObj = typeof raw === 'object' && raw !== null
         store.items.push({
           id,
           date,
           timestamp: file.timestamp,
           device: file.device ?? 'unknown',
           type,
-          content: items[i],
+          content: isObj ? raw.text : raw,
+          topic: isObj ? (raw.topic ?? 'general') : (file.topics?.[0] ?? 'general'),
+          tags: isObj ? (raw.tags ?? '') : '',
           topics: file.topics ?? [],
           status: 'pending',
           reviewedAt: null,
