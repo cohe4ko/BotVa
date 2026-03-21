@@ -1,7 +1,9 @@
 /**
- * Listener transcript analysis — shared between admin and receiver.
- * Calls Anthropic API to extract significant facts from room conversation transcripts.
+ * Listener transcript analysis — extract significant facts from room conversation transcripts.
+ * Uses Claude Agent SDK (same auth as bot — OAuth or API key).
  */
+
+import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 
 export interface AnalysisResult {
   facts: string[]
@@ -25,14 +27,10 @@ const EMPTY: AnalysisResult = {
   suggestedLanguage: null,
 }
 
-export async function analyzeTranscript(text: string, apiKey?: string): Promise<AnalysisResult> {
-  const key = apiKey || process.env.ANTHROPIC_API_KEY || ''
-  if (!key) return { ...EMPTY, summary: text.slice(0, 200) }
-
-  const prompt = `Analyze this room conversation transcript. Extract ONLY facts worth remembering long-term.
+const ANALYSIS_PROMPT = `Analyze this room conversation transcript. Extract ONLY facts worth remembering long-term.
 
 TRANSCRIPT:
-${text}
+{TEXT}
 
 JSON response:
 {
@@ -73,29 +71,34 @@ SIGNIFICANCE TEST: "Чи буде це корисно через 3 місяці?
 Очікуваний результат: 0-3 факти на 5-хвилинний запис. Якщо більше 5 — ти зберігаєш забагато.
 Respond with ONLY valid JSON, no markdown.`
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    })
+export async function analyzeTranscript(text: string): Promise<AnalysisResult> {
+  const prompt = ANALYSIS_PROMPT.replace('{TEXT}', text)
 
-    if (!response.ok) {
-      console.error(`Anthropic API error: ${response.status}`)
-      return { ...EMPTY, summary: text.slice(0, 200) }
+  try {
+    let resultText = ''
+
+    for await (const event of query({
+      prompt: prompt,
+      options: {
+        model: 'claude-sonnet-4-20250514',
+        maxTurns: 1,
+      },
+    })) {
+      const msg = event as SDKMessage
+      if (msg.type === 'assistant' && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === 'text') {
+            resultText += block.text
+          }
+        }
+      }
     }
 
-    const data = (await response.json()) as any
-    const content = data.content?.[0]?.text || '{}'
-    return JSON.parse(content)
+    if (!resultText) return { ...EMPTY, summary: text.slice(0, 200) }
+
+    // Strip markdown code fences if present
+    const cleaned = resultText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
+    return JSON.parse(cleaned)
   } catch (e) {
     console.error('Analysis error:', e)
     return { ...EMPTY, summary: text.slice(0, 200) }
