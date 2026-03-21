@@ -854,7 +854,7 @@ async function handleMessage(
 
           // Inject plan mode context
           if (getPlanPhase(chatIdStr) === 'planning') {
-            fullMessage = `[🔍 PLAN MODE — Research & Plan]\nYou are in planning mode. Research the task: read files, search, analyze. Then create a structured plan with steps, files to modify, risks.\nFor complex plans (6+ steps): save to a file and send via SendMedia.\nPresent the plan and ask for approval via AskUser(["Виконувати", "Скоригувати", "Зберегти й вийти", "Вийти з планування"]).\nWrite operations are blocked until approved. Do NOT attempt to execute changes — only plan.\n\n${fullMessage}`
+            fullMessage = `[🔍 PLAN MODE — Research & Plan]\nYou are in planning mode. Research the task: read files, search, analyze. Then create a structured plan with steps, files to modify, risks.\nIMPORTANT: Before asking for approval, ALWAYS publish the full plan via PublishTelegraph (title: "План: <task summary>") and send the link to the user. Then ask for approval via AskUser(["Виконувати", "Скоригувати", "Зберегти й вийти", "Вийти з планування"]).\nWrite operations are blocked until approved. Do NOT attempt to execute changes — only plan.\n\n${fullMessage}`
           } else if (getPlanPhase(chatIdStr) === 'executing') {
             fullMessage = `[⚡ EXECUTING PLAN — approved by user]\nThe user approved your plan. Execute it now. All tools are available.\n\n${fullMessage}`
           }
