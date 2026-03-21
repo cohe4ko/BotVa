@@ -15,6 +15,29 @@ export interface ProvisionParams {
   botName: string
   repoUrl: string
   adminPort: string
+  mcpServers: string[]
+}
+
+function buildMcpCommands(mcpServers: string[]): string {
+  if (mcpServers.length === 0) return 'echo "No MCP servers selected"'
+  const installs = mcpServers.map(name => [
+    `  if [ -f "mcp-servers/${name}/package.json" ]; then`,
+    `    echo "${name}..."`,
+    `    (cd "mcp-servers/${name}" && npm install --silent 2>/dev/null && npm run build --silent 2>/dev/null) || echo "  warning: ${name} failed"`,
+    `  elif [ -f "mcp-servers/${name}/requirements.txt" ]; then`,
+    `    echo "${name}..."`,
+    `    (cd "mcp-servers/${name}" && python3 -m venv venv 2>/dev/null && ./venv/bin/pip install -q -r requirements.txt 2>/dev/null) || echo "  warning: ${name} failed"`,
+    `  fi`,
+  ].join('\n')).join('\n')
+
+  return [
+    `su - botva -c '`,
+    `  ${FNM_PATH}`,
+    `  cd ~/BotVa`,
+    installs,
+    `  echo "Done"`,
+    `'`,
+  ].join('\n')
 }
 
 function interpolate(template: string, params: ProvisionParams): string {
@@ -29,6 +52,7 @@ function interpolate(template: string, params: ProvisionParams): string {
     .replace(/\{\{REPO_URL\}\}/g, params.repoUrl)
     .replace(/\{\{ADMIN_PORT\}\}/g, params.adminPort)
     .replace(/\{\{ADMIN_HOST_LINE\}\}/g, adminHostLine)
+    .replace(/\{\{MCP_INSTALL_COMMANDS\}\}/g, buildMcpCommands(params.mcpServers))
 }
 
 const FNM_PATH = 'export PATH="$HOME/.local/share/fnm/aliases/default/bin:$HOME/.local/share/fnm:$PATH"'
@@ -123,24 +147,8 @@ const rawSteps: Step[] = [
   },
   {
     name: 'MCP сервери',
-    command: [
-      `su - botva -c '`,
-      `  ${FNM_PATH}`,
-      `  cd ~/BotVa`,
-      `  for mcp in mcp-servers/*/; do`,
-      `    [ ! -d "$mcp" ] && continue`,
-      `    name=$(basename "$mcp")`,
-      `    if [ -f "$mcp/package.json" ]; then`,
-      `      echo "$name..."`,
-      `      (cd "$mcp" && npm install --silent 2>/dev/null && npm run build --silent 2>/dev/null) || echo "  warning: $name failed"`,
-      `    elif [ -f "$mcp/requirements.txt" ]; then`,
-      `      echo "$name..."`,
-      `      (cd "$mcp" && python3 -m venv venv 2>/dev/null && ./venv/bin/pip install -q -r requirements.txt 2>/dev/null) || echo "  warning: $name failed"`,
-      `    fi`,
-      `  done`,
-      `  echo "Done"`,
-      `'`,
-    ].join('\n'),
+    skipIf: (p) => p.mcpServers.length === 0,
+    command: '{{MCP_INSTALL_COMMANDS}}',
   },
   {
     name: 'Caddy веб-сервер',
