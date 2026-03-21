@@ -136,6 +136,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'records.extractFacts': 'Extract facts',
     'records.extractFactsDay': 'Extract facts for entire day',
     'records.dayAnalysis': 'Day analysis',
+    'records.noFacts': 'No facts extracted yet. Click "Extract facts" to analyze.',
     'records.saveToBot': 'Save facts to',
     'records.receiverTimeout': 'Receiver offline or timeout',
 
@@ -910,6 +911,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'records.extractFacts': 'Витягти факти',
     'records.extractFactsDay': 'Витягти факти за день',
     'records.dayAnalysis': 'Аналіз за день',
+    'records.noFacts': 'Фактів ще не витягнуто. Натисніть "Витягти факти" для аналізу.',
     'records.saveToBot': 'Зберігати факти в',
     'records.receiverTimeout': 'Receiver офлайн або таймаут',
 

@@ -451,33 +451,57 @@ app.get('/records/:date', (c) => {
       </details>
     ` : ''}
 
-    <div class="stats-grid" style="margin-bottom:1.5rem">
-      <div class="stat-card">
-        <div class="stat-label">${icon('hash', 12)} ${t('records.chunks')}</div>
-        <div class="stat-number">${chunks.length}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">${icon('hard-drive', 12)} ${t('records.audioSize')}</div>
-        <div class="stat-number">${formatSize(totalAudio)}</div>
-      </div>
-    </div>
+    ${(() => {
+      // Collect ALL facts from all chunks + day analysis
+      const allFacts: ReturnType<typeof renderFactItem>[] = []
+      for (const chunk of chunks) {
+        if (!chunk.analyzed) continue
+        const a = chunk.analyzed
+        for (let i = 0; i < (a.facts?.length ?? 0); i++)
+          allFacts.push(renderFactItem(a.facts[i], '💡', chunk.timestamp, 'fact', i, reviewItems))
+        for (let i = 0; i < (a.decisions?.length ?? 0); i++)
+          allFacts.push(renderFactItem(a.decisions[i], '✅', chunk.timestamp, 'decision', i, reviewItems))
+        for (let i = 0; i < (a.tasks?.length ?? 0); i++)
+          allFacts.push(renderFactItem(a.tasks[i], '📌', chunk.timestamp, 'task', i, reviewItems))
+      }
+      if (dayAnalysis) {
+        const a = dayAnalysis
+        const ts = `${date}T00-00-00`
+        for (let i = 0; i < (a.facts?.length ?? 0); i++)
+          allFacts.push(renderFactItem(a.facts[i], '💡', ts, 'fact', i, reviewItems))
+        for (let i = 0; i < (a.decisions?.length ?? 0); i++)
+          allFacts.push(renderFactItem(a.decisions[i], '✅', ts, 'decision', i, reviewItems))
+        for (let i = 0; i < (a.tasks?.length ?? 0); i++)
+          allFacts.push(renderFactItem(a.tasks[i], '📌', ts, 'task', i, reviewItems))
+      }
 
-    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap">
+      return html`
+        <div style="background:var(--mc-bg-secondary);border:2px solid var(--mc-accent, #4a9eff);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.5rem">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
+            <strong>${icon('zap')} ${t('records.dayAnalysis')}</strong>
+            <span style="font-size:0.75rem;color:var(--mc-text-dim)">${allFacts.length} items</span>
+            <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+              <select id="target-bot" style="height:28px;padding:0 0.4rem;font-size:0.75rem;border-radius:4px;border:1px solid var(--mc-border);background:var(--mc-bg);color:var(--mc-text)">
+                ${getBotNames().map(b => html`<option value="${b}">${b}</option>`)}
+              </select>
+              ${chunks.length > 0 ? html`
+                <button
+                  class="btn-sm"
+                  style="padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer"
+                  id="analyze-day-btn"
+                  onclick="reanalyzeDay('${date}')"
+                >${icon('zap', 11)} ${t('records.extractFactsDay')}</button>
+              ` : ''}
+            </div>
+          </div>
+          ${allFacts.length > 0 ? html`<div>${allFacts}</div>` : html`<div style="font-size:0.82rem;color:var(--mc-text-dim);padding:0.3rem 0">${t('records.noFacts')}</div>`}
+        </div>
+      `
+    })()}
+
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem">
       <h3 style="margin:0">${icon('list')} ${t('records.timeline')}</h3>
-      <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
-        <label style="font-size:0.75rem;color:var(--mc-text-dim)">${t('records.saveToBot')}:</label>
-        <select id="target-bot" style="height:28px;padding:0 0.4rem;font-size:0.75rem;border-radius:4px;border:1px solid var(--mc-border);background:var(--mc-bg);color:var(--mc-text)">
-          ${getBotNames().map(b => html`<option value="${b}">${b}</option>`)}
-        </select>
-        ${chunks.length > 0 ? html`
-          <button
-            class="btn-sm"
-            style="padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer"
-            id="analyze-day-btn"
-            onclick="reanalyzeDay('${date}')"
-          >${icon('zap', 11)} ${t('records.extractFactsDay')}</button>
-        ` : ''}
-      </div>
+      <span style="font-size:0.75rem;color:var(--mc-text-dim)">${chunks.length} chunks · ${formatSize(totalAudio)}</span>
     </div>
     ${chunks.length === 0
       ? html`<p style="color:var(--mc-text-dim)">${t('records.noTranscripts')}</p>`
@@ -540,20 +564,9 @@ app.get('/records/:date', (c) => {
             >${icon('zap', 10)} ${t('records.extractFacts')}</button>
           </div>
 
-          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, chunk.timestamp, reviewItems, t) : ''}
         </div>
       `)
     }
-
-    ${dayAnalysis ? html`
-      <div style="background:var(--mc-bg-secondary);border:2px solid var(--mc-accent, #4a9eff);border-radius:8px;padding:0.75rem 1rem;margin-top:1rem">
-        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
-          <strong>${icon('zap')} ${t('records.dayAnalysis')}</strong>
-          <span class="badge" style="font-size:0.7rem">${icon('cpu', 10)} all chunks</span>
-        </div>
-        ${renderAnalyzed(dayAnalysis, `${date}T00-00-00`, reviewItems, t)}
-      </div>
-    ` : ''}
   `
 
   const retranscribeScript = html`
@@ -575,7 +588,7 @@ app.get('/records/:date', (c) => {
         const data = await res.json();
         if (data.ok) {
           btn.innerHTML = '✅';
-          setTimeout(() => location.reload(), 800);
+          setTimeout(() => reloadWithBot(), 800);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
@@ -600,7 +613,7 @@ app.get('/records/:date', (c) => {
         const data = await res.json();
         if (data.ok) {
           btn.innerHTML = '✅ ' + data.facts + ' facts';
-          setTimeout(() => location.reload(), 1000);
+          setTimeout(() => reloadWithBot(), 1000);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
@@ -610,8 +623,24 @@ app.get('/records/:date', (c) => {
         setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
       }
     }
+    // Persist bot selection in URL
+    function getSelectedBot() { return document.getElementById('target-bot').value; }
+    function reloadWithBot() {
+      const url = new URL(location.href);
+      url.searchParams.set('bot', getSelectedBot());
+      location.href = url.toString();
+    }
+    // Restore bot from URL on load
+    (function() {
+      const p = new URLSearchParams(location.search).get('bot');
+      if (p) {
+        const sel = document.getElementById('target-bot');
+        if (sel) { for (const o of sel.options) { if (o.value === p) { sel.value = p; break; } } }
+      }
+    })();
+
     async function reviewFact(id, status) {
-      const bot = document.getElementById('target-bot').value;
+      const bot = getSelectedBot();
       try {
         const res = await fetch('/records/review-fact', {
           method: 'POST',
@@ -619,9 +648,7 @@ app.get('/records/:date', (c) => {
           body: JSON.stringify({ id, status, bot })
         });
         const data = await res.json();
-        if (data.ok) {
-          location.reload();
-        }
+        if (data.ok) { reloadWithBot(); }
       } catch (e) {}
     }
     async function reanalyze(date, file, baseId) {
@@ -639,7 +666,7 @@ app.get('/records/:date', (c) => {
         const data = await res.json();
         if (data.ok) {
           btn.innerHTML = '✅ ' + data.facts + ' items';
-          setTimeout(() => location.reload(), 1000);
+          setTimeout(() => reloadWithBot(), 1000);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
