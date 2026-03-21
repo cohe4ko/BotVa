@@ -98,8 +98,18 @@ function getChunksForDate(date: string): TranscriptChunk[] {
   const files = safeFileList(transcriptsDir, '.json')
 
   return files.map(filename => {
-    const data = safeReadJson(join(transcriptsDir, filename))
+    const filePath = join(transcriptsDir, filename)
+    const data = safeReadJson(filePath)
     if (!data) return null
+
+    // Clean hallucinations on read and persist
+    if (data.text) {
+      const cleaned = cleanWhisperHallucinations(data.text)
+      if (cleaned !== data.text) {
+        data.text = cleaned
+        try { writeFileSync(filePath, JSON.stringify(data, null, 2)) } catch {}
+      }
+    }
 
     const baseName = filename.replace(/\.json$/, '')
     const audioFile = existsSync(join(audioDir, `${baseName}.ogg`))
@@ -678,8 +688,8 @@ function renderFactItem(rawItem: string | AnalysisItem, typeIcon: string, timest
 }
 
 function renderAnalyzed(analyzed: any, timestamp: string, reviewItems: FactReviewItem[], t: TFunc) {
-  const { facts, decisions, tasks, topics, summary: aSummary } = analyzed
-  const hasData = (facts?.length || decisions?.length || tasks?.length || topics?.length || aSummary)
+  const { facts, decisions, tasks } = analyzed
+  const hasData = (facts?.length || decisions?.length || tasks?.length)
   if (!hasData) return ''
 
   const allItems = [
@@ -689,20 +699,8 @@ function renderAnalyzed(analyzed: any, timestamp: string, reviewItems: FactRevie
   ]
 
   return html`
-    <div style="margin-top:0.4rem">
-      ${aSummary ? html`
-        <div style="font-size:0.82rem;color:var(--mc-text-secondary);margin-bottom:0.3rem">${icon('align-left', 11)} ${aSummary}</div>
-      ` : ''}
-      ${topics?.length ? html`
-        <div style="margin-bottom:0.3rem">
-          ${topics.map((tp: string) => html`<span class="badge" style="font-size:0.65rem;margin-right:0.2rem">${tp}</span>`)}
-        </div>
-      ` : ''}
-      ${allItems.length > 0 ? html`
-        <div style="border-top:1px solid var(--mc-border);padding-top:0.25rem">
-          ${allItems}
-        </div>
-      ` : ''}
+    <div style="margin-top:0.4rem;border-top:1px solid var(--mc-border);padding-top:0.25rem">
+      ${allItems}
     </div>
   `
 }

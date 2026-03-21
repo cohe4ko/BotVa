@@ -53,7 +53,6 @@ JSON response:
   "decisions": [{"text": "decision content", "topic": "one-word-english-topic", "tags": "tags", "time": "HH:MM"}],
   "tasks": [{"text": "task content", "topic": "one-word-english-topic", "tags": "tags", "time": "HH:MM"}],
   "topics": ["one-word English topics for this chunk"],
-  "summary": "2-3 sentence summary",
   "language": "primary language code (uk, en, ru, etc.)"
 }
 
