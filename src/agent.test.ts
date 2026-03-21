@@ -62,14 +62,14 @@ vi.mock('./request-queue.js', () => ({
   createAbortController: vi.fn(() => mockAbortController),
   setActiveQuery: vi.fn(),
   clearActiveQuery: vi.fn(),
-  isCancelled: (...args: any[]) => mockIsCancelled(...args),
-  isInterrupted: (...args: any[]) => mockIsInterrupted(...args),
+  isCancelled: (...args: unknown[]) => (mockIsCancelled as Function)(...args),
+  isInterrupted: (...args: unknown[]) => (mockIsInterrupted as Function)(...args),
 }))
 
 // Mock the SDK query function — yields events in sequence
 const mockQuery = vi.fn()
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: (...args: any[]) => mockQuery(...args),
+  query: (...args: unknown[]) => (mockQuery as Function)(...args),
 }))
 
 import { runAgent } from './agent.js'

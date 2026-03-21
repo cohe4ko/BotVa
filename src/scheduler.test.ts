@@ -6,20 +6,20 @@ vi.mock('./logger.js', () => ({
   logger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }))
 
-const mockGetDueTasks = vi.fn(() => [])
+const mockGetDueTasks = vi.fn((): any[] => [])
 const mockUpdateTaskAfterRun = vi.fn()
-const mockGetDueReminders = vi.fn(() => [])
+const mockGetDueReminders = vi.fn((): any[] => [])
 const mockMarkReminderSent = vi.fn()
 vi.mock('./db.js', () => ({
   getDueTasks: () => mockGetDueTasks(),
-  updateTaskAfterRun: (...args: any[]) => mockUpdateTaskAfterRun(...args),
+  updateTaskAfterRun: (...args: unknown[]) => (mockUpdateTaskAfterRun as Function)(...args),
   getDueReminders: () => mockGetDueReminders(),
-  markReminderSent: (...args: any[]) => mockMarkReminderSent(...args),
+  markReminderSent: (...args: unknown[]) => (mockMarkReminderSent as Function)(...args),
 }))
 
 const mockRunAgent = vi.fn(async () => ({ text: 'agent result', newSessionId: undefined, usage: undefined }))
 vi.mock('./agent.js', () => ({
-  runAgent: (...args: any[]) => mockRunAgent(...args),
+  runAgent: (...args: unknown[]) => (mockRunAgent as Function)(...args),
 }))
 
 vi.mock('./builtin-tools.js', () => ({
