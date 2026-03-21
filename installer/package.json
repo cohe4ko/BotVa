@@ -8,7 +8,7 @@
     "dev": "tsx --watch src/server.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",
