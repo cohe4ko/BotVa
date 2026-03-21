@@ -415,6 +415,32 @@ function applyI18n() {
   });
 }
 
+// ---- Session storage ----
+const FIELDS = ['ip', 'password', 'domain', 'admin-port', 'bot-token', 'chat-id', 'bot-name', 'repo-url'];
+const SS_KEY = 'botva-installer';
+
+function saveFields() {
+  const data = {};
+  FIELDS.forEach(id => { data[id] = document.getElementById(id)?.value || ''; });
+  sessionStorage.setItem(SS_KEY, JSON.stringify(data));
+}
+
+function restoreFields() {
+  try {
+    const data = JSON.parse(sessionStorage.getItem(SS_KEY) || '{}');
+    FIELDS.forEach(id => {
+      if (data[id] && document.getElementById(id)) {
+        document.getElementById(id).value = data[id];
+      }
+    });
+  } catch {}
+}
+
+// Auto-save on input
+document.addEventListener('input', (e) => {
+  if (FIELDS.includes(e.target?.id)) saveFields();
+});
+
 // ---- App ----
 const $ = (s) => document.getElementById(s);
 let ws = null;
@@ -575,6 +601,7 @@ function startInstall() {
 
 // Init
 setLang(lang);
+restoreFields();
 </script>
 </body>
 </html>
