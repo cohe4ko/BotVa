@@ -15,6 +15,7 @@ export interface ProvisionParams {
   botName: string
   repoUrl: string
   adminPort: string
+  groqKey: string
   mcpServers: string[]
 }
 
@@ -52,6 +53,7 @@ function interpolate(template: string, params: ProvisionParams): string {
     .replace(/\{\{REPO_URL\}\}/g, params.repoUrl)
     .replace(/\{\{ADMIN_PORT\}\}/g, params.adminPort)
     .replace(/\{\{ADMIN_HOST_LINE\}\}/g, adminHostLine)
+    .replace(/\{\{GROQ_LINE\}\}/g, params.groqKey ? `GROQ_API_KEY=${params.groqKey}` : '')
     .replace(/\{\{MCP_INSTALL_COMMANDS\}\}/g, buildMcpCommands(params.mcpServers))
 }
 
@@ -184,6 +186,7 @@ const rawSteps: Step[] = [
       `  cat > bots/{{BOT_NAME}}/.env <<ENVEOF`,
       `TELEGRAM_BOT_TOKEN={{BOT_TOKEN}}`,
       `ALLOWED_CHAT_ID={{CHAT_ID}}`,
+      `{{GROQ_LINE}}`,
       `ENVEOF`,
       `  ADMIN_TOKEN=$(head -c 16 /dev/urandom | od -A n -t x1 | tr -d " \\n")`,
       `  cat > .env <<ENVEOF`,
@@ -219,14 +222,17 @@ const rawSteps: Step[] = [
       `  systemctl --user list-units "botva-*" --no-pager`,
       `  echo ""`,
       `  echo "=== Bot logs ==="`,
-      `  tail -20 ~/BotVa/workspace/logs/botva-*.log 2>/dev/null || echo "No logs yet"`,
-      `  echo ""`,
-      `  echo "Starting admin panel..."`,
-      `  cd ~/BotVa && ADMIN_TOKEN=$(grep ADMIN_TOKEN .env | cut -d= -f2) ADMIN_PORT={{ADMIN_PORT}} node dist/admin/server.js > workspace/logs/botva-admin.log 2>&1 &`,
-      `  sleep 2`,
-      `  echo "Admin panel running on port {{ADMIN_PORT}}"`,
+      `  tail -20 ~/BotVa/workspace/logs/botva-*.log 2>/dev/null || echo "Waiting for logs..."`,
       `'`,
-      'echo "Services configured and started"',
+      'echo ""',
+      'echo "========================================="',
+      'echo "  BotVa installed successfully!"',
+      'echo "========================================="',
+      'echo ""',
+      'echo "Next steps:"',
+      'echo "  1. Open Telegram and send /start to your bot"',
+      'echo "  2. Send /admin to open the admin panel"',
+      'echo ""',
     ].join('\n'),
   },
 ]

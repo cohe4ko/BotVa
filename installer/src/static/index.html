@@ -266,9 +266,19 @@ input::placeholder { color: var(--text-muted); }
 
     <div class="form-group">
       <label for="chat-id">Chat ID</label>
-      <div class="hint" data-i18n="chatid_hint"></div>
-      <input type="text" id="chat-id" placeholder="123456789" autocomplete="off">
+      <div class="hint" data-i18n-html="chatid_hint"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="chat-id" placeholder="123456789" autocomplete="off" style="flex:1">
+        <button class="btn btn-secondary" onclick="fetchChatId()" id="chatid-btn" style="width:auto;margin:0;padding:10px 16px" data-i18n="chatid_fetch"></button>
+      </div>
       <div class="error-text" id="chat-id-error" data-i18n="chatid_error"></div>
+      <div class="hint" id="chatid-status" style="margin-top:4px"></div>
+    </div>
+
+    <div class="form-group">
+      <label for="groq-key" data-i18n="groq_label"></label>
+      <div class="hint" data-i18n-html="groq_hint"></div>
+      <input type="text" id="groq-key" placeholder="gsk_..." autocomplete="off">
     </div>
 
     <div class="form-group">
@@ -357,8 +367,15 @@ const i18n = {
     bot_3: 'Скопіюйте токен (довгий рядок з двокрапкою)',
     bot_4: 'Надішліть <code>/start</code> вашому боту, потім відкрийте <code>api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> — знайдіть chat ID',
     token_error: 'Токен має формат 123456789:ABC...',
-    chatid_hint: 'Ваш Telegram user ID (числове значення)',
+    chatid_hint: 'Надішліть <b>/start</b> вашому боту в Telegram, потім натисніть "Отримати"',
     chatid_error: 'Chat ID — це число',
+    chatid_fetch: 'Отримати',
+    chatid_searching: 'Шукаю...',
+    chatid_not_found: 'Не знайдено. Надішліть /start боту і спробуйте знову.',
+    chatid_found: 'Знайдено!',
+    chatid_no_token: 'Спочатку введіть Bot Token',
+    groq_label: 'Groq API Key (опціонально)',
+    groq_hint: 'Для розпізнавання голосових повідомлень. Безкоштовно: <a href="https://console.groq.com" target="_blank">console.groq.com</a>',
     botname_label: "Ім'я бота",
     botname_hint: 'Латиницею, без пробілів — буде назвою папки',
     botname_error: 'Тільки латиниця, цифри, дефіс',
@@ -373,7 +390,7 @@ const i18n = {
     mcp_manager: '— координація ботів менеджером',
     action_needed: 'Потрібна ваша дія!',
     done_success: 'BotVa встановлено!',
-    done_open: 'Відкрийте посилання, щоб налаштувати бота.',
+    done_next: 'Відкрийте Telegram → надішліть <b>/start</b> вашому боту → потім <b>/admin</b> для відкриття адмін-панелі.',
     done_error: 'Помилка встановлення',
     download_log: 'Завантажити лог',
     ws_error: 'WebSocket помилка з\'єднання',
@@ -404,8 +421,15 @@ const i18n = {
     bot_3: 'Copy the token (a long string with a colon)',
     bot_4: 'Send <code>/start</code> to your bot, then open <code>api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> — find the chat ID',
     token_error: 'Token must have the format 123456789:ABC...',
-    chatid_hint: 'Your Telegram user ID (numeric value)',
+    chatid_hint: 'Send <b>/start</b> to your bot in Telegram, then click "Fetch"',
     chatid_error: 'Chat ID must be a number',
+    chatid_fetch: 'Fetch',
+    chatid_searching: 'Searching...',
+    chatid_not_found: 'Not found. Send /start to the bot and try again.',
+    chatid_found: 'Found!',
+    chatid_no_token: 'Enter Bot Token first',
+    groq_label: 'Groq API Key (optional)',
+    groq_hint: 'For voice message transcription. Free: <a href="https://console.groq.com" target="_blank">console.groq.com</a>',
     botname_label: 'Bot name',
     botname_hint: 'Latin letters, no spaces — will be the folder name',
     botname_error: 'Only Latin letters, digits, hyphens',
@@ -420,7 +444,7 @@ const i18n = {
     mcp_manager: '— bot coordination by manager',
     action_needed: 'Action required!',
     done_success: 'BotVa installed!',
-    done_open: 'Open the link to configure your bot.',
+    done_next: 'Open Telegram → send <b>/start</b> to your bot → then <b>/admin</b> to open the admin panel.',
     done_error: 'Installation error',
     download_log: 'Download log',
     ws_error: 'WebSocket connection error',
@@ -455,7 +479,7 @@ function applyI18n() {
 }
 
 // ---- Session storage ----
-const FIELDS = ['ip', 'password', 'domain', 'admin-port', 'bot-token', 'chat-id', 'bot-name', 'repo-url'];
+const FIELDS = ['ip', 'password', 'domain', 'admin-port', 'bot-token', 'chat-id', 'groq-key', 'bot-name', 'repo-url'];
 const MCP_IDS = ['mcp-bitrix24', 'mcp-meta-ads-mcp', 'mcp-pubmed', 'mcp-colleague', 'mcp-manager'];
 const SS_KEY = 'botva-installer';
 
@@ -545,6 +569,40 @@ function goToStep(num) {
   }
 }
 
+async function fetchChatId() {
+  const token = $('bot-token').value.trim();
+  const status = $('chatid-status');
+  if (!token || !/^\d+:.+$/.test(token)) {
+    status.textContent = t('chatid_no_token');
+    status.style.color = 'var(--red)';
+    return;
+  }
+  status.textContent = t('chatid_searching');
+  status.style.color = 'var(--text-muted)';
+  $('chatid-btn').disabled = true;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
+    const data = await res.json();
+    if (data.ok && data.result && data.result.length > 0) {
+      const chatId = data.result[0].message?.chat?.id || data.result[0].my_chat_member?.chat?.id;
+      if (chatId) {
+        $('chat-id').value = chatId;
+        status.textContent = t('chatid_found');
+        status.style.color = 'var(--green)';
+        saveFields();
+        return;
+      }
+    }
+    status.textContent = t('chatid_not_found');
+    status.style.color = 'var(--yellow)';
+  } catch {
+    status.textContent = t('chatid_not_found');
+    status.style.color = 'var(--red)';
+  } finally {
+    $('chatid-btn').disabled = false;
+  }
+}
+
 let installLog = '';
 
 function downloadLog() {
@@ -595,6 +653,7 @@ function startInstall() {
         botName: $('bot-name').value.trim(),
         repoUrl: $('repo-url').value.trim(),
         adminPort: $('admin-port').value.trim() || '3000',
+        groqKey: $('groq-key').value.trim(),
         mcpServers: ['bitrix24', 'meta-ads-mcp', 'pubmed', 'colleague', 'manager']
           .filter(name => document.getElementById('mcp-' + name)?.checked),
       }
@@ -648,8 +707,7 @@ function startInstall() {
           banner.classList.add('success');
           $('done-title').textContent = t('done_success');
           $('done-text').innerHTML = `
-            Admin panel: <a href="${msg.message}" target="_blank">${msg.message}</a><br><br>
-            ${t('done_open')}<br><br>
+            ${t('done_next')}<br><br>
             <button class="btn btn-secondary" onclick="downloadLog()" style="width:auto;margin-top:8px">&#128196; ${t('download_log')}</button>
           `;
         } else {
