@@ -40,7 +40,7 @@ const rawSteps: Step[] = [
   },
   {
     name: 'Системні пакети',
-    command: 'apt install -y git curl unzip build-essential python3 python3-venv jq',
+    command: 'apt install -y git curl unzip build-essential python3 python3-venv jq systemd-container',
   },
   {
     name: 'Swap 2GB',
@@ -187,12 +187,20 @@ const rawSteps: Step[] = [
   {
     name: 'Systemd + запуск',
     command: [
+      '# Enable linger so user services run without login session',
+      'loginctl enable-linger botva',
+      '',
+      '# Set XDG_RUNTIME_DIR for systemctl --user to work via su',
+      'BOTVA_UID=$(id -u botva)',
+      'export XDG_RUNTIME_DIR=/run/user/$BOTVA_UID',
+      '',
+      '# Install systemd services and start',
       `su - botva -c '`,
       `  ${FNM_PATH}`,
+      `  export XDG_RUNTIME_DIR=/run/user/$(id -u)`,
       `  cd ~/BotVa && bash scripts/deploy.sh systemd`,
       `'`,
-      'loginctl enable-linger botva',
-      'echo "Services started, linger enabled"',
+      'echo "Services configured and started"',
     ].join('\n'),
   },
 ]
