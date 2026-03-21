@@ -64,13 +64,20 @@ export async function runDueTasks(): Promise<void> {
         await sender(task.chat_id, `⏰ Виконую заплановану задачу: ${task.prompt.slice(0, 100)}...`)
       }
 
-      // Create builtin MCP server for this task (provides WebSearch, TextToSpeech, SendMedia, etc.)
+      // Create builtin MCP server with minimal tools to save context window
+      // Full set = 60+ tools (~20K tokens). Scheduler only needs essentials.
+      const SCHEDULER_TOOLS = [
+        'SearchMemory', 'SaveFact', 'GetCurrentTime',
+        'SendMedia', 'TextToSpeech', 'PublishTelegraph',
+        'GenerateImage', 'CurrencyRates', 'RunPython',
+        'ReadWorkspaceFile',
+      ]
       let builtinServer: any = undefined
       if (botApi) {
         try {
           const { createBuiltinMcpServer } = await import('./builtin-tools.js')
           const ctx = createSchedulerCtx(botApi, Number(task.chat_id))
-          const builtin = await createBuiltinMcpServer(ctx, Number(task.chat_id))
+          const builtin = await createBuiltinMcpServer(ctx, Number(task.chat_id), undefined, SCHEDULER_TOOLS)
           builtinServer = builtin?.server
         } catch (err) {
           logger.warn({ err, taskId: task.id }, 'Failed to create builtin MCP for scheduled task, running without')

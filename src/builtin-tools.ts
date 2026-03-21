@@ -149,7 +149,7 @@ export interface BuiltinToolsResult {
   cleanup?: () => void
 }
 
-export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUser?: AskUserCallback): Promise<BuiltinToolsResult | null> {
+export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUser?: AskUserCallback, toolAllowList?: string[]): Promise<BuiltinToolsResult | null> {
   const env = readEnvFile()
   const usedTools = new Set<string>()
   const tools: SdkMcpToolDefinition<any>[] = []
@@ -158,8 +158,8 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   const hasGoogleApi = !!env['GOOGLE_API_KEY']
   const hasPublish = !!env['PUBLISH_BASE_URL']
 
-  // Helper: only register tool if enabled in config
-  const isOn = (name: string) => config[name] !== false
+  // Helper: only register tool if enabled in config AND in allowList (if provided)
+  const isOn = (name: string) => config[name] !== false && (!toolAllowList || toolAllowList.includes(name))
 
   // --- Image generation tools (require GOOGLE_API_KEY) ---
 
