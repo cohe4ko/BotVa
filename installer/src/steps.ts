@@ -36,7 +36,15 @@ const FNM_PATH = 'export PATH="$HOME/.local/share/fnm/aliases/default/bin:$HOME/
 const rawSteps: Step[] = [
   {
     name: 'Оновлення системи',
-    command: 'apt update && DEBIAN_FRONTEND=noninteractive apt upgrade -y',
+    command: [
+      '# Wait for automatic apt to finish (fresh droplets run unattended-upgrades)',
+      'echo "Waiting for apt lock..."',
+      'while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend 2>/dev/null; do',
+      '  sleep 2',
+      'done',
+      'echo "apt is free"',
+      'apt update && DEBIAN_FRONTEND=noninteractive apt upgrade -y',
+    ].join('\n'),
   },
   {
     name: 'Системні пакети',
