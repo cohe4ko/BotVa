@@ -307,7 +307,7 @@ app.get('/terminal', (c) => {
         }
 
         // Filter terminal response sequences
-        var termResponseRe = /^\\x1b\\[\\??[\\d;]*[c-zC-Z]$/;
+        var termResponseRe = /^\\x1b\\[\\??[\\d;]*[cI]$/;
         term.onData(function(data) {
           if (termResponseRe.test(data)) return;
           if (ws && ws.readyState === 1) ws.send(data);
