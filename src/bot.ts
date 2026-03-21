@@ -1534,8 +1534,15 @@ export function createBot(): Bot {
       const chatIdStr = String(ctx.chat?.id)
       if (!isAuthorised(ctx.chat!.id)) return
       const modelId = ctx.callbackQuery.data.replace('model:', '')
-      const validIds = MODELS.map(m => m.id)
       const _t = chatT(chatIdStr)
+
+      if (modelId === 'close') {
+        await ctx.answerCallbackQuery()
+        try { await ctx.deleteMessage() } catch { /* ignore */ }
+        return
+      }
+
+      const validIds = MODELS.map(m => m.id)
       if (!validIds.includes(modelId)) {
         await ctx.answerCallbackQuery({ text: _t('cb.unknownModel') })
         return
@@ -1544,15 +1551,20 @@ export function createBot(): Bot {
       const label = getModelLabel(modelId)
       await ctx.answerCallbackQuery({ text: _t('cmd.model.set', { label }) })
 
-      // Update the message with new selection
+      // Update the message with new selection — 2 columns + close
       const lines = MODELS.map(m => {
         const marker = m.id === modelId ? '→' : '  '
         return `${marker} <b>${m.label}</b> — ${_t(`model.${m.id}`)}`
       })
-      const keyboard = MODELS.map(m => {
+      const buttons = MODELS.map(m => {
         const btnLabel = m.id === modelId ? `✓ ${m.label}` : m.label
-        return [{ text: btnLabel, callback_data: `model:${m.id}` }]
+        return { text: btnLabel, callback_data: `model:${m.id}` }
       })
+      const keyboard: { text: string; callback_data: string }[][] = []
+      for (let i = 0; i < buttons.length; i += 2) {
+        keyboard.push(buttons.slice(i, i + 2))
+      }
+      keyboard.push([{ text: `❌ ${_t('settings.close')}`, callback_data: 'model:close' }])
       await ctx.editMessageText(
         `${_t('cmd.model.title', { label })}\n\n${lines.join('\n')}`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
@@ -1792,11 +1804,16 @@ export function createBot(): Bot {
       return
     }
 
-    // Interactive keyboard
-    const keyboard = MODELS.map(m => {
+    // Interactive keyboard — 2 columns, close button
+    const buttons = MODELS.map(m => {
       const label = m.id === currentModel ? `✓ ${m.label}` : m.label
-      return [{ text: label, callback_data: `model:${m.id}` }]
+      return { text: label, callback_data: `model:${m.id}` }
     })
+    const keyboard: { text: string; callback_data: string }[][] = []
+    for (let i = 0; i < buttons.length; i += 2) {
+      keyboard.push(buttons.slice(i, i + 2))
+    }
+    keyboard.push([{ text: `❌ ${t('settings.close')}`, callback_data: 'model:close' }])
 
     const lines = MODELS.map(m => {
       const marker = m.id === currentModel ? '→' : '  '
