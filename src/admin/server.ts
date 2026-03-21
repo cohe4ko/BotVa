@@ -27,6 +27,7 @@ import templates from './routes/templates.js'
 import terminal from './routes/terminal.js'
 import records from './routes/records.js'
 import { attachTerminalWS } from './terminal-ws.js'
+import { logger } from '../logger.js'
 
 export function createAdminApp(): Hono<I18nEnv> {
   const app = new Hono<I18nEnv>()
@@ -92,7 +93,7 @@ if (isDirectRun) {
   function resetIdleTimer() {
     if (idleTimer) clearTimeout(idleTimer)
     idleTimer = setTimeout(() => {
-      console.log('\n  Admin panel: 20 min inactivity, shutting down...')
+      logger.info('Admin panel: 20 min inactivity, shutting down...')
       process.exit(0)
     }, IDLE_TIMEOUT_MS)
   }
@@ -107,15 +108,15 @@ if (isDirectRun) {
 
   // Prevent crashes from killing admin
   process.on('uncaughtException', (err) => {
-    console.error('Admin uncaughtException:', err)
+    logger.error({ err }, 'Admin uncaughtException')
   })
   process.on('unhandledRejection', (err) => {
-    console.error('Admin unhandledRejection:', err)
+    logger.error({ err }, 'Admin unhandledRejection')
   })
 
   resetIdleTimer()
   const host = process.env.ADMIN_HOST || `http://localhost:${port}`
-  console.log(`\n  BotVa Admin Panel\n  ${host}\n  Auto-shutdown after 20 min inactivity\n`)
+  logger.info({ host }, 'BotVa Admin Panel started (auto-shutdown after 20 min inactivity)')
   const httpServer = serve({ fetch: wrappedFetch as any, port, hostname: '0.0.0.0' })
 
   // Attach WebSocket for terminal

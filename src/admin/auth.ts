@@ -4,9 +4,10 @@ import type { Context, Next } from 'hono'
 import type { HtmlEscapedString } from 'hono/utils/html'
 import type { TFunc } from './i18n.js'
 import { createT, getLang } from './i18n.js'
+import { logger } from '../logger.js'
 
 const TOKEN = process.env.ADMIN_TOKEN ?? ''
-if (!TOKEN) console.warn('[admin] WARNING: ADMIN_TOKEN is not set — admin panel has no auth protection')
+if (!TOKEN) logger.warn('[admin] ADMIN_TOKEN is not set — admin panel has no auth protection')
 
 // Port-scoped cookie names to avoid conflicts when multiple instances run on same host
 const PORT = process.env.ADMIN_PORT || '3000'

@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import { chmodSync, mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync, existsSync } from 'fs'
 import { join } from 'path'
 import { validateAuthFromCookieHeader } from './auth.js'
+import { logger } from '../logger.js'
 
 const MAX_TERMINALS = 5
 const SCROLLBACK_LIMIT = 100_000
@@ -37,7 +38,7 @@ function saveMeta(session: TermSession): void {
   try {
     ensureDir()
     writeFileSync(join(SESSIONS_DIR, `${session.id}.json`), JSON.stringify({ id: session.id, createdAt: session.createdAt }))
-  } catch (err) { console.error('[terminal] saveMeta:', err) }
+  } catch (err) { logger.error({ err }, '[terminal] saveMeta') }
 }
 
 function saveScrollback(session: TermSession): void {
@@ -46,7 +47,7 @@ function saveScrollback(session: TermSession): void {
     ensureDir()
     writeFileSync(join(SESSIONS_DIR, `${session.id}.log`), session.scrollback)
     session.dirty = false
-  } catch (err) { console.error('[terminal] saveScrollback:', err) }
+  } catch (err) { logger.error({ err }, '[terminal] saveScrollback') }
 }
 
 function deletePersisted(id: string): void {

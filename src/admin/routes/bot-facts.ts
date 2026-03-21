@@ -7,6 +7,7 @@ import { validateBot, botName } from '../bot-middleware.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { logger } from '../../logger.js'
 
 const app = new Hono<I18nEnv>()
 const PAGE_SIZE = 30
@@ -511,7 +512,7 @@ Return ONLY the JSON array.`
         // Extract JSON array from response
         const jsonMatch = resultText.match(/\[[\s\S]*\]/)
         if (!jsonMatch) {
-          console.error(`[rebuild-facts] No JSON in response for ${file.name}`)
+          logger.error({ file: file.name }, '[rebuild-facts] No JSON in response')
           continue
         }
 
@@ -534,14 +535,14 @@ Return ONLY the JSON array.`
           try { db.exec("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')") } catch { /* ignore */ }
         } catch (dbErr) {
           db.exec('ROLLBACK')
-          console.error(`[rebuild-facts] DB error for ${file.name}:`, dbErr)
+          logger.error({ err: dbErr, file: file.name }, '[rebuild-facts] DB error')
         }
 
         state.factsAdded = countFactsInDb(bot) - factsBefore
       } catch (err) {
         if (state.abort.signal.aborted) break
         const errMsg = err instanceof Error ? err.message : String(err)
-        console.error(`[rebuild-facts] Error processing ${file.name}:`, errMsg)
+        logger.error({ file: file.name, error: errMsg }, '[rebuild-facts] Error processing file')
         state.error = `${file.name}: ${errMsg}`
       }
     }
@@ -550,7 +551,7 @@ Return ONLY the JSON array.`
       state.status = 'done'
     }
   } catch (err) {
-    console.error('[rebuild-facts] Fatal error:', err instanceof Error ? err.message : err)
+    logger.error({ err }, '[rebuild-facts] Fatal error')
     state.status = 'error'
     state.error = err instanceof Error ? err.message : String(err)
   }
