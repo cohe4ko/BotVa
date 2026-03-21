@@ -553,6 +553,7 @@ app.get('/records/:date', (c) => {
             >${icon('zap', 10)} ${t('records.extractFacts')}</button>
           </div>
 
+          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, chunk.timestamp, reviewItems, t) : ''}
         </div>
       `)
     }
