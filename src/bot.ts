@@ -1059,16 +1059,19 @@ export function createBot(): Bot {
           const tags = [...item.topics, item.device, 'listener'].join(',')
           const timePrefix = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, ' $1:$2')
           const content = `[${timePrefix}] ${item.content}`
-          insertFact(chatIdStr, content, topic, sector, tags, 'listener', importance)
+          const factId2 = insertFact(chatIdStr, content, topic, sector, tags, 'listener', importance)
           // Fire-and-forget: generate embedding
           Promise.all([import('./embeddings.js'), import('./db.js')]).then(async ([{ embed }, { updateFactEmbedding }]) => {
             const emb = await embed(content, 'passage')
-            if (emb) {
-              const facts = (await import('./db.js')).getFactsByTopic(chatIdStr, topic, 1)
-              const last = facts[facts.length - 1]
-              if (last) updateFactEmbedding(last.id, emb)
-            }
+            if (emb) updateFactEmbedding(factId2, emb)
           }).catch(() => {})
+          // Notify: fact saved to memory
+          try {
+            await ctx.api.sendMessage(ctx.chat!.id,
+              `🧠 <b>#${factId2}</b> [${sector}] <b>${topic}</b>\n${content}\n<i>${tags}</i>`,
+              { parse_mode: 'HTML' }
+            )
+          } catch {}
         }
         await ctx.answerCallbackQuery({ text: '✅' })
         try {
