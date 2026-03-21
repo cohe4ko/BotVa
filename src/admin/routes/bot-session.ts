@@ -63,16 +63,16 @@ app.get('/bot/:name/session/:sessionId', validateBot, (c) => {
 
   if (!session) {
     const content = html`
-      ${botNav(name, 'settings', t)}
+      ${botNav(name, 'sessions', t)}
       <div class="breadcrumb">
-        <a href="/bot/${name}/settings">${t('sess.back')}</a>
+        <a href="/bot/${name}/sessions">${t('sess.back')}</a>
       </div>
       <div class="empty-state">
         <div class="empty-icon"><i data-lucide="file-x" style="width:32px;height:32px"></i></div>
         <p>${t('sess.notFound')}</p>
       </div>
     `
-    return c.html(layout(`${t('sess.notFound')} — ${name}`, content, `/bot/${name}/settings`, t, lang), 404)
+    return c.html(layout(`${t('sess.notFound')} — ${name}`, content, `/bot/${name}/sessions`, t, lang), 404)
   }
 
   const totalMessages = session.messages.length
@@ -85,10 +85,10 @@ app.get('/bot/:name/session/:sessionId', validateBot, (c) => {
   const sessionTitle = session.title || `Session ${sessionId.slice(0, 8)}…`
 
   const content = html`
-    ${botNav(name, 'settings', t)}
+    ${botNav(name, 'sessions', t)}
 
     <div class="breadcrumb">
-      <a href="/bot/${name}/settings">${t('sess.back')}</a>
+      <a href="/bot/${name}/sessions">${t('sess.back')}</a>
       <span class="sep">/</span>
       <span>${sessionTitle}</span>
     </div>
@@ -132,7 +132,7 @@ app.get('/bot/:name/session/:sessionId', validateBot, (c) => {
 
     ${pagination(currentPage, totalPages, `/bot/${name}/session/${sessionId}`)}
   `
-  return c.html(layout(`${sessionTitle} — ${name}`, content, `/bot/${name}/settings`, t, lang))
+  return c.html(layout(`${sessionTitle} — ${name}`, content, `/bot/${name}/sessions`, t, lang))
 })
 
 export default app

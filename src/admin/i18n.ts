@@ -188,6 +188,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'botnav.knowledge': 'Knowledge',
     'botnav.facts': 'Facts',
     'botnav.tasks': 'Tasks',
+    'botnav.sessions': 'Sessions',
     'botnav.settings': 'Settings',
     'botnav.usage': 'Usage',
     'botnav.images': 'Images',
@@ -386,6 +387,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'sess.notFound': 'Session not found',
     'sess.user': 'User',
     'sess.assistant': 'Assistant',
+    'sess.size': 'Size',
+    'sess.stats': 'Stats',
+    'sess.active': 'Active Sessions',
 
     // Settings
     'settings.title': 'Chat Settings',
@@ -916,6 +920,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'botnav.knowledge': 'Знання',
     'botnav.facts': 'Факти',
     'botnav.tasks': 'Задачі',
+    'botnav.sessions': 'Сесії',
     'botnav.settings': 'Параметри',
     'botnav.usage': 'Витрати',
     'botnav.images': 'Зображення',
@@ -1115,6 +1120,9 @@ const translations: Record<Lang, Record<string, string>> = {
     'sess.notFound': 'Сесію не знайдено',
     'sess.user': 'Користувач',
     'sess.assistant': 'Асистент',
+    'sess.size': 'Розмір',
+    'sess.stats': 'Статистика',
+    'sess.active': 'Активні сесії',
 
     // Settings
     'settings.title': 'Налаштування чатів',

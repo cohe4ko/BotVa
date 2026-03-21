@@ -1448,6 +1448,10 @@ details.inline > :last-child { padding-bottom: 0; }
   .page-bg-icon > i, .page-bg-icon > svg { width: 280px !important; height: 280px !important; }
 }
 
+/* ── Clickable table rows ── */
+.clickable-row { cursor: pointer; }
+.clickable-row:hover { background: var(--mc-bg-dim, #f1f3f5); }
+
 /* ── Session Viewer ── */
 .session-meta {
   background: var(--mc-surface, #f8f9fa);

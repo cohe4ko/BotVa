@@ -8,6 +8,7 @@ export interface DiskSession {
   slug: string
   title: string
   updatedAt: number // unix seconds
+  fileSize: number  // bytes
 }
 
 export interface ClaudeProject {
@@ -244,6 +245,7 @@ function listDiskSessionsFromDir(projectDir: string): DiskSession[] {
           slug: slug || '',
           title,
           updatedAt: Math.floor(stat.mtimeMs / 1000),
+          fileSize: stat.size,
         })
       } catch { /* skip unreadable files */ }
     }
@@ -252,6 +254,49 @@ function listDiskSessionsFromDir(projectDir: string): DiskSession[] {
     return userSessions
   } catch {
     return []
+  }
+}
+
+export interface SessionStats {
+  messages: number
+  inputTokens: number
+  outputTokens: number
+}
+
+/** Cache for session stats: sessionId -> { stats, mtime } */
+const sessionStatsCache = new Map<string, { stats: SessionStats; mtime: number }>()
+
+/** Count messages and tokens in a session (cached by mtime) */
+export function getSessionStats(botDir: string, sessionId: string): SessionStats | null {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sessionId)) return null
+  const projectDir = getClaudeProjectDir(botDir)
+  const filePath = join(projectDir, `${sessionId}.jsonl`)
+  try {
+    const stat = statSync(filePath)
+    const mtime = Math.floor(stat.mtimeMs)
+    const cached = sessionStatsCache.get(sessionId)
+    if (cached && cached.mtime === mtime) return cached.stats
+
+    const content = readFileSync(filePath, 'utf-8')
+    let messages = 0
+    let inputTokens = 0
+    let outputTokens = 0
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const entry = JSON.parse(line)
+        if (entry.type === 'user' || entry.type === 'assistant') messages++
+        if (entry.type === 'assistant' && entry.message?.usage) {
+          inputTokens += entry.message.usage.input_tokens || 0
+          outputTokens += entry.message.usage.output_tokens || 0
+        }
+      } catch { /* skip */ }
+    }
+    const stats = { messages, inputTokens, outputTokens }
+    sessionStatsCache.set(sessionId, { stats, mtime })
+    return stats
+  } catch {
+    return null
   }
 }
 
