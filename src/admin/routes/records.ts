@@ -413,6 +413,9 @@ app.get('/records/:date', (c) => {
   const audioDir = join(DATA_DIR, 'audio', date)
   const totalAudio = totalDirSize(audioDir)
 
+  // Day-level analysis (from "extract facts for day")
+  const dayAnalysis = safeReadJson(join(DATA_DIR, 'analyzed', date, `${date}-day.json`))
+
   // Daily summary
   const summaryPath = join(DATA_DIR, 'summaries', `${date}.md`)
   const summary = safeReadText(summaryPath)
@@ -519,6 +522,16 @@ app.get('/records/:date', (c) => {
         </div>
       `)
     }
+
+    ${dayAnalysis ? html`
+      <div style="background:var(--mc-bg-secondary);border:2px solid var(--mc-accent, #4a9eff);border-radius:8px;padding:0.75rem 1rem;margin-top:1rem">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+          <strong>${icon('zap')} ${t('records.dayAnalysis')}</strong>
+          <span class="badge" style="font-size:0.7rem">${icon('cpu', 10)} all chunks</span>
+        </div>
+        ${renderAnalyzed(dayAnalysis, `${date}T00-00-00`, reviewItems, t)}
+      </div>
+    ` : ''}
   `
 
   const retranscribeScript = html`
