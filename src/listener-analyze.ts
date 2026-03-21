@@ -93,7 +93,9 @@ export function cleanWhisperHallucinations(text: string): string {
   for (const pattern of HALLUCINATION_PATTERNS) {
     cleaned = cleaned.replace(pattern, '')
   }
-  cleaned = cleaned.replace(/(\bДякую\.\s*){3,}/gi, '')
+  // Strip standalone "Дякую." at start/end (hallucination filler)
+  cleaned = cleaned.replace(/^(\s*Дякую\.?\s*)+/gi, '')
+  cleaned = cleaned.replace(/(\s*Дякую\.?\s*)+$/gi, '')
   return cleaned.replace(/\s{2,}/g, ' ').trim()
 }
 

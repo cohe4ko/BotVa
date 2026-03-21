@@ -279,11 +279,11 @@ function cleanWhisperHallucinations(text: string): string | null {
   for (const pattern of HALLUCINATION_PATTERNS) {
     cleaned = cleaned.replace(pattern, '');
   }
+  // Strip standalone "Дякую." at start/end (hallucination filler)
+  cleaned = cleaned.replace(/^(\s*Дякую\.?\s*)+/gi, '');
+  cleaned = cleaned.replace(/(\s*Дякую\.?\s*)+$/gi, '');
   // Collapse multiple spaces/newlines
   cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
-  // Also strip standalone "Дякую." repeated multiple times (hallucination pattern)
-  cleaned = cleaned.replace(/(\bДякую\.\s*){3,}/gi, '');
-  cleaned = cleaned.trim();
   // If nothing meaningful remains, return null
   if (!cleaned || cleaned.length < 5) return null;
   return cleaned;
