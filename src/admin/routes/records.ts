@@ -7,7 +7,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSy
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { getFactsForDate, collectPendingFacts, reviewFact, type FactReviewItem } from '../../listener-facts.js'
-import { analyzeTranscript } from '../../listener-analyze.js'
+import { analyzeTranscript, cleanWhisperHallucinations } from '../../listener-analyze.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -441,7 +441,17 @@ app.get('/records/:date', (c) => {
       </div>
     </div>
 
-    <h3>${icon('list')} ${t('records.timeline')}</h3>
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem">
+      <h3 style="margin:0">${icon('list')} ${t('records.timeline')}</h3>
+      ${chunks.length > 0 ? html`
+        <button
+          class="btn-sm"
+          style="padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer"
+          id="analyze-day-btn"
+          onclick="reanalyzeDay('${date}')"
+        >${icon('zap', 11)} ${t('records.extractFactsDay')}</button>
+      ` : ''}
+    </div>
     ${chunks.length === 0
       ? html`<p style="color:var(--mc-text-dim)">${t('records.noTranscripts')}</p>`
       : chunks.map(chunk => html`
@@ -531,6 +541,31 @@ app.get('/records/:date', (c) => {
         if (data.ok) {
           btn.innerHTML = '✅';
           setTimeout(() => location.reload(), 800);
+        } else {
+          btn.innerHTML = '❌ ' + (data.error || 'Error');
+          setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+        }
+      } catch (e) {
+        btn.innerHTML = '❌ Failed';
+        setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
+      }
+    }
+    async function reanalyzeDay(date) {
+      const btn = document.getElementById('analyze-day-btn');
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Analyzing...';
+
+      try {
+        const res = await fetch('/records/reanalyze-day', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          btn.innerHTML = '✅ ' + data.facts + ' facts';
+          setTimeout(() => location.reload(), 1000);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
@@ -675,7 +710,15 @@ app.post('/records/reanalyze', async (c) => {
     const transcript = safeReadJson(transcriptPath)
     if (!transcript?.text) return c.json({ error: 'Transcript not found or empty' }, 404)
 
-    const analysis = await analyzeTranscript(transcript.text)
+    // Clean hallucinations and save cleaned transcript
+    const cleanedText = cleanWhisperHallucinations(transcript.text)
+    if (cleanedText !== transcript.text) {
+      transcript.text = cleanedText
+      writeFileSync(transcriptPath, JSON.stringify(transcript, null, 2))
+    }
+    if (!cleanedText || cleanedText.length < 5) return c.json({ ok: true, facts: 0, message: 'Empty after cleaning' })
+
+    const analysis = await analyzeTranscript(cleanedText)
 
     // Save analysis
     const analyzedDir = join(DATA_DIR, 'analyzed', date)
@@ -692,6 +735,55 @@ app.post('/records/reanalyze', async (c) => {
     return c.json({ ok: true, facts: total, analysis })
   } catch (e) {
     console.error('Reanalyze error:', e)
+    return c.json({ error: 'Analysis failed' }, 500)
+  }
+})
+
+// POST /records/reanalyze-day -- analyze all chunks for a day as one text
+app.post('/records/reanalyze-day', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { date } = body
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'valid date required' }, 400)
+
+    const transcriptsDir = join(DATA_DIR, 'transcripts', date)
+    const files = safeFileList(transcriptsDir, '.json')
+    if (files.length === 0) return c.json({ error: 'No transcripts for this date' }, 404)
+
+    // Combine all transcripts with timestamps
+    const parts: string[] = []
+    for (const file of files) {
+      const filePath = join(transcriptsDir, file)
+      const data = safeReadJson(filePath)
+      if (!data?.text) continue
+      // Clean hallucinations and save
+      const cleaned = cleanWhisperHallucinations(data.text)
+      if (cleaned !== data.text) {
+        data.text = cleaned
+        writeFileSync(filePath, JSON.stringify(data, null, 2))
+      }
+      if (!cleaned || cleaned.length < 5) continue
+      const time = (data.timestamp ?? '').replace(/T(\d{2})-(\d{2}).*/, '$1:$2')
+      parts.push(`[${time}] ${cleaned}`)
+    }
+    if (parts.length === 0) return c.json({ error: 'All transcripts empty' }, 404)
+
+    const combinedText = parts.join('\n\n')
+    const analysis = await analyzeTranscript(combinedText)
+
+    // Save as a day-level analysis file
+    const analyzedDir = join(DATA_DIR, 'analyzed', date)
+    if (!existsSync(analyzedDir)) mkdirSync(analyzedDir, { recursive: true })
+    writeFileSync(
+      join(analyzedDir, `${date}-day.json`),
+      JSON.stringify({ timestamp: `${date}T00-00-00`, device: 'all', text: combinedText, ...analysis }, null, 2)
+    )
+
+    collectPendingFacts()
+    const total = (analysis.facts?.length ?? 0) + (analysis.decisions?.length ?? 0) + (analysis.tasks?.length ?? 0)
+    return c.json({ ok: true, facts: total, analysis })
+  } catch (e) {
+    console.error('Reanalyze-day error:', e)
     return c.json({ error: 'Analysis failed' }, 500)
   }
 })

@@ -73,8 +73,34 @@ SIGNIFICANCE TEST: "Чи буде це корисно через 3 місяці?
 Очікуваний результат: 0-5 фактів на 5-хвилинний запис.
 Respond with ONLY valid JSON, no markdown.`
 
+// Whisper hallucinates repetitive phrases on silence/noise (YouTube training data artifacts)
+const HALLUCINATION_PATTERNS = [
+  /Дякую за перегляд!?/gi,
+  /Дякую за підписку!?/gi,
+  /Підписуйтесь на канал!?/gi,
+  /Ставте лайки!?/gi,
+  /Thank you for watching!?/gi,
+  /Thanks for watching!?/gi,
+  /Please subscribe!?/gi,
+  /Like and subscribe!?/gi,
+  /Субтитры сделал DimaTorzworker/gi,
+  /Субтитри зроблені/gi,
+  /Редактор субтитрів/gi,
+]
+
+export function cleanWhisperHallucinations(text: string): string {
+  let cleaned = text
+  for (const pattern of HALLUCINATION_PATTERNS) {
+    cleaned = cleaned.replace(pattern, '')
+  }
+  cleaned = cleaned.replace(/(\bДякую\.\s*){3,}/gi, '')
+  return cleaned.replace(/\s{2,}/g, ' ').trim()
+}
+
 export async function analyzeTranscript(text: string): Promise<AnalysisResult> {
-  const prompt = ANALYSIS_PROMPT.replace('{TEXT}', text)
+  const cleanedText = cleanWhisperHallucinations(text)
+  if (!cleanedText || cleanedText.length < 5) return { ...EMPTY, summary: '' }
+  const prompt = ANALYSIS_PROMPT.replace('{TEXT}', cleanedText)
 
   try {
     let resultText = ''

@@ -134,6 +134,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'records.noTranscripts': 'No transcripts for this date.',
     'records.reSTT': 'Re-STT',
     'records.extractFacts': 'Extract facts',
+    'records.extractFactsDay': 'Extract facts for entire day',
     'records.receiverTimeout': 'Receiver offline or timeout',
 
     // Terminal
@@ -905,6 +906,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'records.noTranscripts': 'Немає транскриптів за цю дату.',
     'records.reSTT': 'Перетранскрибувати',
     'records.extractFacts': 'Витягти факти',
+    'records.extractFactsDay': 'Витягти факти за день',
     'records.receiverTimeout': 'Receiver офлайн або таймаут',
 
     // Terminal
