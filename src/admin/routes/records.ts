@@ -169,14 +169,14 @@ function formatUptime(seconds?: number): string {
   return `${h}h ${m}m`
 }
 
-function renderDevicesFragment(devices: DeviceStatus[] | null) {
+function renderDevicesFragment(devices: DeviceStatus[] | null, t: TFunc) {
   if (!devices) {
     return html`
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-label">${icon('radio', 12)} Receiver</div>
           <div class="stat-number" style="font-size:1rem">
-            <span class="badge badge-missing">${icon('x', 11)} Offline</span>
+            <span class="badge badge-missing">${icon('x', 11)} ${t('records.offline')}</span>
           </div>
         </div>
       </div>
@@ -189,9 +189,9 @@ function renderDevicesFragment(devices: DeviceStatus[] | null) {
         <div class="stat-card">
           <div class="stat-label">${icon('radio', 12)} Receiver</div>
           <div class="stat-number" style="font-size:1rem">
-            <span class="badge badge-set">${icon('check', 11)} Online</span>
+            <span class="badge badge-set">${icon('check', 11)} ${t('records.online')}</span>
           </div>
-          <div style="font-size:0.75rem;color:var(--mc-text-dim)">No devices registered</div>
+          <div style="font-size:0.75rem;color:var(--mc-text-dim)">${t('records.noDevicesRegistered')}</div>
         </div>
       </div>
     `
@@ -204,8 +204,8 @@ function renderDevicesFragment(devices: DeviceStatus[] | null) {
           <div class="stat-label">${icon('cpu', 12)} ${d.name}</div>
           <div class="stat-number" style="font-size:1rem">
             ${d.online
-              ? html`<span class="badge badge-set">${icon('check', 11)} Online</span>`
-              : html`<span class="badge badge-missing">${icon('x', 11)} Offline</span>`
+              ? html`<span class="badge badge-set">${icon('check', 11)} ${t('records.online')}</span>`
+              : html`<span class="badge badge-missing">${icon('x', 11)} ${t('records.offline')}</span>`
             }
           </div>
           <div style="font-size:0.72rem;color:var(--mc-text-dim);margin-top:0.25rem">
@@ -229,47 +229,47 @@ app.get('/records', async (c) => {
   const dates = getDateList()
 
   const content = html`
-    <h2>${icon('mic')} Records</h2>
-    <h3>${icon('radio')} Devices</h3>
+    <h2>${icon('mic')} ${t('records.title')}</h2>
+    <h3>${icon('radio')} ${t('records.devices')}</h3>
     <div id="devices-status"
       hx-get="/records/devices-status"
       hx-trigger="load, every 30s"
       hx-swap="innerHTML">
-      <span style="color:var(--mc-text-dim)">${icon('loader', 13)} Loading...</span>
+      <span style="color:var(--mc-text-dim)">${icon('loader', 13)} ...</span>
     </div>
 
     <details style="margin-top:1.5rem;margin-bottom:1.5rem">
-      <summary style="cursor:pointer;font-size:1rem;font-weight:600">${icon('plus-circle')} Add New Device</summary>
+      <summary style="cursor:pointer;font-size:1rem;font-weight:600">${icon('plus-circle')} ${t('records.addDevice')}</summary>
       <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:1rem;margin-top:0.5rem">
         <p style="font-size:0.85rem;color:var(--mc-text-dim);margin-top:0">
-          Deploy a room listener to any Linux device with a microphone (Orange Pi, Raspberry Pi, etc.)
+          ${t('records.addDeviceDesc')}
         </p>
 
         <form id="setup-form" onsubmit="return false" style="display:flex;flex-direction:column;gap:0.75rem">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
             <div>
-              <label style="font-size:0.75rem;font-weight:500">SSH Target</label>
+              <label style="font-size:0.75rem;font-weight:500">${t('records.sshTarget')}</label>
               <input id="sf-ssh" type="text" placeholder="user@device-ip" style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.85rem" />
             </div>
             <div>
-              <label style="font-size:0.75rem;font-weight:500">Device ID</label>
+              <label style="font-size:0.75rem;font-weight:500">${t('records.deviceId')}</label>
               <input id="sf-device" type="text" placeholder="opi-livingroom" style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.85rem" />
             </div>
           </div>
 
           <details>
-            <summary style="font-size:0.8rem;cursor:pointer;color:var(--mc-text-dim)">Advanced options</summary>
+            <summary style="font-size:0.8rem;cursor:pointer;color:var(--mc-text-dim)">${t('records.advancedOptions')}</summary>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-top:0.5rem">
               <div>
-                <label style="font-size:0.7rem">Chunk duration (s)</label>
+                <label style="font-size:0.7rem">${t('records.chunkDuration')}</label>
                 <input id="sf-chunk" type="number" value="300" style="width:100%;padding:0.3rem 0.5rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.8rem" />
               </div>
               <div>
-                <label style="font-size:0.7rem">Overlap (s)</label>
+                <label style="font-size:0.7rem">${t('records.overlap')}</label>
                 <input id="sf-overlap" type="number" value="10" style="width:100%;padding:0.3rem 0.5rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.8rem" />
               </div>
               <div>
-                <label style="font-size:0.7rem">tmpfs size (MB)</label>
+                <label style="font-size:0.7rem">${t('records.tmpfsSize')}</label>
                 <input id="sf-tmpfs" type="number" value="100" style="width:100%;padding:0.3rem 0.5rem;border:1px solid var(--mc-border);border-radius:6px;background:var(--mc-bg);color:var(--mc-text);font-size:0.8rem" />
               </div>
             </div>
@@ -277,38 +277,38 @@ app.get('/records', async (c) => {
 
           <div>
             <button type="button" onclick="generateSetupCmd()" class="btn-sm" style="padding:0.4rem 1rem;cursor:pointer">
-              ${icon('terminal', 12)} Generate Setup Command
+              ${icon('terminal', 12)} ${t('records.generateCmd')}
             </button>
           </div>
         </form>
 
         <div id="setup-output" style="display:none;margin-top:0.75rem">
-          <label style="font-size:0.75rem;font-weight:500">Run this on your Mac/server:</label>
+          <label style="font-size:0.75rem;font-weight:500">${t('records.runOnServer')}</label>
           <pre id="setup-cmd" style="background:var(--mc-surface2);border:1px solid var(--mc-border);border-radius:6px;padding:0.75rem;font-size:0.78rem;overflow-x:auto;cursor:pointer;position:relative" onclick="copyCmd(this)"></pre>
-          <span id="copy-hint" style="font-size:0.7rem;color:var(--mc-text-dim)">Click to copy</span>
+          <span id="copy-hint" style="font-size:0.7rem;color:var(--mc-text-dim)">${t('records.clickToCopy')}</span>
         </div>
 
         <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--mc-border)">
           <details>
-            <summary style="font-size:0.8rem;cursor:pointer;color:var(--mc-text-dim)">${icon('book', 11)} What the setup script does</summary>
+            <summary style="font-size:0.8rem;cursor:pointer;color:var(--mc-text-dim)">${icon('book', 11)} ${t('records.whatSetupDoes')}</summary>
             <div style="font-size:0.78rem;line-height:1.6;margin-top:0.5rem;color:var(--mc-text-secondary)">
               <ol style="padding-left:1.2rem;margin:0">
-                <li>Detects audio hardware (ALSA card + mic)</li>
-                <li>Sets up tmpfs for /data (no SD card writes for audio)</li>
-                <li>Configures volatile journald + zram for /var/log</li>
-                <li>Tunes kernel for minimal SD writes</li>
-                <li>Creates Python venv + installs requests</li>
-                <li>Deploys listener.py + config.env</li>
-                <li>Creates systemd service (auto-start on boot)</li>
-                <li>Installs safe shutdown/reboot scripts</li>
-                <li>Boosts microphone gain to max</li>
-                <li>Tests recording and starts the service</li>
+                <li>${t('records.setupStep1')}</li>
+                <li>${t('records.setupStep2')}</li>
+                <li>${t('records.setupStep3')}</li>
+                <li>${t('records.setupStep4')}</li>
+                <li>${t('records.setupStep5')}</li>
+                <li>${t('records.setupStep6')}</li>
+                <li>${t('records.setupStep7')}</li>
+                <li>${t('records.setupStep8')}</li>
+                <li>${t('records.setupStep9')}</li>
+                <li>${t('records.setupStep10')}</li>
               </ol>
               <p style="margin:0.5rem 0 0 0">
-                <strong>LED indicators (Orange Pi):</strong> 🔴 recording &bull; 🔴🟢 blink = uploading &bull; 🟢 safe to power off
+                <strong>${t('records.ledIndicators')}</strong> 🔴 ${t('records.ledRecording')} &bull; 🔴🟢 ${t('records.ledUploading')} &bull; 🟢 ${t('records.ledSafe')}
               </p>
               <p style="margin:0.25rem 0 0 0">
-                <strong>Button (Orange Pi):</strong> press to force upload + safe shutdown mode
+                <strong>${t('records.buttonAction')}</strong> ${t('records.buttonDesc')}
               </p>
             </div>
           </details>
@@ -345,22 +345,22 @@ app.get('/records', async (c) => {
     }
     function copyCmd(el) {
       navigator.clipboard.writeText(el.textContent);
-      document.getElementById('copy-hint').textContent = 'Copied!';
-      setTimeout(() => { document.getElementById('copy-hint').textContent = 'Click to copy'; }, 2000);
+      document.getElementById('copy-hint').textContent = '${t('records.copied')}';
+      setTimeout(() => { document.getElementById('copy-hint').textContent = '${t('records.clickToCopy')}'; }, 2000);
     }
     </script>
 
-    <h3 style="margin-top:1.5rem">${icon('calendar')} Recordings</h3>
+    <h3 style="margin-top:1.5rem">${icon('calendar')} ${t('records.recordings')}</h3>
     ${dates.length === 0
-      ? html`<p style="color:var(--mc-text-dim)">No recordings yet. Listener data will appear in <code>workspace/listener/</code>.</p>`
+      ? html`<p style="color:var(--mc-text-dim)">${t('records.noRecords')}. ${t('records.noRecordsHint')} <code>workspace/listener/</code>.</p>`
       : html`
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Date</th>
-                <th style="text-align:right">Chunks</th>
-                <th style="text-align:right">Audio size</th>
+                <th>${t('records.date')}</th>
+                <th style="text-align:right">${t('records.chunks')}</th>
+                <th style="text-align:right">${t('records.audioSize')}</th>
                 <th style="width:60px"></th>
               </tr>
             </thead>
@@ -384,13 +384,14 @@ app.get('/records', async (c) => {
     ${guideBlock(t('guide.records.title'), [t('guide.records.1'), t('guide.records.2'), t('guide.records.3')])}
   `
 
-  return c.html(layout('Records', content, '/records', t, lang))
+  return c.html(layout(t('records.title'), content, '/records', t, lang))
 })
 
 // GET /records/devices-status -- htmx fragment
 app.get('/records/devices-status', async (c) => {
+  const t: TFunc = c.get('t')
   const devices = await fetchDevices()
-  return c.html(renderDevicesFragment(devices))
+  return c.html(renderDevicesFragment(devices, t))
 })
 
 // GET /records/:date -- day detail page
@@ -420,25 +421,25 @@ app.get('/records/:date', (c) => {
 
     ${summary ? html`
       <details style="margin-bottom:1.5rem">
-        <summary style="cursor:pointer;font-size:1rem;font-weight:600;padding:0.5rem 0">${icon('file-text')} Daily Summary</summary>
+        <summary style="cursor:pointer;font-size:1rem;font-weight:600;padding:0.5rem 0">${icon('file-text')} ${t('records.dailySummary')}</summary>
         <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:1rem;margin-top:0.5rem;white-space:pre-wrap;font-size:0.85rem;line-height:1.6">${summary}</div>
       </details>
     ` : ''}
 
     <div class="stats-grid" style="margin-bottom:1.5rem">
       <div class="stat-card">
-        <div class="stat-label">${icon('hash', 12)} Chunks</div>
+        <div class="stat-label">${icon('hash', 12)} ${t('records.chunks')}</div>
         <div class="stat-number">${chunks.length}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">${icon('hard-drive', 12)} Audio size</div>
+        <div class="stat-label">${icon('hard-drive', 12)} ${t('records.audioSize')}</div>
         <div class="stat-number">${formatSize(totalAudio)}</div>
       </div>
     </div>
 
-    <h3>${icon('list')} Timeline</h3>
+    <h3>${icon('list')} ${t('records.timeline')}</h3>
     ${chunks.length === 0
-      ? html`<p style="color:var(--mc-text-dim)">No transcripts for this date.</p>`
+      ? html`<p style="color:var(--mc-text-dim)">${t('records.noTranscripts')}</p>`
       : chunks.map(chunk => html`
         <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.75rem">
           <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
@@ -482,14 +483,14 @@ app.get('/records/:date', (c) => {
                   class="btn-sm outline"
                   style="height:28px;padding:0 0.5rem;font-size:0.7rem;white-space:nowrap"
                   onclick="retranscribe('${date}', '${chunk.filename}', '${chunk.filename.replace('.json', '')}')"
-                >${icon('refresh-cw', 10)} Re-STT</button>
+                >${icon('refresh-cw', 10)} ${t('records.reSTT')}</button>
               </div>
             </div>
           ` : ''}
 
           <div style="font-size:0.88rem;line-height:1.6;white-space:pre-wrap">${chunk.text}</div>
 
-          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed) : ''}
+          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, t) : ''}
         </div>
       `)
     }
@@ -527,10 +528,10 @@ app.get('/records/:date', (c) => {
     </script>
   `
 
-  return c.html(layout(`Records: ${date}`, html`${content}${retranscribeScript}`, '/records', t, lang))
+  return c.html(layout(`${t('records.title')}: ${date}`, html`${content}${retranscribeScript}`, '/records', t, lang))
 })
 
-function renderAnalyzed(analyzed: any) {
+function renderAnalyzed(analyzed: any, t: TFunc) {
   const { facts, decisions, tasks, topics, summary: aSummary } = analyzed
   const hasData = (facts?.length || decisions?.length || tasks?.length || topics?.length || aSummary)
   if (!hasData) return ''
@@ -539,7 +540,7 @@ function renderAnalyzed(analyzed: any) {
     <div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--mc-border)">
       ${topics?.length ? html`
         <div style="margin-bottom:0.35rem">
-          ${topics.map((t: string) => html`<span class="badge" style="font-size:0.65rem;margin-right:0.25rem;margin-bottom:0.2rem">${icon('tag', 9)} ${t}</span>`)}
+          ${topics.map((tp: string) => html`<span class="badge" style="font-size:0.65rem;margin-right:0.25rem;margin-bottom:0.2rem">${icon('tag', 9)} ${tp}</span>`)}
         </div>
       ` : ''}
       ${aSummary ? html`
@@ -547,20 +548,20 @@ function renderAnalyzed(analyzed: any) {
       ` : ''}
       ${facts?.length ? html`
         <div style="font-size:0.75rem;margin-bottom:0.25rem">
-          ${icon('lightbulb', 10)} <strong>Facts:</strong>
+          ${icon('lightbulb', 10)} <strong>${t('records.facts')}:</strong>
           ${facts.map((f: string) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${f}</span>`)}
         </div>
       ` : ''}
       ${decisions?.length ? html`
         <div style="font-size:0.75rem;margin-bottom:0.25rem">
-          ${icon('check-circle', 10)} <strong>Decisions:</strong>
+          ${icon('check-circle', 10)} <strong>${t('records.decisions')}:</strong>
           ${decisions.map((d: string) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${d}</span>`)}
         </div>
       ` : ''}
       ${tasks?.length ? html`
         <div style="font-size:0.75rem;margin-bottom:0.25rem">
-          ${icon('circle-dot', 10)} <strong>Tasks:</strong>
-          ${tasks.map((t: string) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${t}</span>`)}
+          ${icon('circle-dot', 10)} <strong>${t('records.tasks')}:</strong>
+          ${tasks.map((tk: string) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${tk}</span>`)}
         </div>
       ` : ''}
     </div>
@@ -587,7 +588,7 @@ app.post('/records/retranscribe', async (c) => {
     const data = await res.json() as any
     return c.json(data, res.status as any)
   } catch (e) {
-    return c.json({ error: 'Receiver offline or timeout' }, 502)
+    return c.json({ error: 'Receiver offline / timeout' }, 502)
   }
 })
 
