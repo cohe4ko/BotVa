@@ -1273,6 +1273,7 @@ details {
   border-radius: var(--radius);
   background: var(--mc-white);
   overflow: hidden;
+  padding-left: 10px;
 }
 details > summary {
   cursor: pointer;
