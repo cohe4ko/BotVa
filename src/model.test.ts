@@ -37,9 +37,9 @@ describe('MODELS', () => {
 })
 
 describe('parseModelConfig', () => {
-  it('parses 1m model', () => {
-    expect(parseModelConfig('sonnet-1m')).toEqual({ model: 'sonnet', use1m: true })
-    expect(parseModelConfig('opus-1m')).toEqual({ model: 'opus', use1m: true })
+  it('parses 1m model — adds [1m] suffix to model name', () => {
+    expect(parseModelConfig('sonnet-1m')).toEqual({ model: 'sonnet[1m]', use1m: true })
+    expect(parseModelConfig('opus-1m')).toEqual({ model: 'opus[1m]', use1m: true })
   })
 
   it('parses regular model', () => {

@@ -165,7 +165,7 @@ async function runAgentOnce(
       },
     } : {}
 
-    const { model: baseModel, use1m } = model ? parseModelConfig(model) : { model: undefined as string | undefined, use1m: false }
+    const { model: baseModel } = model ? parseModelConfig(model) : { model: undefined as string | undefined }
 
     const conversation = query({
       prompt: message,
@@ -182,7 +182,6 @@ async function runAgentOnce(
         ...debateHooks,
         ...permissionHooks,
         ...(baseModel ? { model: baseModel } : {}),
-        ...(use1m ? { betas: ['context-1m-2025-08-07' as const] } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
       },
     })

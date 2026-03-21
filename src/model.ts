@@ -39,7 +39,8 @@ export function getModelLabel(modelId: string): string {
 
 export function parseModelConfig(modelId: string): { model: string; use1m: boolean } {
   if (modelId.endsWith('-1m')) {
-    return { model: modelId.replace('-1m', ''), use1m: true }
+    // Claude CLI uses [1m] suffix in model name to enable 1M context (not --betas flag)
+    return { model: modelId.replace('-1m', '') + '[1m]', use1m: true }
   }
   return { model: modelId, use1m: false }
 }
