@@ -1908,6 +1908,36 @@ export function createBot(): Bot {
     setTimeout(() => process.exit(42), 500)
   })
 
+  // /update — git pull, rebuild, restart
+  bot.command('update', async (ctx) => {
+    if (!isAuthorised(ctx.chat.id)) return
+    const { exec } = await import('child_process')
+    const run = (cmd: string): Promise<string> =>
+      new Promise((resolve, reject) => {
+        exec(cmd, { cwd: process.cwd(), timeout: 120000 }, (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr || err.message))
+          else resolve(stdout.trim())
+        })
+      })
+
+    const msg = await ctx.reply('🔄 Updating...\n\n`git pull`...', { parse_mode: 'Markdown' })
+    try {
+      const pullResult = await run('git pull')
+      if (pullResult.includes('Already up to date')) {
+        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, '✅ Already up to date.')
+        return
+      }
+
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `🔄 Updating...\n\n\`git pull\` ✓\n\`npm run build\`...`, { parse_mode: 'Markdown' })
+      await run('npm run build')
+
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `✅ Updated!\n\n\`\`\`\n${pullResult}\n\`\`\`\n\nRestarting...`, { parse_mode: 'Markdown' })
+      setTimeout(() => process.exit(42), 1000)
+    } catch (err: any) {
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `❌ Update failed:\n\n\`\`\`\n${err.message}\n\`\`\``, { parse_mode: 'Markdown' })
+    }
+  })
+
   // /stop — reset group iteration counter
   bot.command('stop', async (ctx) => {
     const chatId = ctx.chat.id
@@ -2059,7 +2089,7 @@ export function createBot(): Bot {
     }
 
     // skip known bot commands (they have their own handlers above)
-    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|pause|resume|restart)\b/.test(text)) return
+    if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|pause|resume|restart|update)\b/.test(text)) return
 
     // Strip leading / from unknown commands so SDK doesn't interpret as slash command
     const cleanText = text.startsWith('/') ? text.slice(1) : text
@@ -2267,6 +2297,7 @@ export function createBot(): Bot {
     { command: 'session', description: t('menu.session') },
     { command: 'admin', description: t('menu.admin') },
     { command: 'restart', description: t('menu.restart') },
+    { command: 'update', description: t('menu.update') },
   ]
   // Default commands in Ukrainian
   bot.api.setMyCommands(cmds(tUk)).catch(err => logger.error({ err }, 'Failed to set bot commands'))
