@@ -137,8 +137,12 @@ do_setup() {
 
   # Caddy web server (optional — for reverse proxy / HTTPS)
   if ! command -v caddy &>/dev/null; then
-    echo -n "Install Caddy web server (for HTTPS/reverse proxy)? [y/N]: "
-    read -r install_caddy
+    if [ "${BOTVA_NONINTERACTIVE:-}" = "1" ]; then
+      install_caddy="n"
+    else
+      echo -n "Install Caddy web server (for HTTPS/reverse proxy)? [y/N]: "
+      read -r install_caddy
+    fi
     if [ "$install_caddy" = "y" ] || [ "$install_caddy" = "Y" ]; then
       if [[ "$OSTYPE" == "darwin"* ]]; then
         brew install caddy
@@ -210,8 +214,12 @@ do_setup() {
     echo "  a. All"
     echo "  s. Skip"
     echo ""
-    read -rp "Which MCP servers to install? [numbers / a=all / s=skip, default: a]: " mcp_choice
-    mcp_choice="${mcp_choice:-a}"
+    if [ "${BOTVA_NONINTERACTIVE:-}" = "1" ]; then
+      mcp_choice="a"
+    else
+      read -rp "Which MCP servers to install? [numbers / a=all / s=skip, default: a]: " mcp_choice
+      mcp_choice="${mcp_choice:-a}"
+    fi
 
     if [ "$mcp_choice" = "s" ]; then
       warn "Skipping MCP servers"

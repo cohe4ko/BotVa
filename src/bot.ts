@@ -2259,7 +2259,6 @@ export function createBot(): Bot {
   const tUk = createBotT('uk')
   const tEn = createBotT('en')
   const cmds = (t: BotT) => [
-    { command: 'start', description: t('menu.start') },
     { command: 'new', description: t('menu.new') },
     { command: 'cancel', description: t('menu.cancel') },
     { command: 'model', description: t('menu.model') },
