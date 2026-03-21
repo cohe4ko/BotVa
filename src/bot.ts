@@ -1196,8 +1196,6 @@ export function createBot(): Bot {
       ],
       [
         { text: t('settings.team', { label: teamLabel }), callback_data: 'settings:team' },
-      ],
-      [
         { text: '❌ ' + t('settings.close'), callback_data: 'settings:close' },
       ],
     ]
