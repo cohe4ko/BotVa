@@ -891,6 +891,7 @@ article > p { padding: 0.85rem; margin: 0; }
   --mc-white: #1a1d24;
   --mc-surface: #1a1d24;
   --mc-surface2: #22262e;
+  --mc-bg-dim: #22262e;
   --mc-border: #2e333d;
   --mc-border-hover: #3b4150;
   --mc-text: #e4e6eb;
@@ -944,6 +945,7 @@ article > p { padding: 0.85rem; margin: 0; }
     --mc-white: #1a1d24;
     --mc-surface: #1a1d24;
     --mc-surface2: #22262e;
+    --mc-bg-dim: #22262e;
     --mc-border: #2e333d;
     --mc-border-hover: #3b4150;
     --mc-text: #e4e6eb;
