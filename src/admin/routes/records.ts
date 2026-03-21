@@ -495,7 +495,7 @@ app.get('/records/:date', (c) => {
     ${chunks.length === 0
       ? html`<p style="color:var(--mc-text-dim)">${t('records.noTranscripts')}</p>`
       : chunks.map(chunk => html`
-        <div style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.75rem">
+        <div id="chunk-${chunk.filename.replace('.json', '')}" style="background:var(--mc-bg-secondary);border:1px solid var(--mc-border);border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.75rem">
           <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
             <strong style="font-variant-numeric:tabular-nums">${formatTime(chunk.timestamp)}</strong>
             <span class="badge" style="font-size:0.7rem">${icon('cpu', 10)} ${chunk.device}</span>
@@ -578,7 +578,7 @@ app.get('/records/:date', (c) => {
         const data = await res.json();
         if (data.ok) {
           btn.innerHTML = '✅';
-          setTimeout(() => reloadWithBot(), 800);
+          setTimeout(() => reloadWithBot('#chunk-' + baseId), 800);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
@@ -615,9 +615,10 @@ app.get('/records/:date', (c) => {
     }
     // Persist bot selection in URL
     function getSelectedBot() { return document.getElementById('target-bot').value; }
-    function reloadWithBot() {
+    function reloadWithBot(anchor) {
       const url = new URL(location.href);
       url.searchParams.set('bot', getSelectedBot());
+      url.hash = anchor || '';
       location.href = url.toString();
     }
     // Restore bot from URL on load
@@ -656,7 +657,7 @@ app.get('/records/:date', (c) => {
         const data = await res.json();
         if (data.ok) {
           btn.innerHTML = '✅ ' + data.facts + ' items';
-          setTimeout(() => reloadWithBot(), 1000);
+          setTimeout(() => reloadWithBot('#chunk-' + baseId), 1000);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
