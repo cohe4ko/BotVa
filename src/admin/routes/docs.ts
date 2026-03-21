@@ -52,6 +52,9 @@ function getOverviewFiles(root: string): DocFile[] {
   if (existsSync(resolve(root, 'DEPLOY.md'))) {
     files.push({ name: 'DEPLOY', path: resolve(root, 'DEPLOY.md') })
   }
+  if (existsSync(resolve(root, 'CONTRIBUTING.md'))) {
+    files.push({ name: 'CONTRIBUTING', path: resolve(root, 'CONTRIBUTING.md') })
+  }
   return files
 }
 

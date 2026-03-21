@@ -3,6 +3,7 @@ export interface Step {
   command: string
   interactive?: boolean
   instruction?: string
+  skipIf?: (params: ProvisionParams) => boolean
 }
 
 export interface ProvisionParams {
@@ -17,6 +18,9 @@ export interface ProvisionParams {
 }
 
 function interpolate(template: string, params: ProvisionParams): string {
+  const adminHostLine = params.domain
+    ? `ADMIN_HOST=https://${params.domain}`
+    : `ADMIN_HOST=http://${params.ip}:${params.adminPort}`
   return template
     .replace(/\{\{DOMAIN\}\}/g, params.domain)
     .replace(/\{\{BOT_TOKEN\}\}/g, params.botToken)
@@ -24,6 +28,7 @@ function interpolate(template: string, params: ProvisionParams): string {
     .replace(/\{\{BOT_NAME\}\}/g, params.botName)
     .replace(/\{\{REPO_URL\}\}/g, params.repoUrl)
     .replace(/\{\{ADMIN_PORT\}\}/g, params.adminPort)
+    .replace(/\{\{ADMIN_HOST_LINE\}\}/g, adminHostLine)
 }
 
 const FNM_PATH = 'export PATH="$HOME/.local/share/fnm/aliases/default/bin:$HOME/.local/share/fnm:$PATH"'
@@ -52,7 +57,7 @@ const rawSteps: Step[] = [
   },
   {
     name: 'Firewall',
-    command: 'ufw allow OpenSSH && ufw allow 80,443/tcp && ufw --force enable',
+    command: 'ufw allow OpenSSH && ufw allow 80,443/tcp && ufw allow {{ADMIN_PORT}}/tcp && ufw --force enable',
   },
   {
     name: 'Користувач botva',
@@ -137,6 +142,7 @@ const rawSteps: Step[] = [
   },
   {
     name: 'Caddy веб-сервер',
+    skipIf: (p) => !p.domain,
     command: [
       'if command -v caddy &>/dev/null; then echo "Caddy already installed"; exit 0; fi',
       'apt install -y debian-keyring debian-archive-keyring apt-transport-https',
@@ -148,6 +154,7 @@ const rawSteps: Step[] = [
   },
   {
     name: 'Caddy HTTPS конфіг',
+    skipIf: (p) => !p.domain,
     command: [
       `cat > /etc/caddy/Caddyfile <<'CADDYEOF'`,
       `{{DOMAIN}} {`,
@@ -170,7 +177,7 @@ const rawSteps: Step[] = [
       `ENVEOF`,
       `  cat > .env <<ENVEOF`,
       `ADMIN_PORT={{ADMIN_PORT}}`,
-      `ADMIN_HOST=https://{{DOMAIN}}`,
+      `{{ADMIN_HOST_LINE}}`,
       `ENVEOF`,
       `  mkdir -p workspace/gallery workspace/logs`,
       `  echo "Bot {{BOT_NAME}} configured"`,
@@ -191,12 +198,10 @@ const rawSteps: Step[] = [
 ]
 
 export function getSteps(params: ProvisionParams): Step[] {
-  return rawSteps.map((step, i) => ({
-    ...step,
-    command: interpolate(step.command, params),
-  }))
-}
-
-export function getTotalSteps(): number {
-  return rawSteps.length
+  return rawSteps
+    .filter(step => !step.skipIf || !step.skipIf(params))
+    .map(step => ({
+      ...step,
+      command: interpolate(step.command, params),
+    }))
 }

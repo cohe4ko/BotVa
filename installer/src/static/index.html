@@ -199,8 +199,8 @@ input::placeholder { color: var(--text-muted); }
       <h3 data-i18n="prep_title"></h3>
       <ol>
         <li data-i18n-html="prep_1"></li>
-        <li data-i18n="prep_2"></li>
-        <li data-i18n="prep_3"></li>
+        <li data-i18n-html="prep_2"></li>
+        <li data-i18n-html="prep_3"></li>
       </ol>
     </div>
 
@@ -221,6 +221,12 @@ input::placeholder { color: var(--text-muted); }
       <div class="hint" data-i18n="domain_hint"></div>
       <input type="text" id="domain" placeholder="admin.example.com" autocomplete="off">
       <div class="error-text" id="domain-error" data-i18n="domain_error"></div>
+    </div>
+
+    <div class="form-group">
+      <label for="admin-port" data-i18n="port_label"></label>
+      <div class="hint" data-i18n="port_hint"></div>
+      <input type="text" id="admin-port" placeholder="3000" value="3000" autocomplete="off">
     </div>
 
     <button class="btn btn-primary" onclick="goToStep(2)" data-i18n="btn_next"></button>
@@ -302,18 +308,20 @@ const i18n = {
   uk: {
     subtitle: 'Встановіть BotVa на ваш сервер за 5 хвилин',
     prep_title: 'Підготовка',
-    prep_1: 'Створіть сервер (дроплет) на <a href="https://cloud.digitalocean.com/droplets/new" target="_blank">DigitalOcean</a>: Ubuntu 24.04, мінімум 1 GB RAM',
-    prep_2: 'Скопіюйте IP адресу та root пароль з листа на email',
-    prep_3: 'Спрямуйте ваш домен (A-запис) на IP сервера',
+    prep_1: 'Створіть сервер (дроплет) на <a href="https://cloud.digitalocean.com/droplets/new" target="_blank">DigitalOcean</a>: Ubuntu 24.04, мінімум 1 GB RAM, будь-який регіон',
+    prep_2: 'Скопіюйте <strong>IP адресу</strong> та <strong>root пароль</strong> з листа на email (приходить від DigitalOcean)',
+    prep_3: '(Опціонально) Якщо є домен — створіть <strong>A-запис</strong> в DNS (напр. у Cloudflare), що вказує на IP сервера',
     ip_label: 'IP адреса сервера',
     ip_placeholder: '123.45.67.89',
     ip_error: 'Введіть коректну IP адресу',
     password_label: 'Root пароль',
     password_placeholder: 'Пароль з листа DigitalOcean',
     password_error: 'Введіть пароль',
-    domain_label: 'Домен для адмін-панелі',
-    domain_hint: 'A-запис цього домену повинен вказувати на IP сервера',
-    domain_error: 'Введіть домен (наприклад admin.example.com)',
+    domain_label: 'Домен для адмін-панелі (опціонально)',
+    domain_hint: 'Якщо є домен — вкажіть його для HTTPS. Якщо нема — адмін-панель буде доступна по http://IP:3000',
+    domain_error: 'Невірний формат домену',
+    port_label: 'Порт адмін-панелі',
+    port_hint: 'На цьому порту буде працювати адмін-панель (за замовчуванням 3000)',
     btn_next: 'Далі',
     btn_back: 'Назад',
     btn_install: 'Встановити',
@@ -339,18 +347,20 @@ const i18n = {
   en: {
     subtitle: 'Install BotVa on your server in 5 minutes',
     prep_title: 'Preparation',
-    prep_1: 'Create a server (droplet) on <a href="https://cloud.digitalocean.com/droplets/new" target="_blank">DigitalOcean</a>: Ubuntu 24.04, at least 1 GB RAM',
-    prep_2: 'Copy the IP address and root password from the email',
-    prep_3: 'Point your domain (A record) to the server IP',
+    prep_1: 'Create a server (droplet) on <a href="https://cloud.digitalocean.com/droplets/new" target="_blank">DigitalOcean</a>: Ubuntu 24.04, at least 1 GB RAM, any region',
+    prep_2: 'Copy the <strong>IP address</strong> and <strong>root password</strong> from the email (sent by DigitalOcean)',
+    prep_3: '(Optional) If you have a domain — create an <strong>A record</strong> in DNS (e.g. Cloudflare) pointing to the server IP',
     ip_label: 'Server IP address',
     ip_placeholder: '123.45.67.89',
     ip_error: 'Enter a valid IP address',
     password_label: 'Root password',
     password_placeholder: 'Password from DigitalOcean email',
     password_error: 'Enter the password',
-    domain_label: 'Domain for admin panel',
-    domain_hint: 'The A record of this domain must point to the server IP',
-    domain_error: 'Enter a domain (e.g. admin.example.com)',
+    domain_label: 'Domain for admin panel (optional)',
+    domain_hint: 'If you have a domain — enter it for HTTPS. If not — admin panel will be at http://IP:3000',
+    domain_error: 'Invalid domain format',
+    port_label: 'Admin panel port',
+    port_hint: 'The admin panel will run on this port (default 3000)',
     btn_next: 'Next',
     btn_back: 'Back',
     btn_install: 'Install',
@@ -421,7 +431,7 @@ function validate(stepNum) {
 
     if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) show('ip-error');
     if (!password) show('password-error');
-    if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}$/.test(domain)) show('domain-error');
+    if (domain && !/^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}$/.test(domain)) show('domain-error');
   }
 
   if (stepNum === 2) {
@@ -491,7 +501,7 @@ function startInstall() {
         chatId: $('chat-id').value.trim(),
         botName: $('bot-name').value.trim(),
         repoUrl: $('repo-url').value.trim(),
-        adminPort: '3000',
+        adminPort: $('admin-port').value.trim() || '3000',
       }
     }));
   };

@@ -90,7 +90,10 @@ export async function provision(params: ProvisionParams, callbacks: ProvisionCal
     }
 
     conn.end()
-    onDone(true, `https://${params.domain}`)
+    const adminUrl = params.domain
+      ? `https://${params.domain}`
+      : `http://${params.ip}:${params.adminPort}`
+    onDone(true, adminUrl)
   } catch (err: any) {
     const message = err.level === 'client-authentication'
       ? 'Невірний пароль або користувач root'
