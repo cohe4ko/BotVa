@@ -147,7 +147,7 @@ input::placeholder { color: var(--text-muted); }
 
 /* Terminal */
 #terminal-container {
-  background: #000; border-radius: var(--radius); padding: 8px;
+  background: #000; border-radius: var(--radius); padding: 8px 8px 16px 8px;
   border: 1px solid var(--border); height: 500px; overflow: hidden;
 }
 
@@ -553,6 +553,10 @@ function startInstall() {
         fill.style.width = pct + '%';
         if (msg.status === 'error') fill.classList.add('error');
         $('step-label').textContent = `[${msg.index}/${msg.total}] ${msg.name}`;
+        // Clear terminal between steps to keep it clean
+        if (msg.status === 'start' || msg.status === 'interactive') {
+          term.clear();
+        }
         break;
       }
 
