@@ -63,6 +63,57 @@ export function closeAll(): void {
   connections.clear()
 }
 
+/** Insert a fact into a specific bot's database with full procedure (embeddings + auto-link) */
+export function insertFactForBot(
+  botName: BotName,
+  chatId: string,
+  content: string,
+  topic: string,
+  sector: 'semantic' | 'episodic' | 'preference',
+  tags = '',
+  source = 'listener',
+  importance = 0.5
+): number {
+  const db = getBotDb(botName)
+  const now = Math.floor(Date.now() / 1000)
+  const result = db.prepare(
+    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, importance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(chatId, topic, content, tags, source, sector, importance, now, now)
+  const factId = Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+
+  // Fire-and-forget: generate embedding + auto-link
+  Promise.resolve().then(async () => {
+    const { embed, cosineSim } = await import('../embeddings.js')
+    const vec = await embed(content, 'passage')
+    if (!vec) return
+    // Update embedding
+    const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength)
+    db.prepare('UPDATE facts SET embedding = ? WHERE id = ?').run(buf, factId)
+    // Auto-link: find similar existing facts
+    const existing = db.prepare(
+      "SELECT id, embedding FROM facts WHERE chat_id IN (?, 'admin') AND embedding IS NOT NULL AND id != ?"
+    ).all(chatId, factId) as { id: number; embedding: Buffer }[]
+    const links: { id: number; score: number }[] = []
+    for (const ef of existing) {
+      if (!ef.embedding) continue
+      const efVec = new Float32Array(ef.embedding.buffer, ef.embedding.byteOffset, ef.embedding.byteLength / 4)
+      const score = cosineSim(vec, efVec)
+      if (score > 0.5) links.push({ id: ef.id, score })
+    }
+    links.sort((a, b) => b.score - a.score)
+    for (const link of links.slice(0, 3)) {
+      db.prepare(
+        'INSERT OR REPLACE INTO fact_links (fact_id_1, fact_id_2, strength, created_at) VALUES (?, ?, ?, ?)'
+      ).run(factId, link.id, link.score, now)
+      db.prepare(
+        'INSERT OR REPLACE INTO fact_links (fact_id_1, fact_id_2, strength, created_at) VALUES (?, ?, ?, ?)'
+      ).run(link.id, factId, link.score, now)
+    }
+  }).catch(() => {})
+
+  return factId
+}
+
 // --- Query helpers ---
 
 export interface ScheduledTask {

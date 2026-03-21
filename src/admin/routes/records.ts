@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { guideBlock } from '../views/components.js'
-import { getProjectRoot } from '../db-multi.js'
+import { getProjectRoot, getBotNames, insertFactForBot } from '../db-multi.js'
+import { readEnv } from '../env-parser.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs'
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
@@ -444,16 +445,22 @@ app.get('/records/:date', (c) => {
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem">
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap">
       <h3 style="margin:0">${icon('list')} ${t('records.timeline')}</h3>
-      ${chunks.length > 0 ? html`
-        <button
-          class="btn-sm"
-          style="padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer"
-          id="analyze-day-btn"
-          onclick="reanalyzeDay('${date}')"
-        >${icon('zap', 11)} ${t('records.extractFactsDay')}</button>
-      ` : ''}
+      <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+        <label style="font-size:0.75rem;color:var(--mc-text-dim)">${t('records.saveToBot')}:</label>
+        <select id="target-bot" style="height:28px;padding:0 0.4rem;font-size:0.75rem;border-radius:4px;border:1px solid var(--mc-border);background:var(--mc-bg);color:var(--mc-text)">
+          ${getBotNames().map(b => html`<option value="${b}">${b}</option>`)}
+        </select>
+        ${chunks.length > 0 ? html`
+          <button
+            class="btn-sm"
+            style="padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer"
+            id="analyze-day-btn"
+            onclick="reanalyzeDay('${date}')"
+          >${icon('zap', 11)} ${t('records.extractFactsDay')}</button>
+        ` : ''}
+      </div>
     </div>
     ${chunks.length === 0
       ? html`<p style="color:var(--mc-text-dim)">${t('records.noTranscripts')}</p>`
@@ -589,11 +596,12 @@ app.get('/records/:date', (c) => {
       }
     }
     async function reviewFact(id, status) {
+      const bot = document.getElementById('target-bot').value;
       try {
         const res = await fetch('/records/review-fact', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, status })
+          body: JSON.stringify({ id, status, bot })
         });
         const data = await res.json();
         if (data.ok) {
@@ -805,14 +813,30 @@ app.post('/records/reanalyze-day', async (c) => {
 app.post('/records/review-fact', async (c) => {
   try {
     const body = await c.req.json()
-    const { id, status } = body
+    const { id, status, bot } = body
     if (!id || !['approved', 'declined'].includes(status)) {
       return c.json({ error: 'id and status (approved/declined) required' }, 400)
     }
     const item = reviewFact(id, status)
     if (!item) return c.json({ error: 'Fact not found' }, 404)
+
+    // On approve — insert fact into bot's DB with full procedure
+    if (status === 'approved' && bot) {
+      const botEnv = readEnv(bot)
+      const chatId = botEnv['ALLOWED_CHAT_ID']?.split(',')[0]?.trim() || 'admin'
+      const sector = item.type === 'fact' ? 'semantic' as const : 'episodic' as const
+      const importance = item.type === 'task' ? 0.7 : item.type === 'decision' ? 0.6 : 0.5
+      const topic = item.topics[0] || 'general'
+      const tags = [...item.topics, item.device, 'listener'].join(',')
+      const timePrefix = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, ' $1:$2')
+      const content = `[${timePrefix}] ${item.content}`
+      const factId = insertFactForBot(bot, chatId, content, topic, sector, tags, 'listener', importance)
+      return c.json({ ok: true, status: item.status, factId, bot })
+    }
+
     return c.json({ ok: true, status: item.status })
   } catch (e) {
+    console.error('Review-fact error:', e)
     return c.json({ error: 'Review failed' }, 500)
   }
 })
