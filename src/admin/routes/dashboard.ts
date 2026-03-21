@@ -132,8 +132,6 @@ app.get('/', (c) => {
       </div>
     </div>
 
-    ${guideBlock(t('guide.dashboard.title'), [t('guide.dashboard.1'), t('guide.dashboard.2'), t('guide.dashboard.3'), t('guide.dashboard.4')])}
-
     <div class="stats-grid" style="margin-bottom:1rem">
       <div class="stat-card">
         <div class="stat-label">${icon('activity', 12)} ${t('dash.botsOnline')}</div>
@@ -345,6 +343,8 @@ app.get('/', (c) => {
         </tbody>
       </table>
     </div>
+
+    ${guideBlock(t('guide.dashboard.title'), [t('guide.dashboard.1'), t('guide.dashboard.2'), t('guide.dashboard.3'), t('guide.dashboard.4')])}
   `
 
   return c.html(layout(t('dash.title'), content, '/', t, lang))

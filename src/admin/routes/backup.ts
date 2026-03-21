@@ -32,8 +32,6 @@ app.get('/backup', (c) => {
 
   const content = html`
     <h2>${icon('archive', 18)} ${t('bak.title')}</h2>
-    ${guideBlock(t('guide.backup.title'), [t('guide.backup.1'), t('guide.backup.2'), t('guide.backup.3'), t('guide.backup.4')])}
-
     <!-- Create Backup -->
     <details open>
       <summary>${icon('plus', 14)} ${t('bak.create')}</summary>
@@ -145,6 +143,8 @@ app.get('/backup', (c) => {
         </div>
       </form>
     </details>
+
+    ${guideBlock(t('guide.backup.title'), [t('guide.backup.1'), t('guide.backup.2'), t('guide.backup.3'), t('guide.backup.4')])}
   `
 
   return c.html(layout(t('bak.title'), content, '/backup', t, lang))

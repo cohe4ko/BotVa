@@ -230,8 +230,6 @@ app.get('/records', async (c) => {
 
   const content = html`
     <h2>${icon('mic')} Records</h2>
-    ${guideBlock(t('guide.records.title'), [t('guide.records.1'), t('guide.records.2'), t('guide.records.3')])}
-
     <h3>${icon('radio')} Devices</h3>
     <div id="devices-status"
       hx-get="/records/devices-status"
@@ -382,6 +380,8 @@ app.get('/records', async (c) => {
         </div>
       `
     }
+
+    ${guideBlock(t('guide.records.title'), [t('guide.records.1'), t('guide.records.2'), t('guide.records.3')])}
   `
 
   return c.html(layout('Records', content, '/records', t, lang))

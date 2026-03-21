@@ -124,8 +124,6 @@ app.get('/storage', (c) => {
 
   const content = html`
     <h2>${icon('hard-drive')} ${t('stor.title')}</h2>
-    ${guideBlock(t('guide.storage.title'), [t('guide.storage.1'), t('guide.storage.2'), t('guide.storage.3')])}
-
     <div id="storage-stats"
       hx-get="/storage/stats"
       hx-trigger="load"
@@ -157,6 +155,8 @@ app.get('/storage', (c) => {
       >${icon('radar', 13)} ${t('stor.scan')}</button>
       <span id="scan-spinner" class="htmx-indicator" style="margin-left:0.5rem;font-size:0.85rem;color:var(--mc-text-dim)">${t('stor.scanning')}</span>
     </div>
+
+    ${guideBlock(t('guide.storage.title'), [t('guide.storage.1'), t('guide.storage.2'), t('guide.storage.3')])}
   `
 
   return c.html(layout(t('stor.title'), content, '/storage', t, lang))

@@ -843,7 +843,6 @@ app.get('/diagnostics', (c) => {
 
   const content = html`
     <h2>${icon('stethoscope')} ${t('sdiag.title')}</h2>
-    ${guideBlock(t('guide.diagnostics.title'), [t('guide.diagnostics.1'), t('guide.diagnostics.2'), t('guide.diagnostics.3')])}
     <p style="color:var(--mc-text-secondary);font-size:0.85rem;margin-bottom:1rem">${t('sdiag.desc')}</p>
 
     <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem">
@@ -864,6 +863,8 @@ app.get('/diagnostics', (c) => {
 
     <h3 style="margin-top:2rem">${icon('clock')} ${t('sdiag.history')}</h3>
     <div id="sdiag-history" hx-get="/diagnostics/history" hx-trigger="load, refreshHistory from:body" hx-swap="innerHTML"></div>
+
+    ${guideBlock(t('guide.diagnostics.title'), [t('guide.diagnostics.1'), t('guide.diagnostics.2'), t('guide.diagnostics.3')])}
   `
 
   return c.html(layout(t('sdiag.title'), content, '/diagnostics', t, lang))

@@ -113,8 +113,6 @@ app.get('/system', async (c) => {
 
   const content = html`
     <h2>${icon('server')} ${t('sys.title')}</h2>
-    ${guideBlock(t('guide.system.title'), [t('guide.system.1'), t('guide.system.2'), t('guide.system.3'), t('guide.system.4'), t('guide.system.5')])}
-
     <h3>${icon('brain')} ${t('sys.embeddingService')}</h3>
     <div id="embedding-status" hx-get="/system/embedding/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
       <span style="color:var(--mc-text-dim)">Loading...</span>
@@ -148,6 +146,7 @@ app.get('/system', async (c) => {
       </form>
     </div>
 
+    ${guideBlock(t('guide.system.title'), [t('guide.system.1'), t('guide.system.2'), t('guide.system.3'), t('guide.system.4'), t('guide.system.5')])}
   `
 
   return c.html(layout(t('sys.title'), content, '/system', t, lang))
