@@ -94,12 +94,6 @@ const rawSteps: Step[] = [
     ].join('\n'),
   },
   {
-    name: 'Вхід в Anthropic акаунт',
-    interactive: true,
-    instruction: 'Claude покаже URL для авторизації. Відкрийте цей URL у браузері, увійдіть в акаунт Anthropic і підтвердіть доступ.',
-    command: `su - botva -c '${FNM_PATH} && claude login'`,
-  },
-  {
     name: 'Clone BotVa',
     command: [
       `su - botva -c '`,
@@ -202,6 +196,12 @@ const rawSteps: Step[] = [
       `'`,
       'echo "Services configured and started"',
     ].join('\n'),
+  },
+  {
+    name: 'Вхід в Anthropic акаунт',
+    interactive: true,
+    instruction: 'Claude покаже URL для авторизації. Відкрийте цей URL у браузері, увійдіть в акаунт Anthropic і підтвердіть доступ.',
+    command: `su - botva -c '${FNM_PATH} && claude login'`,
   },
 ]
 
