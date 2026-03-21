@@ -408,6 +408,7 @@ app.get('/records/:date', (c) => {
   }
 
   const chunks = getChunksForDate(date)
+  collectPendingFacts()
   const reviewItems = getFactsForDate(date)
   const audioDir = join(DATA_DIR, 'audio', date)
   const totalAudio = totalDirSize(audioDir)
