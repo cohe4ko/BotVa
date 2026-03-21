@@ -466,17 +466,18 @@ app.get('/records/:date', (c) => {
 
       return html`
         <div style="background:var(--mc-bg-secondary);border:2px solid var(--mc-accent, #4a9eff);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.5rem">
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
             <strong>${icon('zap')} ${t('records.dayAnalysis')}</strong>
             <span style="font-size:0.75rem;color:var(--mc-text-dim)">${allFacts.length} items</span>
-            <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto">
+            <div style="display:flex;align-items:center;gap:0.4rem;margin-left:auto;flex-shrink:0">
+              <label style="font-size:0.7rem;color:var(--mc-text-dim);white-space:nowrap">${t('records.saveToBot')}:</label>
               <select id="target-bot" style="height:28px;padding:0 0.4rem;font-size:0.75rem;border-radius:4px;border:1px solid var(--mc-border);background:var(--mc-bg);color:var(--mc-text)">
                 ${getBotNames().map(b => html`<option value="${b}">${b}</option>`)}
               </select>
               ${chunks.length > 0 ? html`
                 <button
                   class="btn-sm"
-                  style="padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer"
+                  style="padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer;white-space:nowrap"
                   id="analyze-day-btn"
                   onclick="reanalyzeDay('${date}')"
                 >${icon('zap', 11)} ${t('records.extractFactsDay')}</button>
