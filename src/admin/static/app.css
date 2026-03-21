@@ -1447,3 +1447,120 @@ details.inline > :last-child { padding-bottom: 0; }
   .page-bg-icon { bottom: -50px; left: -50px; }
   .page-bg-icon > i, .page-bg-icon > svg { width: 280px !important; height: 280px !important; }
 }
+
+/* ── Session Viewer ── */
+.session-meta {
+  background: var(--mc-surface, #f8f9fa);
+  border: 1px solid var(--mc-border, #dee2e6);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.85rem;
+}
+.session-meta-row {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+  align-items: baseline;
+}
+.session-meta-label {
+  font-weight: 600;
+  min-width: 90px;
+  color: var(--mc-text-dim, #6c757d);
+  flex-shrink: 0;
+}
+.session-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+.msg {
+  border: 1px solid var(--mc-border, #dee2e6);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  background: var(--mc-surface, #fff);
+}
+.msg-user {
+  border-left: 3px solid var(--mc-accent, #4a90d9);
+}
+.msg-assistant {
+  border-left: 3px solid var(--mc-success, #28a745);
+}
+.msg-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--mc-text-dim, #6c757d);
+}
+.msg-header strong {
+  font-size: 0.82rem;
+  color: var(--mc-text, #212529);
+}
+.msg-time {
+  margin-left: auto;
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+.msg-num {
+  font-size: 0.7rem;
+  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+}
+.msg-body {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  word-break: break-word;
+}
+.msg-body .msg-text > :first-child { margin-top: 0; }
+.msg-body .msg-text > :last-child { margin-bottom: 0; }
+.msg-body pre {
+  font-size: 0.78rem;
+  max-height: 400px;
+  overflow: auto;
+  background: var(--mc-bg-dim, #f1f3f5);
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.msg-thinking {
+  margin: 0.35rem 0;
+  opacity: 0.65;
+  font-style: italic;
+}
+.msg-thinking summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mc-text-dim, #6c757d);
+}
+.msg-thinking pre {
+  font-style: normal;
+  max-height: 300px;
+}
+.msg-tool, .msg-tool-result {
+  margin: 0.35rem 0;
+  border-left: 2px solid var(--mc-info, #17a2b8);
+  padding-left: 0.5rem;
+}
+.msg-tool-result {
+  border-left-color: var(--mc-warning, #ffc107);
+}
+.msg-tool summary, .msg-tool-result summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mc-text-dim, #6c757d);
+}
+.msg-tool code {
+  font-size: 0.76rem;
+  background: var(--mc-bg-dim, #f1f3f5);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+.msg-tool pre, .msg-tool-result pre {
+  max-height: 250px;
+}

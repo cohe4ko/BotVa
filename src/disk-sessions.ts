@@ -48,6 +48,27 @@ export interface SessionDetail {
   updatedAt: number
 }
 
+export interface ContentBlock {
+  kind: 'text' | 'thinking' | 'tool_use' | 'tool_result'
+  text?: string
+  toolName?: string
+  toolInput?: string
+  toolUseId?: string
+}
+
+export interface SessionMessage {
+  type: 'user' | 'assistant'
+  blocks: ContentBlock[]
+  timestamp?: string
+}
+
+export interface FullSession {
+  sessionId: string
+  title: string
+  messages: SessionMessage[]
+  updatedAt: number
+}
+
 /** Read session detail — first user message + last user message */
 export function getSessionDetail(sessionId: string): SessionDetail | null {
   const root = getClaudeProjectsRoot()
@@ -231,5 +252,113 @@ function listDiskSessionsFromDir(projectDir: string): DiskSession[] {
     return userSessions
   } catch {
     return []
+  }
+}
+
+/** Read full session for viewing — all messages with content blocks */
+export function readFullSession(botDir: string, sessionId: string): FullSession | null {
+  // Validate sessionId format (UUID)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sessionId)) return null
+
+  const projectDir = getClaudeProjectDir(botDir)
+  const filePath = join(projectDir, `${sessionId}.jsonl`)
+  try {
+    const stat = statSync(filePath)
+    const content = readFileSync(filePath, 'utf-8')
+    const lines = content.split('\n')
+    const messages: SessionMessage[] = []
+    let title = ''
+
+    for (const line of lines) {
+      if (!line.trim()) continue
+      let entry: any
+      try { entry = JSON.parse(line) } catch { continue }
+
+      if (entry.type === 'custom-title' && entry.customTitle) {
+        title = entry.customTitle
+        continue
+      }
+
+      if (entry.type === 'file-history-snapshot') continue
+
+      if (entry.type === 'user' && entry.message?.content) {
+        const text = extractMessageText(entry.message.content)
+        if (!text) continue
+        const cleaned = text
+          .replace(/^\[Щоденник.*?\n[\s\S]*?\n\n/m, '')
+          .replace(/^\[Memory context\][\s\S]*?\n\n/m, '')
+          .trim()
+        if (!cleaned) continue
+        messages.push({
+          type: 'user',
+          blocks: [{ kind: 'text', text: cleaned }],
+          timestamp: entry.timestamp,
+        })
+      }
+
+      if (entry.type === 'assistant' && entry.message?.content) {
+        const blocks: ContentBlock[] = []
+        const contentArr = Array.isArray(entry.message.content) ? entry.message.content : [{ type: 'text', text: String(entry.message.content) }]
+        for (const block of contentArr) {
+          if (!block || !block.type) continue
+          if (block.type === 'text' && block.text) {
+            blocks.push({ kind: 'text', text: block.text })
+          } else if (block.type === 'thinking' && block.thinking) {
+            blocks.push({ kind: 'thinking', text: block.thinking })
+          } else if (block.type === 'tool_use') {
+            blocks.push({
+              kind: 'tool_use',
+              toolName: block.name || 'unknown',
+              toolInput: typeof block.input === 'string' ? block.input : JSON.stringify(block.input, null, 2),
+              toolUseId: block.id,
+            })
+          } else if (block.type === 'tool_result') {
+            const resultText = typeof block.content === 'string'
+              ? block.content
+              : Array.isArray(block.content)
+                ? block.content.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n')
+                : JSON.stringify(block.content)
+            blocks.push({
+              kind: 'tool_result',
+              text: resultText,
+              toolUseId: block.tool_use_id,
+            })
+          }
+        }
+        if (blocks.length > 0) {
+          messages.push({
+            type: 'assistant',
+            blocks,
+            timestamp: entry.timestamp,
+          })
+        }
+      }
+
+      // Top-level tool_result entries (outside assistant message)
+      if (entry.type === 'tool_result' && entry.content) {
+        const resultText = typeof entry.content === 'string'
+          ? entry.content
+          : Array.isArray(entry.content)
+            ? entry.content.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n')
+            : JSON.stringify(entry.content)
+        // Attach to last assistant message if possible
+        if (messages.length > 0 && messages[messages.length - 1].type === 'assistant') {
+          messages[messages.length - 1].blocks.push({
+            kind: 'tool_result',
+            text: resultText,
+            toolUseId: entry.tool_use_id,
+          })
+        }
+      }
+    }
+
+    return {
+      sessionId,
+      title,
+      messages,
+      updatedAt: Math.floor(stat.mtimeMs / 1000),
+    }
+  } catch {
+    return null
   }
 }

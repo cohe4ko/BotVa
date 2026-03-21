@@ -375,6 +375,15 @@ const translations: Record<Lang, Record<string, string>> = {
     'sess.disk': 'Disk Sessions (Claude Code)',
     'sess.noDisk': 'No disk sessions found.',
     'sess.preview': 'Preview',
+    'sess.viewer': 'Session Viewer',
+    'sess.back': 'Back to settings',
+    'sess.messages': 'messages',
+    'sess.thinking': 'Thinking',
+    'sess.toolCall': 'Tool',
+    'sess.toolResult': 'Result',
+    'sess.notFound': 'Session not found',
+    'sess.user': 'User',
+    'sess.assistant': 'Assistant',
 
     // Settings
     'settings.title': 'Chat Settings',
@@ -1093,6 +1102,15 @@ const translations: Record<Lang, Record<string, string>> = {
     'sess.disk': 'Сесії на диску (Claude Code)',
     'sess.noDisk': 'Сесій на диску не знайдено.',
     'sess.preview': 'Превʼю',
+    'sess.viewer': 'Перегляд сесії',
+    'sess.back': 'Назад до налаштувань',
+    'sess.messages': 'повідомлень',
+    'sess.thinking': 'Роздуми',
+    'sess.toolCall': 'Інструмент',
+    'sess.toolResult': 'Результат',
+    'sess.notFound': 'Сесію не знайдено',
+    'sess.user': 'Користувач',
+    'sess.assistant': 'Асистент',
 
     // Settings
     'settings.title': 'Налаштування чатів',

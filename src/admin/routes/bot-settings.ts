@@ -108,9 +108,9 @@ app.get('/bot/:name/settings', validateBot, (c) => {
             <thead><tr><th style="width:90px">ID</th><th>${t('sess.preview')}</th><th style="width:170px">${t('sess.updated')}</th></tr></thead>
             <tbody>
               ${diskSessions.map(s => html`
-                <tr>
-                  <td><code style="font-size:0.75rem">${s.sessionId.slice(0, 8)}…</code></td>
-                  <td style="font-size:0.85rem">${s.preview}</td>
+                <tr style="cursor:pointer" onclick="location.href='/bot/${name}/session/${s.sessionId}'">
+                  <td><a href="/bot/${name}/session/${s.sessionId}" style="text-decoration:none"><code style="font-size:0.75rem">${s.sessionId.slice(0, 8)}…</code></a></td>
+                  <td style="font-size:0.85rem">${s.title || s.preview}</td>
                   <td class="ts-cell">${formatTs(s.updatedAt)}</td>
                 </tr>
               `)}
