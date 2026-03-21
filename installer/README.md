@@ -1,39 +1,61 @@
 # BotVa Installer
 
-Веб-додаток для автоматичного встановлення BotVa на новий сервер.
-Ви заповнюєте форму — інсталятор робить все сам.
+Веб-додаток для автоматичного розгортання BotVa на новому сервері.
+Ви заповнюєте форму в браузері — інсталятор підключається до сервера по SSH і робить все сам.
+
+## Як це працює
+
+```
+[Браузер]  ←WebSocket→  [Installer Server]  ←SSH→  [Ваш сервер]
+   Форма з параметрами      Node.js app         Ubuntu 24.04
+   Live-термінал             ssh2 + Hono         (голий дроплет)
+```
+
+Інсталятор:
+1. Підключається до вашого сервера по SSH (root)
+2. Послідовно виконує кроки налаштування
+3. Показує прогрес і вивід у реальному часі
+4. В кінці — бот працює, адмін-панель доступна
 
 ## Що потрібно перед початком
 
-1. **Сервер (дроплет)** на [DigitalOcean](https://cloud.digitalocean.com/droplets/new)
-   - Система: Ubuntu 24.04 (LTS)
-   - Розмір: мінімум 1 GB RAM (рекомендовано 2 GB)
-   - Регіон: будь-який (ближче до вас — швидше)
-   - Після створення ви отримаєте IP адресу та root пароль на email
+### 1. Сервер
 
-2. **Домен** для адмін-панелі (наприклад `admin.example.com`)
-   - Створіть A-запис у DNS вашого домену, що вказує на IP сервера
-   - Наприклад: `admin.example.com → 123.45.67.89`
-   - Як це зробити: залежить від вашого реєстратора (Cloudflare, Namecheap тощо)
+Створіть дроплет на [DigitalOcean](https://cloud.digitalocean.com/droplets/new):
+- **Система:** Ubuntu 24.04 (LTS)
+- **Розмір:** мінімум 1 GB RAM (рекомендовано 2 GB)
+- **Регіон:** будь-який (ближче до вас — швидше)
+- **Авторизація:** пароль (не SSH ключ — інсталятор використовує пароль)
 
-3. **Telegram бот**
-   - Відкрийте [@BotFather](https://t.me/BotFather) в Telegram
-   - Надішліть `/newbot`
-   - Дайте боту ім'я та username
-   - Скопіюйте **токен** (довгий рядок виду `123456789:ABCdef...`)
+Після створення ви отримаєте **IP адресу** та **root пароль** на email.
 
-4. **Chat ID** (ваш Telegram ID)
-   - Надішліть `/start` вашому новому боту
-   - Відкрийте в браузері: `https://api.telegram.org/bot<ТОКЕН>/getUpdates`
-   - Знайдіть `"chat":{"id":123456789}` — це ваш Chat ID
+### 2. Домен (опціонально)
 
-5. **Акаунт Anthropic** (для Claude)
-   - Зареєструйтесь на [console.anthropic.com](https://console.anthropic.com)
-   - Під час встановлення інсталятор запропонує увійти в акаунт
+Якщо хочете HTTPS для адмін-панелі:
+- Створіть **A-запис** в DNS вашого домену, що вказує на IP сервера
+- Наприклад: `admin.example.com → 123.45.67.89`
+- Без домену адмін-панель буде доступна по `http://IP:порт`
 
-## Встановлення
+### 3. Telegram бот
 
-### Крок 1: Запустіть інсталятор
+1. Відкрийте [@BotFather](https://t.me/BotFather) в Telegram
+2. Надішліть `/newbot`, дайте ім'я та username
+3. Скопіюйте **токен** (рядок виду `123456789:ABCdef...`)
+
+### 4. Chat ID
+
+1. Надішліть `/start` вашому новому боту
+2. Відкрийте в браузері: `https://api.telegram.org/bot<ТОКЕН>/getUpdates`
+3. Знайдіть `"chat":{"id":123456789}` — це ваш Chat ID
+
+### 5. URL репозиторію BotVa
+
+- Публічне репо: `https://github.com/user/BotVa.git`
+- Приватне репо: `https://<TOKEN>@github.com/user/BotVa.git` (з Personal Access Token)
+
+## Запуск інсталятора
+
+### Локально
 
 ```bash
 cd installer
@@ -43,73 +65,127 @@ npm start
 
 Браузер відкриється автоматично на `http://localhost:3456`.
 
-### Крок 2: Заповніть форму
+### Як hosted-сервіс
 
-- **IP адреса** — з листа DigitalOcean
-- **Root пароль** — з листа DigitalOcean
-- **Домен** — ваш домен для адмін-панелі
-- **Bot Token** — від @BotFather
-- **Chat ID** — ваш Telegram ID
-- **Ім'я бота** — латиницею, без пробілів (наприклад `my-bot`)
-- **URL репозиторію** — адреса git-репозиторію BotVa
+Інсталятор розгорнутий на Render і доступний за постійним URL (див. секцію "Деплой").
 
-### Крок 3: Натисніть "Встановити"
+## Wizard — крок за кроком
 
-Інсталятор автоматично:
-- Оновить систему та встановить необхідні пакети
-- Налаштує swap, firewall
-- Встановить Node.js 22
-- Встановить Claude Code CLI (потрібно буде увійти в акаунт Anthropic)
-- Склонує та зберуть BotVa
-- Налаштує Caddy для HTTPS
-- Створить і запустить бота
+### Крок 1: Сервер
 
-Весь процес займає 3-7 хвилин.
+| Поле | Опис |
+|------|------|
+| **IP адреса** | IP вашого дроплету (з листа DigitalOcean) |
+| **Root пароль** | Пароль (з листа DigitalOcean) |
+| **Домен** | *(опціонально)* Домен для HTTPS, напр. `admin.example.com` |
+| **Порт адмінки** | Порт адмін-панелі (за замовчуванням `3000`) |
 
-### Крок 4: Готово!
+### Крок 2: Бот і інтеграції
 
-Після встановлення відкрийте адмін-панель за вашим доменом (наприклад `https://admin.example.com`).
+| Поле | Опис |
+|------|------|
+| **Bot Token** | Токен від @BotFather |
+| **Chat ID** | Ваш Telegram user ID |
+| **Ім'я бота** | Латиницею, без пробілів — стане назвою папки |
+| **URL репозиторію** | Git URL для `git clone` |
+| **MCP сервери** | Чекбокси — які інтеграції встановити |
 
-## Що робить інсталятор на сервері
+#### Доступні MCP сервери
 
-| Крок | Що встановлюється |
-|------|-------------------|
-| Система | `git`, `curl`, `build-essential`, `python3` |
-| Swap | 2 GB swap file (якщо RAM < 2 GB) |
-| Firewall | UFW: SSH + HTTP + HTTPS |
-| Користувач | `botva` (не root) для запуску сервісів |
-| Node.js | v22 LTS через fnm |
-| Claude | Claude Code CLI + вхід в акаунт |
-| BotVa | Clone, npm install, build |
-| MCP | Всі MCP сервери (Bitrix24, Meta Ads тощо) |
-| Caddy | Reverse proxy з автоматичним SSL сертифікатом |
-| Бот | Конфіг, systemd сервіс, автозапуск |
+| MCP | Опис |
+|-----|------|
+| **Bitrix24** | CRM: контакти, ліди, угоди, компанії |
+| **Meta Ads** | Управління рекламою Facebook/Instagram |
+| **PubMed** | Пошук наукових статей (медицина) |
+| **Colleague** | Зв'язок між ботами через Unix sockets |
+| **Manager** | Координація ботів менеджером |
 
-## Деплой як standalone сервер
+### Крок 3: Встановлення
 
-Інсталятор можна розмістити в інтернеті, щоб будь-хто міг відкрити URL і встановити BotVa.
+Натисніть **"Встановити"** — інсталятор виконає всі кроки автоматично.
+Прогрес відображається через progress bar і live-термінал (xterm.js).
 
-### Render (найпростіший, безкоштовний)
+## Що встановлюється на сервері
 
-1. Fork або push цей репо на GitHub
-2. Зайдіть на [render.com](https://render.com), створіть акаунт
-3. New → Web Service → підключіть GitHub репо
-4. Root Directory: `installer`
-5. Build Command: `npm install && npm run build`
-6. Start Command: `npm start`
-7. Instance Type: Free
-8. Deploy
+| # | Крок | Деталі |
+|---|------|--------|
+| 1 | Оновлення системи | `apt update && apt upgrade` (чекає якщо apt зайнятий) |
+| 2 | Системні пакети | `git`, `curl`, `build-essential`, `python3`, `jq`, `systemd-container` |
+| 3 | Swap 2GB | Swap file (якщо ще нема) |
+| 4 | Firewall | UFW: SSH + HTTP/HTTPS + порт адмінки |
+| 5 | Користувач `botva` | Окремий користувач для запуску сервісів (не root) |
+| 6 | Node.js 22 LTS | Через [fnm](https://github.com/Schniz/fnm) |
+| 7 | Claude Code CLI | `npm install -g @anthropic-ai/claude-code` |
+| 8 | Clone BotVa | `git clone` з вказаного URL |
+| 9 | npm install + build | Залежності та компіляція TypeScript |
+| 10 | MCP сервери | Тільки обрані у wizard |
+| 11 | Caddy + HTTPS | *(тільки якщо вказаний домен)* Reverse proxy з авто-SSL |
+| 12 | Створення бота | `.env` з токеном, chat ID, генерація `ADMIN_TOKEN` |
+| 13 | Systemd + запуск | Systemd user services, `enable-linger`, запуск бота + адмін-панелі |
 
-Або через Blueprint: `render.yaml` вже є в папці.
+Весь процес займає **3-7 хвилин** залежно від швидкості сервера.
+
+## Після встановлення
+
+- **Адмін-панель** відкриється автоматично (посилання з токеном у done-банері)
+- **Бот** вже працює і відповідає в Telegram
+- **Логи** видно в терміналі інсталятора
+- **Лог файл** можна завантажити кнопкою "Завантажити лог"
+
+### Адмін-панель надалі
+
+Адмін-панель працює **on-demand** — не висить постійно:
+- Запуск: надішліть `/admin` вашому боту в Telegram
+- Автоматично зупиняється через 20 хвилин неактивності
+- `ADMIN_TOKEN` зберігається в `~/BotVa/.env`
+
+### Перезапуск бота
+
+```bash
+ssh root@<IP>
+su - botva
+cd ~/BotVa
+./scripts/deploy.sh restart
+```
+
+### Логи
+
+```bash
+ssh root@<IP>
+su - botva
+tail -f ~/BotVa/workspace/logs/botva-*.log
+```
+
+### Systemd
+
+```bash
+# Від користувача botva:
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+systemctl --user status botva-*
+systemctl --user restart botva-<ім'я>
+journalctl --user -u botva-<ім'я> -f
+```
+
+## Деплой інсталятора як hosted-сервіс
+
+### Render (безкоштовний)
+
+Найпростіший спосіб — `render.yaml` вже є в корені репо:
+
+1. Push репо на GitHub
+2. Відкрийте `https://render.com/deploy?repo=https://github.com/<user>/BotVa`
+3. Натисніть Deploy
+4. Інсталятор буде доступний за URL типу `https://botva-installer.onrender.com`
+
+Або вручну: New → Web Service → GitHub repo → Root Directory: `installer` → Free tier.
 
 ### Railway
 
-1. Зайдіть на [railway.app](https://railway.app)
-2. New Project → Deploy from GitHub
-3. Root Directory: `installer`
-4. Deploy (Railway автоматично визначить Node.js)
+```
+railway.app → New Project → Deploy from GitHub → Root Directory: installer
+```
 
-### Docker (Fly.io, VPS, будь-який хост)
+### Docker
 
 ```bash
 cd installer
@@ -125,32 +201,58 @@ fly launch --no-deploy
 fly deploy
 ```
 
-### Важливо
+## Безпека
 
-Credentials (пароль сервера, bot token) передаються через WebSocket і **не зберігаються** на сервері інсталятора. Але рекомендується використовувати HTTPS (Render/Railway надають автоматично).
+- Credentials (пароль, токени) передаються тільки через **WebSocket** між браузером і сервером інсталятора
+- На сервері інсталятора **нічого не зберігається** — дані тільки в пам'яті під час SSH сесії
+- Дані форми зберігаються в **localStorage** браузера (для зручності при повторному запуску)
+- Рекомендується використовувати HTTPS (Render/Railway надають автоматично)
+- Після встановлення змініть root пароль на сервері
+
+## Технічний стек
+
+| Компонент | Технологія |
+|-----------|------------|
+| HTTP сервер | [Hono](https://hono.dev) + `@hono/node-server` |
+| SSH | [ssh2](https://github.com/mscdex/ssh2) |
+| WebSocket | [ws](https://github.com/websockets/ws) |
+| Термінал (UI) | [xterm.js](https://xtermjs.org) 5.5 (CDN) |
+| Фронтенд | Один HTML файл, inline CSS/JS, zero dependencies |
+| i18n | Українська / English (перемикач у header) |
+
+## Структура файлів
+
+```
+installer/
+├── package.json
+├── tsconfig.json
+├── Dockerfile
+├── .dockerignore
+├── README.md
+└── src/
+    ├── server.ts         # HTTP + WebSocket сервер
+    ├── provisioner.ts    # SSH підключення, виконання кроків
+    ├── steps.ts          # Масив кроків provisioning
+    └── static/
+        └── index.html    # Wizard UI (UA/EN)
+```
 
 ## FAQ
 
-### Помилка "Authentication failed"
-Перевірте root пароль. DigitalOcean надсилає його на email при створенні дроплету.
+### "Authentication failed"
+Перевірте root пароль. DigitalOcean надсилає його на email при створенні дроплету. Переконайтесь що обрали авторизацію по паролю (не SSH ключ).
 
-### Помилка "Connection timeout"
-Перевірте IP адресу. Переконайтесь що дроплет створений і працює.
+### "Connection timeout"
+Перевірте IP адресу. Переконайтесь що дроплет створений і працює (зелений індикатор в панелі DO).
+
+### "Could not get lock /var/lib/apt"
+Свіжий дроплет автоматично запускає оновлення. Інсталятор чекає поки `apt` звільниться — зазвичай 1-2 хвилини.
 
 ### Caddy не видає сертифікат
 A-запис домену повинен вказувати на IP сервера. DNS зміни можуть зайняти до 24 годин (зазвичай 5-10 хвилин).
 
-### Як перезапустити бота після встановлення?
-```bash
-ssh root@<IP>
-su - botva
-cd ~/BotVa
-./scripts/deploy.sh restart
-```
+### Бот не стартує після reboot
+Перевірте що linger увімкнений: `loginctl show-user botva | grep Linger`. Якщо ні — `sudo loginctl enable-linger botva`.
 
-### Як подивитись логи?
-```bash
-ssh root@<IP>
-su - botva
-tail -f ~/BotVa/workspace/logs/botva-*.log
-```
+### Можна запустити повторно?
+Так. Кроки idempotent — перевіряють чи вже встановлено перед дією (`if command -v node`, `if [ -d ~/BotVa ]` тощо).
