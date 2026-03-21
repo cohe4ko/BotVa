@@ -6,7 +6,7 @@ import { getProjectRoot } from '../db-multi.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs'
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
-import { getFactsForDate, collectPendingFacts, type FactReviewItem } from '../../listener-facts.js'
+import { getFactsForDate, collectPendingFacts, reviewFact, type FactReviewItem } from '../../listener-facts.js'
 import { analyzeTranscript } from '../../listener-analyze.js'
 
 const app = new Hono<I18nEnv>()
@@ -538,6 +538,19 @@ app.get('/records/:date', (c) => {
         setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
       }
     }
+    async function reviewFact(id, status) {
+      try {
+        const res = await fetch('/records/review-fact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, status })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          location.reload();
+        }
+      } catch (e) {}
+    }
     async function reanalyze(date, file, baseId) {
       const btn = document.getElementById('analyze-btn-' + baseId);
       const origText = btn.innerHTML;
@@ -575,7 +588,11 @@ function getReviewBadge(timestamp: string, type: string, index: number, reviewIt
   if (!item) return ''
   if (item.status === 'approved') return html`<span class="badge badge-set" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem">✅</span>`
   if (item.status === 'declined') return html`<span class="badge badge-missing" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem">❌</span>`
-  return html`<span class="badge" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem;opacity:0.6">⏳</span>`
+  // Pending — show approve/decline buttons
+  return html`<span style="margin-left:0.3rem;display:inline-flex;gap:0.15rem;vertical-align:middle">
+    <button class="btn-sm" style="height:20px;padding:0 0.3rem;font-size:0.6rem;cursor:pointer;line-height:1" onclick="reviewFact('${id}','approved')">✅</button>
+    <button class="btn-sm outline" style="height:20px;padding:0 0.3rem;font-size:0.6rem;cursor:pointer;line-height:1" onclick="reviewFact('${id}','declined')">❌</button>
+  </span>`
 }
 
 function renderAnalyzed(analyzed: any, timestamp: string, reviewItems: FactReviewItem[], t: TFunc) {
@@ -671,6 +688,22 @@ app.post('/records/reanalyze', async (c) => {
   } catch (e) {
     console.error('Reanalyze error:', e)
     return c.json({ error: 'Analysis failed' }, 500)
+  }
+})
+
+// POST /records/review-fact -- approve/decline a fact from admin
+app.post('/records/review-fact', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { id, status } = body
+    if (!id || !['approved', 'declined'].includes(status)) {
+      return c.json({ error: 'id and status (approved/declined) required' }, 400)
+    }
+    const item = reviewFact(id, status)
+    if (!item) return c.json({ error: 'Fact not found' }, 404)
+    return c.json({ ok: true, status: item.status })
+  } catch (e) {
+    return c.json({ error: 'Review failed' }, 500)
   }
 })
 
