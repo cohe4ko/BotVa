@@ -267,6 +267,8 @@ interface AnalysisResult {
   topics: string[];
   summary: string;
   language: string;
+  transcriptQuality: "good" | "poor" | "garbage";
+  suggestedLanguage: string | null;
 }
 
 async function analyzeTranscript(text: string): Promise<AnalysisResult> {
@@ -277,33 +279,55 @@ async function analyzeTranscript(text: string): Promise<AnalysisResult> {
     topics: [],
     summary: text.slice(0, 200),
     language: "unknown",
+    transcriptQuality: "garbage",
+    suggestedLanguage: null,
   };
 
   if (!ANTHROPIC_API_KEY) return empty;
 
-  const prompt = `Analyze this room conversation transcript. Extract structured information.
+  const prompt = `Analyze this room conversation transcript. Extract ONLY facts worth remembering long-term.
 
 TRANSCRIPT:
 ${text}
 
-Respond in JSON format:
+JSON response:
 {
-  "facts": ["factual statements mentioned (names, numbers, dates, addresses)"],
-  "decisions": ["decisions made during conversation"],
-  "tasks": ["action items, things to do, promises made"],
+  "transcriptQuality": "good | poor | garbage",
+  "suggestedLanguage": "uk | ru | en | null",
+  "facts": ["significant facts worth saving to memory"],
+  "decisions": ["firm decisions with consequences"],
+  "tasks": ["concrete action items with clear next step"],
   "topics": ["main topics discussed"],
-  "summary": "2-3 sentence summary of what happened",
+  "summary": "2-3 sentence summary",
   "language": "primary language code (uk, en, ru, etc.)"
 }
 
-Rules:
-- Extract ONLY what was explicitly said, don't infer
-- Facts: concrete data points (names, numbers, dates, contacts, addresses, prices)
-- Decisions: clear choices made ("we decided to...", "let's do...")
-- Tasks: actionable items with person responsible if mentioned
-- Keep each item to 1 sentence
-- If transcript is mostly noise/garbage, return empty arrays and summary "unintelligible"
-- Respond with ONLY valid JSON, no markdown`;
+QUALITY CHECK (do first):
+- "good" = coherent text, one primary language
+- "poor" = mixed languages, partial gibberish (common: Ukrainian/Russian misrecognized as other language)
+- "garbage" = mostly nonsense syllables from wrong language recognition
+- If poor/garbage: set suggestedLanguage to the language you think was actually spoken (usually "uk" or "ru"), return empty arrays
+
+SIGNIFICANCE TEST: "Чи буде це корисно через 3 місяці?"
+
+Зберігай (1-2 речення MAX на факт):
+- Нові контакти, імена, дати народження
+- Рішення з наслідками ("вирішив продати X", "обрав лікаря Y")
+- Здоров'я: діагнози, ліки, результати аналізів
+- Конкретні дати, час, дедлайни, зустрічі
+- Числа які мають значення (ціна, адреса, телефон, сума)
+- Зобов'язання або обіцянки ("я обіцяв зробити X до п'ятниці")
+
+НІКОЛИ не зберігай:
+- Побутову балаканину, привітання, small talk
+- Одноразові події ("дивились фільм", "їли піцу")
+- Думки без рішень ("може колись...", "було б непогано...")
+- Тимчасові дані: погода, курс валют, що гуглиться за 5 сек
+- Загальновідоме, новини дня
+- Контекст який має сенс тільки в моменті
+
+Очікуваний результат: 0-3 факти на 5-хвилинний запис. Якщо більше 5 — ти зберігаєш забагато.
+Respond with ONLY valid JSON, no markdown.`;
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -435,7 +459,56 @@ async function processAudio(
 
   // 3. Analyze with LLM
   console.log(`[${timestamp()}] Analyzing...`);
-  const analysis = await analyzeTranscript(text);
+  let currentText = text;
+  let analysis = await analyzeTranscript(currentText);
+
+  // 3.5 Auto-retranscribe if quality is poor
+  if (analysis.transcriptQuality !== "good" && analysis.suggestedLanguage) {
+    console.log(
+      `[${timestamp()}] Poor transcript quality (${analysis.transcriptQuality}), retrying with ${analysis.suggestedLanguage}...`
+    );
+    const oggPath = join(DATA_DIR, "audio", dateStr, `${ts}.ogg`);
+    const retransWav = join(tmpdir(), `auto-retrans-${ts}.wav`);
+    try {
+      if (existsSync(oggPath)) {
+        execFileSync("ffmpeg", ["-y", "-i", oggPath, "-ar", "16000", "-ac", "1", retransWav], {
+          timeout: 60_000,
+          stdio: "pipe",
+        });
+        const retranscribed = await transcribe(retransWav, analysis.suggestedLanguage);
+        if (retranscribed) {
+          const newAnalysis = await analyzeTranscript(retranscribed);
+          if (newAnalysis.transcriptQuality !== "garbage") {
+            console.log(
+              `[${timestamp()}] Retranscription improved quality to ${newAnalysis.transcriptQuality}`
+            );
+            currentText = retranscribed;
+            analysis = newAnalysis;
+            // Update transcript file with better version
+            writeFileSync(
+              join(transcriptDir, `${ts}.json`),
+              JSON.stringify(
+                {
+                  timestamp: ts,
+                  device: deviceId,
+                  text: currentText,
+                  provider: STT_PROVIDER,
+                  retranscribed: true,
+                  language: analysis.suggestedLanguage,
+                },
+                null,
+                2
+              )
+            );
+          }
+        }
+        if (existsSync(retransWav)) unlinkSync(retransWav);
+      }
+    } catch (e) {
+      console.error(`[${timestamp()}] Auto-retranscribe failed:`, e);
+      if (existsSync(retransWav)) try { unlinkSync(retransWav); } catch {}
+    }
+  }
 
   // 4. Save analysis
   const analyzedDir = join(DATA_DIR, "analyzed", dateStr);
@@ -443,7 +516,7 @@ async function processAudio(
   writeFileSync(
     join(analyzedDir, `${ts}.json`),
     JSON.stringify(
-      { timestamp: ts, device: deviceId, text, ...analysis },
+      { timestamp: ts, device: deviceId, text: currentText, ...analysis },
       null,
       2
     )
@@ -451,11 +524,11 @@ async function processAudio(
 
   const { facts, decisions, tasks } = analysis;
   console.log(
-    `[${timestamp()}] Done: ${facts.length} facts, ${decisions.length} decisions, ${tasks.length} tasks`
+    `[${timestamp()}] Done: ${facts.length} facts, ${decisions.length} decisions, ${tasks.length} tasks (quality: ${analysis.transcriptQuality ?? "unknown"})`
   );
 
   // 5. Append to daily summary
-  appendDailySummary(dateStr, ts, text, analysis);
+  appendDailySummary(dateStr, ts, currentText, analysis);
 }
 
 // ── JSON Body Parser ────────────────────────────────────────────────

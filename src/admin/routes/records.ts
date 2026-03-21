@@ -6,6 +6,7 @@ import { getProjectRoot } from '../db-multi.js'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
+import { getFactsForDate, type FactReviewItem } from '../../listener-facts.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -406,6 +407,7 @@ app.get('/records/:date', (c) => {
   }
 
   const chunks = getChunksForDate(date)
+  const reviewItems = getFactsForDate(date)
   const audioDir = join(DATA_DIR, 'audio', date)
   const totalAudio = totalDirSize(audioDir)
 
@@ -490,7 +492,7 @@ app.get('/records/:date', (c) => {
 
           <div style="font-size:0.88rem;line-height:1.6;white-space:pre-wrap">${chunk.text}</div>
 
-          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, t) : ''}
+          ${chunk.analyzed ? renderAnalyzed(chunk.analyzed, chunk.timestamp, reviewItems, t) : ''}
         </div>
       `)
     }
@@ -531,7 +533,16 @@ app.get('/records/:date', (c) => {
   return c.html(layout(`${t('records.title')}: ${date}`, html`${content}${retranscribeScript}`, '/records', t, lang))
 })
 
-function renderAnalyzed(analyzed: any, t: TFunc) {
+function getReviewBadge(timestamp: string, type: string, index: number, reviewItems: FactReviewItem[]) {
+  const id = `${timestamp}:${type}:${index}`
+  const item = reviewItems.find(r => r.id === id)
+  if (!item) return ''
+  if (item.status === 'approved') return html`<span class="badge badge-set" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem">✅</span>`
+  if (item.status === 'declined') return html`<span class="badge badge-missing" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem">❌</span>`
+  return html`<span class="badge" style="font-size:0.6rem;vertical-align:middle;margin-left:0.25rem;opacity:0.6">⏳</span>`
+}
+
+function renderAnalyzed(analyzed: any, timestamp: string, reviewItems: FactReviewItem[], t: TFunc) {
   const { facts, decisions, tasks, topics, summary: aSummary } = analyzed
   const hasData = (facts?.length || decisions?.length || tasks?.length || topics?.length || aSummary)
   if (!hasData) return ''
@@ -549,19 +560,19 @@ function renderAnalyzed(analyzed: any, t: TFunc) {
       ${facts?.length ? html`
         <div style="font-size:0.75rem;margin-bottom:0.25rem">
           ${icon('lightbulb', 10)} <strong>${t('records.facts')}:</strong>
-          ${facts.map((f: string) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${f}</span>`)}
+          ${facts.map((f: string, i: number) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${f}${getReviewBadge(timestamp, 'fact', i, reviewItems)}</span>`)}
         </div>
       ` : ''}
       ${decisions?.length ? html`
         <div style="font-size:0.75rem;margin-bottom:0.25rem">
           ${icon('check-circle', 10)} <strong>${t('records.decisions')}:</strong>
-          ${decisions.map((d: string) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${d}</span>`)}
+          ${decisions.map((d: string, i: number) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${d}${getReviewBadge(timestamp, 'decision', i, reviewItems)}</span>`)}
         </div>
       ` : ''}
       ${tasks?.length ? html`
         <div style="font-size:0.75rem;margin-bottom:0.25rem">
           ${icon('circle-dot', 10)} <strong>${t('records.tasks')}:</strong>
-          ${tasks.map((tk: string) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${tk}</span>`)}
+          ${tasks.map((tk: string, i: number) => html`<span style="display:inline-block;background:var(--mc-surface2);border-radius:4px;padding:0.1rem 0.4rem;margin:0.1rem 0.15rem;font-size:0.72rem">${tk}${getReviewBadge(timestamp, 'task', i, reviewItems)}</span>`)}
         </div>
       ` : ''}
     </div>

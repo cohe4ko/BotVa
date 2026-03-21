@@ -1633,6 +1633,75 @@ export function createBot(): Bot {
 
       return
     }
+    // Listener fact review callback (lr:approve:id, lr:decline:id, lr:skip)
+    if (ctx.callbackQuery?.data?.startsWith('lr:')) {
+      if (!isAuthorised(ctx.chat!.id)) {
+        await ctx.answerCallbackQuery({ text: '⛔' })
+        return
+      }
+      const { collectPendingFacts, reviewFact, getNextPendingFact, getFactById, getReviewStats } = await import('./listener-facts.js')
+      const parts = ctx.callbackQuery.data.split(':')
+      const action = parts[1] // approve | decline | skip
+      const factId = parts.slice(2).join(':')
+
+      const msg = ctx.callbackQuery.message
+      const chatIdStr = String(ctx.chat?.id)
+      const _t = chatT(chatIdStr)
+
+      if (action === 'approve' && factId) {
+        const item = reviewFact(factId, 'approved')
+        if (item) {
+          // Insert into Facts DB
+          const { insertFact } = await import('./db.js')
+          const sector = item.type === 'fact' ? 'semantic' : 'episodic'
+          const importance = item.type === 'task' ? 0.7 : item.type === 'decision' ? 0.6 : 0.5
+          const topic = item.topics[0] || 'general'
+          const tags = [...item.topics, item.device, 'listener'].join(',')
+          const timePrefix = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, ' $1:$2')
+          const content = `[${timePrefix}] ${item.content}`
+          insertFact(chatIdStr, content, topic, sector, tags, 'listener', importance)
+          // Fire-and-forget: generate embedding
+          Promise.all([import('./embeddings.js'), import('./db.js')]).then(async ([{ embed }, { updateFactEmbedding }]) => {
+            const emb = await embed(content, 'passage')
+            if (emb) {
+              const facts = (await import('./db.js')).getFactsByTopic(chatIdStr, topic, 1)
+              const last = facts[facts.length - 1]
+              if (last) updateFactEmbedding(last.id, emb)
+            }
+          }).catch(() => {})
+        }
+        await ctx.answerCallbackQuery({ text: '✅' })
+        try {
+          if (msg && 'text' in msg) {
+            await ctx.editMessageText(`${msg.text}\n\n✅ <b>Збережено</b>`, { parse_mode: 'HTML' })
+          }
+        } catch {}
+      } else if (action === 'decline' && factId) {
+        reviewFact(factId, 'declined')
+        await ctx.answerCallbackQuery({ text: '❌' })
+        try {
+          if (msg && 'text' in msg) {
+            await ctx.editMessageText(`${msg.text}\n\n❌ <b>Пропущено</b>`, { parse_mode: 'HTML' })
+          }
+        } catch {}
+      } else if (action === 'skip') {
+        await ctx.answerCallbackQuery()
+      }
+
+      // Send next pending fact
+      collectPendingFacts()
+      const next = getNextPendingFact()
+      if (next) {
+        await sendListenerFactForReview(ctx, next)
+      } else {
+        const stats = getReviewStats()
+        if (stats.approved > 0 || stats.declined > 0) {
+          await ctx.api.sendMessage(ctx.chat!.id, `✅ Всі факти переглянуто!\n\n📊 +${stats.approved} збережено, ${stats.declined} пропущено`)
+        }
+      }
+      return
+    }
+
     // Group approval callback
     if (ctx.callbackQuery?.data?.startsWith('grp:')) {
       const ownerChatId = ALLOWED_CHAT_ID.split(',')[0]?.trim()
@@ -1718,6 +1787,51 @@ export function createBot(): Bot {
       }
     }
     await next()
+  })
+
+  // --- Listener fact review helper ---
+  async function sendListenerFactForReview(ctx: Context, item: import('./listener-facts.js').FactReviewItem) {
+    const chatId = ctx.chat?.id
+    if (!chatId) return
+    const typeEmoji = item.type === 'fact' ? '💡' : item.type === 'decision' ? '✅' : '📌'
+    const typeLabel = item.type === 'fact' ? 'Факт' : item.type === 'decision' ? 'Рішення' : 'Задача'
+    const time = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, '$1:$2')
+    const topicsStr = item.topics.length > 0 ? `\n🏷 ${item.topics.join(', ')}` : ''
+
+    const text = [
+      `${typeEmoji} <b>${typeLabel} із запису</b>`,
+      `📅 ${item.date} ${time} · 🔊 ${item.device}${topicsStr}`,
+      '',
+      item.content,
+    ].join('\n')
+
+    await ctx.api.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '✅ Зберегти', callback_data: `lr:approve:${item.id}` },
+          { text: '❌ Пропустити', callback_data: `lr:decline:${item.id}` },
+          { text: '⏭ Потім', callback_data: 'lr:skip' },
+        ]],
+      },
+    })
+  }
+
+  // /review — Tinder-style fact review from room listener
+  bot.command('review', async (ctx) => {
+    if (!isAuthorised(ctx.chat.id)) return
+    const { collectPendingFacts, getNextPendingFact, getReviewStats } = await import('./listener-facts.js')
+    const added = collectPendingFacts()
+    const stats = getReviewStats()
+    const next = getNextPendingFact()
+    if (!next) {
+      await ctx.reply(`📋 Немає фактів для перегляду.\n\n📊 Всього: ${stats.approved} збережено, ${stats.declined} пропущено`)
+      return
+    }
+    if (added > 0) {
+      await ctx.reply(`📋 Знайдено ${stats.pending} нових фактів із записів. Починаємо перегляд:`)
+    }
+    await sendListenerFactForReview(ctx, next)
   })
 
   bot.command('start', async (ctx) => {
