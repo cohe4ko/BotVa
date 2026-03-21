@@ -375,6 +375,7 @@ const i18n = {
     done_success: 'BotVa встановлено!',
     done_open: 'Відкрийте посилання, щоб налаштувати бота.',
     done_error: 'Помилка встановлення',
+    download_log: 'Завантажити лог',
     ws_error: 'WebSocket помилка з\'єднання',
   },
   en: {
@@ -421,6 +422,7 @@ const i18n = {
     done_success: 'BotVa installed!',
     done_open: 'Open the link to configure your bot.',
     done_error: 'Installation error',
+    download_log: 'Download log',
     ws_error: 'WebSocket connection error',
   }
 };
@@ -461,12 +463,12 @@ function saveFields() {
   const data = {};
   FIELDS.forEach(id => { data[id] = document.getElementById(id)?.value || ''; });
   MCP_IDS.forEach(id => { data[id] = document.getElementById(id)?.checked; });
-  sessionStorage.setItem(SS_KEY, JSON.stringify(data));
+  localStorage.setItem(SS_KEY, JSON.stringify(data));
 }
 
 function restoreFields() {
   try {
-    const data = JSON.parse(sessionStorage.getItem(SS_KEY) || '{}');
+    const data = JSON.parse(localStorage.getItem(SS_KEY) || '{}');
     FIELDS.forEach(id => {
       if (data[id] && document.getElementById(id)) {
         document.getElementById(id).value = data[id];
@@ -543,8 +545,19 @@ function goToStep(num) {
   }
 }
 
+let installLog = '';
+
+function downloadLog() {
+  const blob = new Blob([installLog], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `botva-install-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.log`;
+  a.click();
+}
+
 function startInstall() {
   if (!validate(2)) return;
+  installLog = '';
   goToStep(3);
 
   // Init terminal
@@ -594,16 +607,18 @@ function startInstall() {
     switch (msg.type) {
       case 'output':
         term.write(msg.data);
+        installLog += msg.data;
         break;
 
       case 'step': {
         const pct = Math.round((msg.index / msg.total) * 100);
+        installLog += `\n[${msg.index}/${msg.total}] ${msg.name}\n`;
         const fill = $('progress-fill');
         fill.style.width = pct + '%';
         if (msg.status === 'error') fill.classList.add('error');
         $('step-label').textContent = `[${msg.index}/${msg.total}] ${msg.name}`;
-        // Clear terminal between steps to keep it clean
-        if (msg.status === 'start' || msg.status === 'interactive') {
+        // Clear terminal between steps, but keep last step visible for logs
+        if ((msg.status === 'start' || msg.status === 'interactive') && msg.index < msg.total) {
           term.clear();
         }
         break;
@@ -634,13 +649,17 @@ function startInstall() {
           $('done-title').textContent = t('done_success');
           $('done-text').innerHTML = `
             Admin panel: <a href="${msg.message}" target="_blank">${msg.message}</a><br><br>
-            ${t('done_open')}
+            ${t('done_open')}<br><br>
+            <button class="btn btn-secondary" onclick="downloadLog()" style="width:auto;margin-top:8px">&#128196; ${t('download_log')}</button>
           `;
         } else {
           fill.classList.add('error');
           banner.classList.add('error');
           $('done-title').textContent = t('done_error');
-          $('done-text').textContent = msg.message;
+          $('done-text').innerHTML = `
+            ${msg.message}<br><br>
+            <button class="btn btn-secondary" onclick="downloadLog()" style="width:auto;margin-top:8px">&#128196; ${t('download_log')}</button>
+          `;
         }
         break;
       }

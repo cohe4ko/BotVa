@@ -62,6 +62,8 @@ export async function provision(params: ProvisionParams, callbacks: ProvisionCal
 
     onOutput('\x1b[32m✓ SSH підключення встановлено\x1b[0m\r\n\r\n')
 
+    let adminToken = ''
+
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]
       const stepNum = i + 1
@@ -76,7 +78,12 @@ export async function provision(params: ProvisionParams, callbacks: ProvisionCal
         onStep(stepNum, total, step.name, 'done')
         onOutput(`\x1b[32m✓ ${step.name}\x1b[0m\r\n\r\n`)
       } else {
-        const exitCode = await execCommand(conn, step.command, onOutput)
+        const exitCode = await execCommand(conn, step.command, (data) => {
+          // Capture admin token from output
+          const tokenMatch = data.match(/Admin token: ([a-f0-9]+)/)
+          if (tokenMatch) adminToken = tokenMatch[1]
+          onOutput(data)
+        })
         if (exitCode !== 0) {
           onOutput(`\r\n\x1b[31m✗ ${step.name} (exit code: ${exitCode})\x1b[0m\r\n`)
           onStep(stepNum, total, step.name, 'error')
@@ -90,9 +97,10 @@ export async function provision(params: ProvisionParams, callbacks: ProvisionCal
     }
 
     conn.end()
-    const adminUrl = params.domain
+    const baseUrl = params.domain
       ? `https://${params.domain}`
       : `http://${params.ip}:${params.adminPort}`
+    const adminUrl = adminToken ? `${baseUrl}/?token=${adminToken}` : baseUrl
     onDone(true, adminUrl)
   } catch (err: any) {
     const message = err.level === 'client-authentication'
