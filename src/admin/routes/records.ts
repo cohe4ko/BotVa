@@ -655,11 +655,12 @@ app.get('/records/:date', (c) => {
   return c.html(layout(`${t('records.title')}: ${date}`, html`${content}${retranscribeScript}`, '/records', t, lang))
 })
 
-function renderFactItem(rawItem: string | AnalysisItem, typeIcon: string, timestamp: string, type: string, index: number, reviewItems: FactReviewItem[], isNew = false) {
+function renderFactItem(rawItem: string | AnalysisItem, typeIcon: string, timestamp: string, type: string, index: number, reviewItems: FactReviewItem[]) {
   const item = normalizeItem(rawItem)
   const id = `${timestamp}:${type}:${index}`
   const review = reviewItems.find(r => r.id === id)
   const status = review?.status
+  const isPending = !status || status === 'pending'
 
   const statusBadge = status === 'approved'
     ? html`<span class="badge badge-set" style="font-size:0.7rem">✅</span>`
@@ -671,7 +672,7 @@ function renderFactItem(rawItem: string | AnalysisItem, typeIcon: string, timest
       </span>`
 
   return html`
-    <div class="${isNew ? 'new-item' : ''}" style="display:flex;align-items:flex-start;gap:0.5rem;padding:0.35rem 0.4rem;border-radius:6px;${status === 'declined' ? 'opacity:0.35;' : ''}">
+    <div class="${isPending ? 'new-item' : ''}" style="display:flex;align-items:flex-start;gap:0.5rem;padding:0.35rem 0.4rem;border-radius:6px;${status === 'declined' ? 'opacity:0.35;' : ''}">
       <span style="flex-shrink:0;margin-top:0.1rem">${typeIcon}</span>
       <div style="flex:1;min-width:0">
         <div style="font-size:0.88rem;line-height:1.5">${item.text}</div>

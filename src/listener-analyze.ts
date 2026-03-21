@@ -93,17 +93,31 @@ Respond with ONLY valid JSON, no markdown.`
 
 // Whisper hallucinates repetitive phrases on silence/noise (YouTube training data artifacts)
 const HALLUCINATION_PATTERNS = [
+  // Ukrainian
   /Дякую за перегляд!?/gi,
   /Дякую за підписку!?/gi,
   /Підписуйтесь на канал!?/gi,
   /Ставте лайки!?/gi,
+  /Субтитри зроблені/gi,
+  /Редактор субтитрів/gi,
+  // Russian
+  /Спасибо за просмотр!?/gi,
+  /Спасибо за подписку!?/gi,
+  /Подписывайтесь на канал!?/gi,
+  /Ставьте лайки!?/gi,
+  /Субтитры сделал\S*/gi,
+  /Продолжение следует\.{0,3}/gi,
+  // English
   /Thank you for watching!?/gi,
   /Thanks for watching!?/gi,
   /Please subscribe!?/gi,
   /Like and subscribe!?/gi,
-  /Субтитры сделал DimaTorzworker/gi,
-  /Субтитри зроблені/gi,
-  /Редактор субтитрів/gi,
+  /Don't forget to subscribe!?/gi,
+  /Hit the bell!?/gi,
+  /See you in the next video!?/gi,
+  // Generic Whisper noise
+  /Звук вентиляції\.?/gi,
+  /Звук дзвінку\.?/gi,
 ]
 
 export function cleanWhisperHallucinations(text: string): string {
@@ -111,9 +125,9 @@ export function cleanWhisperHallucinations(text: string): string {
   for (const pattern of HALLUCINATION_PATTERNS) {
     cleaned = cleaned.replace(pattern, '')
   }
-  // Strip standalone "Дякую." at start/end (hallucination filler)
-  cleaned = cleaned.replace(/^(\s*Дякую\.?\s*)+/gi, '')
-  cleaned = cleaned.replace(/(\s*Дякую\.?\s*)+$/gi, '')
+  // Strip standalone filler words at start/end (all languages)
+  cleaned = cleaned.replace(/^(\s*(Дякую|Спасибо|Thank you|Thanks)\.?\s*)+/gi, '')
+  cleaned = cleaned.replace(/(\s*(Дякую|Спасибо|Thank you|Thanks)\.?\s*)+$/gi, '')
   return cleaned.replace(/\s{2,}/g, ' ').trim()
 }
 
