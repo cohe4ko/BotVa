@@ -43,7 +43,7 @@
 
 ```bash
 # 1. Клонувати
-git clone <repo-url> BotVa
+git clone https://github.com/cohe4ko/BotVa.git BotVa
 cd BotVa
 
 # 2. Встановити залежності та зібрати
