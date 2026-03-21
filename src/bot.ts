@@ -2412,6 +2412,7 @@ export function createBot(): Bot {
     { command: 'admin', description: t('menu.admin') },
     { command: 'restart', description: t('menu.restart') },
     { command: 'update', description: t('menu.update') },
+    { command: 'review', description: t('menu.review') },
   ]
   // Default commands in Ukrainian
   bot.api.setMyCommands(cmds(tUk)).catch(err => logger.error({ err }, 'Failed to set bot commands'))
