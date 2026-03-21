@@ -179,13 +179,14 @@ export function updateMcpServer(name: string, server: Partial<McpServerConfig>):
 }
 
 /** Build mcpServers object for Claude Agent SDK (only enabled servers) */
-export async function buildMcpServers(env: Record<string, string> = process.env as Record<string, string>): Promise<Record<string, any>> {
+export async function buildMcpServers(env: Record<string, string> = process.env as Record<string, string>, allowList?: string[]): Promise<Record<string, any>> {
   ensureMcpConfig()
   const config = readConfig()
   const servers: Record<string, any> = {}
 
   for (const [name, s] of Object.entries(config)) {
     if (!s.enabled) continue
+    if (allowList && !allowList.includes(name)) continue
 
     // Check env vars
     const envVars = s.envVars ?? []

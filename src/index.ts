@@ -222,8 +222,8 @@ async function main(): Promise<void> {
     return String(ctx.chat?.id ?? ctx.update.update_id)
   }))
 
-  // Init scheduler
-  initScheduler(sendMessage)
+  // Init scheduler (pass bot.api for builtin MCP in scheduled tasks)
+  initScheduler(sendMessage, bot.api)
 
   // Start relay listener for bot-to-bot communication in groups
   const stopRelay = startRelayListener(bot)

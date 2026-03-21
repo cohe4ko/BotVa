@@ -27,7 +27,8 @@ async function runAgentOnce(
   model?: string,
   builtinMcpServer?: McpSdkServerConfigWithInstance,
   permissionMode?: string,
-  onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>
+  onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
+  mcpAllowList?: string[]
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -50,7 +51,7 @@ async function runAgentOnce(
   const abortController = createAbortController(chatId)
 
   try {
-    const mcpServers: Record<string, any> = await buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() })
+    const mcpServers: Record<string, any> = await buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() }, mcpAllowList)
 
     // Built-in tools MCP (image generation, voice, telegraph, etc.)
     if (builtinMcpServer) {
@@ -328,12 +329,13 @@ export async function runAgent(
   model?: string,
   builtinMcpServer?: McpSdkServerConfigWithInstance,
   permissionMode?: string,
-  onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>
+  onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
+  mcpAllowList?: string[]
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
 
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -341,7 +343,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }
