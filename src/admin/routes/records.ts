@@ -3,10 +3,11 @@ import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { guideBlock } from '../views/components.js'
 import { getProjectRoot } from '../db-multi.js'
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs'
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
-import { getFactsForDate, type FactReviewItem } from '../../listener-facts.js'
+import { getFactsForDate, collectPendingFacts, type FactReviewItem } from '../../listener-facts.js'
+import { analyzeTranscript } from '../../listener-analyze.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -637,27 +638,38 @@ app.post('/records/retranscribe', async (c) => {
   }
 })
 
-// POST /records/reanalyze -- proxy to receiver's /reanalyze (extract facts)
+// POST /records/reanalyze -- analyze transcript directly (no receiver needed)
 app.post('/records/reanalyze', async (c) => {
   try {
     const body = await c.req.json()
     const { date, file } = body
     if (!date || !file) return c.json({ error: 'date and file required' }, 400)
 
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 120_000)
-    const res = await fetch('http://localhost:3847/reanalyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, file }),
-      signal: ctrl.signal,
-    })
-    clearTimeout(timer)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'Invalid date' }, 400)
 
-    const data = await res.json() as any
-    return c.json(data, res.status as any)
+    const baseName = file.replace(/\.(json|ogg|wav)$/, '')
+    const transcriptPath = join(DATA_DIR, 'transcripts', date, `${baseName}.json`)
+    const transcript = safeReadJson(transcriptPath)
+    if (!transcript?.text) return c.json({ error: 'Transcript not found or empty' }, 404)
+
+    const analysis = await analyzeTranscript(transcript.text)
+
+    // Save analysis
+    const analyzedDir = join(DATA_DIR, 'analyzed', date)
+    if (!existsSync(analyzedDir)) mkdirSync(analyzedDir, { recursive: true })
+    writeFileSync(
+      join(analyzedDir, `${baseName}.json`),
+      JSON.stringify({ ...transcript, ...analysis }, null, 2)
+    )
+
+    // Collect new facts into review queue
+    collectPendingFacts()
+
+    const total = (analysis.facts?.length ?? 0) + (analysis.decisions?.length ?? 0) + (analysis.tasks?.length ?? 0)
+    return c.json({ ok: true, facts: total, analysis })
   } catch (e) {
-    return c.json({ error: 'Receiver offline / timeout' }, 502)
+    console.error('Reanalyze error:', e)
+    return c.json({ error: 'Analysis failed' }, 500)
   }
 })
 
