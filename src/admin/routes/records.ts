@@ -66,6 +66,8 @@ interface DateInfo {
   date: string
   chunkCount: number
   audioSize: number
+  factsTotal: number
+  factsPending: number
 }
 
 function getDateList(): DateInfo[] {
@@ -73,10 +75,19 @@ function getDateList(): DateInfo[] {
   const audioDir = join(DATA_DIR, 'audio')
   const dates = safeDirList(transcriptsDir)
 
+  // Load all review items once
+  let allReviewItems: FactReviewItem[] = []
+  try { collectPendingFacts(); allReviewItems = getFactsForDate('__all__') } catch {}
+  // getFactsForDate filters by date, so we need all items
+  const store = (() => { try { const p = join(DATA_DIR, '..', 'fact-reviews.json'); return existsSync(p) ? JSON.parse(readFileSync(p, 'utf-8')).items as FactReviewItem[] : [] } catch { return [] } })()
+
   return dates.map(date => {
     const chunkCount = safeFileList(join(transcriptsDir, date), '.json').length
     const audioSize = totalDirSize(join(audioDir, date))
-    return { date, chunkCount, audioSize }
+    const dateFacts = store.filter(i => i.date === date)
+    const factsTotal = dateFacts.length
+    const factsPending = dateFacts.filter(i => i.status === 'pending').length
+    return { date, chunkCount, audioSize, factsTotal, factsPending }
   }).sort((a, b) => b.date.localeCompare(a.date))
 }
 
@@ -374,17 +385,17 @@ app.get('/records', async (c) => {
                 <th>${t('records.date')}</th>
                 <th style="text-align:right">${t('records.chunks')}</th>
                 <th style="text-align:right">${t('records.audioSize')}</th>
-                <th style="width:60px"></th>
+                <th style="text-align:right">${t('records.facts')}</th>
               </tr>
             </thead>
             <tbody>
               ${dates.map(d => html`
-                <tr>
+                <tr style="cursor:pointer" onclick="location.href='/records/${d.date}'">
                   <td><strong>${d.date}</strong></td>
                   <td style="text-align:right;font-variant-numeric:tabular-nums">${d.chunkCount}</td>
                   <td style="text-align:right;font-variant-numeric:tabular-nums">${formatSize(d.audioSize)}</td>
-                  <td>
-                    <a href="/records/${d.date}" class="btn-sm outline" style="text-decoration:none">${icon('eye', 11)}</a>
+                  <td style="text-align:right;font-variant-numeric:tabular-nums">
+                    ${d.factsTotal > 0 ? html`${d.factsTotal}${d.factsPending > 0 ? html` <span class="badge" style="font-size:0.6rem;background:var(--mc-warning,orange);color:#000">${d.factsPending}</span>` : ''}` : '—'}
                   </td>
                 </tr>
               `)}
@@ -889,6 +900,20 @@ app.post('/records/review-fact', async (c) => {
       const timePrefix = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, ' $1:$2')
       const content = `[${timePrefix}] ${item.content}`
       const factId = insertFactForBot(bot, chatId, content, topic, sector, tags, 'listener', importance)
+
+      // Notify bot owner via Telegram
+      const token = botEnv['TELEGRAM_BOT_TOKEN']
+      if (token && chatId && chatId !== 'admin') {
+        Promise.resolve().then(async () => {
+          const { Bot } = await import('grammy')
+          const notifyBot = new Bot(token)
+          await notifyBot.api.sendMessage(Number(chatId),
+            `🧠 <b>#${factId}</b> [${sector}] <b>${topic}</b>\n${content}\n<i>${tags}</i>`,
+            { parse_mode: 'HTML' }
+          )
+        }).catch(() => {})
+      }
+
       return c.json({ ok: true, status: item.status, factId, bot })
     }
 
