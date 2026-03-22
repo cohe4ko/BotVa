@@ -1,5 +1,5 @@
 import cronParser from 'cron-parser'
-import { getDueTasks, updateTaskAfterRun, getDueReminders, markReminderSent } from './db.js'
+import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent } from './db.js'
 import { runAgent } from './agent.js'
 import { logger } from './logger.js'
 import type { Api } from 'grammy'
@@ -9,6 +9,7 @@ type Sender = (chatId: string, text: string) => Promise<void>
 let sender: Sender | null = null
 let botApi: Api | null = null
 let intervalId: ReturnType<typeof setInterval> | null = null
+const runningTasks = new Set<string>()
 
 /** Create a minimal Context-like object for createBuiltinMcpServer */
 function createSchedulerCtx(api: Api, chatId: number): any {
@@ -59,6 +60,11 @@ export async function runDueTasks(): Promise<void> {
   logger.info({ count: tasks.length }, 'Running due tasks')
 
   for (const task of tasks) {
+    if (runningTasks.has(task.id)) {
+      logger.info({ taskId: task.id }, 'Task already running, skipping')
+      continue
+    }
+    runningTasks.add(task.id)
     try {
       if (sender) {
         await sender(task.chat_id, `⏰ Виконую заплановану задачу: ${task.prompt.slice(0, 100)}...`)
@@ -84,6 +90,10 @@ export async function runDueTasks(): Promise<void> {
         }
       }
 
+      // Advance next_run BEFORE execution — prevents re-run if server crashes mid-task
+      const nextRun = computeNextRun(task.schedule)
+      advanceTaskNextRun(task.id, nextRun)
+
       // Run agent with no external MCP servers (allowList=[]) to save context window
       const { text } = await runAgent(
         task.prompt, undefined, undefined, task.chat_id,
@@ -108,8 +118,7 @@ export async function runDueTasks(): Promise<void> {
         await sender(task.chat_id, `📋 Результат задачі:\n\n${result}`)
       }
 
-      const nextRun = computeNextRun(task.schedule)
-      updateTaskAfterRun(task.id, result.slice(0, 5000), nextRun)
+      updateTaskAfterRun(task.id, result.slice(0, 5000))
 
       logger.info({ taskId: task.id, nextRun }, 'Task completed')
     } catch (err) {
@@ -117,9 +126,10 @@ export async function runDueTasks(): Promise<void> {
       if (sender) {
         await sender(task.chat_id, `Задача не виконана: ${err instanceof Error ? err.message : String(err)}`)
       }
-      // Still compute next run so we don't get stuck
-      const nextRun = computeNextRun(task.schedule)
-      updateTaskAfterRun(task.id, `ERROR: ${err}`, nextRun)
+      // next_run already advanced — just save error result
+      updateTaskAfterRun(task.id, `ERROR: ${err}`)
+    } finally {
+      runningTasks.delete(task.id)
     }
   }
 }

@@ -7,11 +7,13 @@ vi.mock('./logger.js', () => ({
 }))
 
 const mockGetDueTasks = vi.fn((): any[] => [])
+const mockAdvanceTaskNextRun = vi.fn()
 const mockUpdateTaskAfterRun = vi.fn()
 const mockGetDueReminders = vi.fn((): any[] => [])
 const mockMarkReminderSent = vi.fn()
 vi.mock('./db.js', () => ({
   getDueTasks: () => mockGetDueTasks(),
+  advanceTaskNextRun: (...args: unknown[]) => (mockAdvanceTaskNextRun as Function)(...args),
   updateTaskAfterRun: (...args: unknown[]) => (mockUpdateTaskAfterRun as Function)(...args),
   getDueReminders: () => mockGetDueReminders(),
   markReminderSent: (...args: unknown[]) => (mockMarkReminderSent as Function)(...args),
@@ -115,7 +117,8 @@ describe('runDueTasks', () => {
 
     await runDueTasks()
     expect(mockRunAgent).toHaveBeenCalled()
-    expect(mockUpdateTaskAfterRun).toHaveBeenCalledWith('task-1', 'Done!', expect.any(Number))
+    expect(mockAdvanceTaskNextRun).toHaveBeenCalledWith('task-1', expect.any(Number))
+    expect(mockUpdateTaskAfterRun).toHaveBeenCalledWith('task-1', 'Done!')
     // Sender called twice: start notification + result
     expect(mockSender).toHaveBeenCalledTimes(2)
 
@@ -138,7 +141,8 @@ describe('runDueTasks', () => {
 
     await runDueTasks()
     expect(mockRunAgent).toHaveBeenCalledTimes(2)
-    expect(mockUpdateTaskAfterRun).toHaveBeenCalledWith('task-2', 'Recovered', expect.any(Number))
+    expect(mockAdvanceTaskNextRun).toHaveBeenCalledWith('task-2', expect.any(Number))
+    expect(mockUpdateTaskAfterRun).toHaveBeenCalledWith('task-2', 'Recovered')
 
     stopScheduler()
   })
@@ -155,7 +159,8 @@ describe('runDueTasks', () => {
     mockRunAgent.mockRejectedValue(new Error('Network error'))
 
     await runDueTasks()
-    expect(mockUpdateTaskAfterRun).toHaveBeenCalledWith('task-3', expect.stringContaining('ERROR'), expect.any(Number))
+    expect(mockAdvanceTaskNextRun).toHaveBeenCalledWith('task-3', expect.any(Number))
+    expect(mockUpdateTaskAfterRun).toHaveBeenCalledWith('task-3', expect.stringContaining('ERROR'))
 
     stopScheduler()
   })

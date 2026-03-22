@@ -597,11 +597,17 @@ export function getDueTasks(): ScheduledTask[] {
   ).all(now) as unknown as ScheduledTask[]
 }
 
-export function updateTaskAfterRun(id: string, lastResult: string, nextRun: number): void {
+export function advanceTaskNextRun(id: string, nextRun: number): void {
+  getDb().prepare(
+    'UPDATE scheduled_tasks SET next_run = ? WHERE id = ?'
+  ).run(nextRun, id)
+}
+
+export function updateTaskAfterRun(id: string, lastResult: string): void {
   const now = Math.floor(Date.now() / 1000)
   getDb().prepare(
-    'UPDATE scheduled_tasks SET last_run = ?, last_result = ?, next_run = ? WHERE id = ?'
-  ).run(now, lastResult, nextRun, id)
+    'UPDATE scheduled_tasks SET last_run = ?, last_result = ? WHERE id = ?'
+  ).run(now, lastResult, id)
 }
 
 export function listTasks(): ScheduledTask[] {
