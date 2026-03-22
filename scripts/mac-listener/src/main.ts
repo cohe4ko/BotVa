@@ -30,6 +30,7 @@ let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let recordingSeconds = 0;
 let lastTranscript = "";
 let continuousRunning = false;
+let cachedDevices: AudioDevice[] | null = null;
 
 // ── Tray Icons ───────────────────────────────────────────────────────
 
@@ -56,7 +57,8 @@ function startTimer() {
   recordingSeconds = 0;
   recordingTimer = setInterval(() => {
     recordingSeconds++;
-    rebuildMenu();
+    // Only update tray title, don't rebuild entire menu (which spawns ffmpeg)
+    tray?.setTitle(` ${formatTime(recordingSeconds)}`);
   }, 1000);
 }
 
@@ -66,6 +68,7 @@ function stopTimer() {
     recordingTimer = null;
   }
   recordingSeconds = 0;
+  tray?.setTitle("");
 }
 
 function formatTime(seconds: number): string {
@@ -304,7 +307,9 @@ function rebuildMenu() {
   });
 
   // Microphone submenu (ffmpeg avfoundation devices)
-  const audioDevices = listInputDevices();
+  // Cache devices list — don't spawn ffmpeg on every menu rebuild
+  if (!cachedDevices) cachedDevices = listInputDevices();
+  const audioDevices = cachedDevices;
   const currentDeviceName = audioDevices.find(d => d.index === config.inputDevice)?.name || "Default";
   const micSubmenu: Electron.MenuItemConstructorOptions[] = audioDevices.map((dev) => ({
     label: `[${dev.index}] ${dev.name}`,
