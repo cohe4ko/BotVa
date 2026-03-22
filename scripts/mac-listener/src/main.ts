@@ -415,9 +415,16 @@ function rebuildMenu() {
 
 // ── App Lifecycle ────────────────────────────────────────────────────
 
+// Prevent app from quitting when no windows are open
+app.on("window-all-closed", () => {});
+
 app.whenReady().then(() => {
   // Hide dock icon (tray-only app)
-  app.dock?.hide();
+  if (process.platform === "darwin") {
+    app.dock?.hide();
+    // @ts-ignore — setActivationPolicy exists on macOS
+    app.setActivationPolicy?.("accessory");
+  }
 
   config = loadConfig();
 
@@ -437,10 +444,6 @@ app.whenReady().then(() => {
   processRetryQueue(config).then((n) => {
     if (n > 0) console.log(`Startup: uploaded ${n} queued files`);
   });
-});
-
-app.on("window-all-closed", () => {
-  // Keep app running (tray only) — no-op
 });
 
 app.on("before-quit", async () => {
