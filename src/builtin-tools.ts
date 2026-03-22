@@ -170,6 +170,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
         'Generate an image from a text prompt and send it to the chat. Use this when the user asks to create, draw, or generate an image.',
         { prompt: z.string().describe('Text prompt describing the image to generate') },
         async (args) => {
+          if (!args.prompt?.trim()) return { content: [{ type: 'text' as const, text: 'Error: Prompt cannot be empty' }], isError: true }
           usedTools.add('GenerateImage')
           try {
             await ctx.replyWithChatAction('upload_photo')
@@ -200,6 +201,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
           prompt: z.string().describe('Text instruction for how to edit the image'),
         },
         async (args) => {
+          if (!args.prompt?.trim()) return { content: [{ type: 'text' as const, text: 'Error: Prompt cannot be empty' }], isError: true }
           usedTools.add('EditImage')
           try {
             await ctx.replyWithChatAction('upload_photo')
@@ -232,6 +234,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
           model: z.string().optional().describe('Model to use (default: gemini-2.5-flash). Options: gemini-2.5-flash, gemini-2.5-pro'),
         },
         async (args) => {
+          if (!args.prompt?.trim()) return { content: [{ type: 'text' as const, text: 'Error: Prompt cannot be empty' }], isError: true }
           usedTools.add('AskGemini')
           try {
             const { GoogleGenAI } = await import('@google/genai')
@@ -1098,6 +1101,7 @@ Available: pandas, numpy, matplotlib, sympy. Charts auto-sent to chat (use plt.s
 Use RunPython instead of manual calculation when: percentages, currency conversion, date math, statistics, or anything with >2 numbers. NOT for simple single-number answers you can compute in your head.`,
       { code: z.string().describe('Python code to execute') },
       async (args) => {
+        if (!args.code?.trim()) return { content: [{ type: 'text' as const, text: 'Error: Code cannot be empty' }], isError: true }
         usedTools.add('RunPython')
         try {
           if (!sandbox) {
