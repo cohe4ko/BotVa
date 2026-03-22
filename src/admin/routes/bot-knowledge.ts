@@ -3,7 +3,7 @@ import { html } from 'hono/html'
 import { layout, botNav } from '../views/layout.js'
 import { alert } from '../views/components.js'
 import { getBotDir } from '../db-multi.js'
-import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, readdirSync, statSync, existsSync, mkdirSync, unlinkSync } from 'fs'
 import { resolve, relative, join } from 'path'
 import { validateBot, botName } from '../bot-middleware.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
@@ -105,6 +105,15 @@ app.get('/bot/:name/knowledge', validateBot, (c) => {
         }
       `)}
     </div>
+    <div id="know-alerts"></div>
+    <details style="margin-bottom:1rem">
+      <summary><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('know.newFile')}</summary>
+      <form hx-post="/bot/${name}/knowledge/new?path=${subpath}" hx-target="#know-alerts" hx-swap="innerHTML">
+        <label>${t('know.fileName')}<input type="text" name="filename" required placeholder="${t('know.fileNamePlaceholder')}"></label>
+        <label style="margin-top:0.5rem">${t('know.content')}<textarea name="content" rows="6" placeholder=""></textarea></label>
+        <button type="submit" style="margin-top:0.75rem"><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('know.createFile')}</button>
+      </form>
+    </details>
     ${files.length === 0
       ? html`<div class="empty-state"><div class="empty-icon"><i data-lucide="folder-open" style="width:32px;height:32px"></i></div><p>${t('know.emptyDir')}</p></div>`
       : html`
@@ -158,6 +167,7 @@ app.get('/bot/:name/knowledge/file', validateBot, (c) => {
       <div class="btn-group">
         <button type="submit"><i data-lucide="save" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('common.save')}</button>
         <a href="/bot/${name}/knowledge?path=${fileParts.slice(0, -1).join('/')}" role="button" class="outline" style="text-decoration:none">${t('know.back')}</a>
+        <button hx-delete="/bot/${name}/knowledge/file?path=${filePath}" hx-confirm="${t('know.deleteConfirm')}" hx-target="closest form" hx-swap="outerHTML" class="danger"><i data-lucide="trash-2" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('know.delete')}</button>
       </div>
     </form>
   `
@@ -174,6 +184,42 @@ app.post('/bot/:name/knowledge/file', validateBot, async (c) => {
   const body = await c.req.parseBody()
   writeFileSync(resolved.full, String(body['content'] ?? ''), 'utf-8')
   return c.html(alert('success', t('know.fileSaved')))
+})
+
+app.post('/bot/:name/knowledge/new', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
+  const name = botName(c)
+  const subpath = c.req.query('path') || ''
+  const resolved = resolveKnowledgePath(name, subpath)
+  if (!resolved) return c.html(alert('error', t('know.invalidPath')))
+
+  const body = await c.req.parseBody()
+  const filename = String(body['filename'] ?? '').trim()
+  if (!filename) return c.html(alert('error', t('know.fileNameRequired')))
+
+  const fullPath = join(resolved.full, filename)
+  if (!fullPath.startsWith(resolved.base)) return c.html(alert('error', t('know.invalidPath')))
+  if (existsSync(fullPath)) return c.html(alert('error', t('know.fileExists', { name: filename })))
+
+  mkdirSync(resolve(fullPath, '..'), { recursive: true })
+  writeFileSync(fullPath, String(body['content'] ?? ''), 'utf-8')
+  return c.html(alert('success', t('know.fileCreated', { name: filename })))
+})
+
+app.delete('/bot/:name/knowledge/file', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const name = botName(c)
+  const filePath = c.req.query('path') || ''
+  const resolved = resolveKnowledgePath(name, filePath)
+  if (!resolved) return c.html(alert('error', t('know.invalidPath')))
+
+  try {
+    unlinkSync(resolved.full)
+    const parentPath = filePath.split('/').slice(0, -1).join('/')
+    return c.html(html`${alert('success', t('know.fileDeleted'))}<script>setTimeout(()=>location.href='/bot/${name}/knowledge?path=${parentPath}',800)</script>`)
+  } catch {
+    return c.html(alert('error', t('know.invalidPath')))
+  }
 })
 
 export default app

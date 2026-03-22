@@ -311,7 +311,7 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc, stats: Recor
 
   const fmtStat = (s?: ToolUsageStat) => {
     if (!s || s.total === 0) return html`<span style="color:var(--mc-text-dim)">—</span>`
-    return html`<span style="font-size:0.68rem;color:var(--mc-text-secondary);white-space:nowrap">7д: <b>${s.last7d}</b> · 30д: <b>${s.last30d}</b> · ∑ <b>${s.total}</b></span>`
+    return html`<span style="font-size:0.68rem;color:var(--mc-text-secondary);white-space:nowrap">${t('usage.7days')}: <b>${s.last7d}</b> · ${t('usage.30days')}: <b>${s.last30d}</b> · ∑ <b>${s.total}</b></span>`
   }
 
   return html`
@@ -321,7 +321,7 @@ function renderBuiltinToolsTable(tools: BuiltinToolDef[], t: TFunc, stats: Recor
           <th style="width:40px" class="hide-mobile"></th>
           <th>${t('sys.tool')}</th>
           <th class="hide-mobile">${t('sys.toolDesc')}</th>
-          <th style="width:180px" class="hide-mobile">${t('sys.tool') === 'Tool' ? 'Usage' : 'Використання'}</th>
+          <th style="width:180px" class="hide-mobile">${t('dash.usage')}</th>
           <th style="width:120px" class="hide-mobile">${t('sys.toolCondition')}</th>
           <th style="width:80px">${t('sys.skillStatus')}</th>
         </tr></thead>
