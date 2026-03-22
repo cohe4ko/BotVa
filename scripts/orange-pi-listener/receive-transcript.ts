@@ -578,6 +578,15 @@ async function processAudio(
 
   // 5. Append to daily summary
   appendDailySummary(dateStr, ts, currentText, analysis);
+
+  // 6. Collect into review queue
+  try {
+    const { collectPendingFacts } = await import("../../src/listener-facts.js");
+    const added = collectPendingFacts();
+    if (added > 0) console.log(`[${timestamp()}] Added ${added} facts to review queue`);
+  } catch {
+    // listener-facts may not be available in standalone mode
+  }
 }
 
 // ── JSON Body Parser ────────────────────────────────────────────────
