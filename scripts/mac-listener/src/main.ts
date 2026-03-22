@@ -10,7 +10,7 @@ import {
 import { join, basename } from "path";
 import { existsSync, unlinkSync, statSync } from "fs";
 import { loadConfig, saveConfig } from "./config";
-import { startRecording, stopRecording, listInputDevices } from "./recorder";
+import { startRecording, stopRecording, listInputDevices, type AudioDevice } from "./recorder";
 import { detectSpeechPercentage } from "./vad";
 import {
   uploadAudio,
@@ -247,7 +247,6 @@ function rebuildMenu() {
         ? "↑ Uploading..."
         : "○ Idle";
 
-  const devices = listInputDevices();
   const queueSize = getQueueSize(config);
 
   const template: (Electron.MenuItemConstructorOptions | Electron.MenuItem)[] = [
@@ -304,34 +303,21 @@ function rebuildMenu() {
     ],
   });
 
-  // Microphone submenu
-  const micSubmenu: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: "Default",
-      type: "radio",
-      checked: !config.inputDevice,
-      click: () => {
-        config.inputDevice = "";
-        saveConfig({ inputDevice: "" });
-        rebuildMenu();
-      },
+  // Microphone submenu (ffmpeg avfoundation devices)
+  const audioDevices = listInputDevices();
+  const currentDeviceName = audioDevices.find(d => d.index === config.inputDevice)?.name || "Default";
+  const micSubmenu: Electron.MenuItemConstructorOptions[] = audioDevices.map((dev) => ({
+    label: `[${dev.index}] ${dev.name}`,
+    type: "radio" as const,
+    checked: config.inputDevice === dev.index || (!config.inputDevice && dev.index === "0"),
+    click: () => {
+      config.inputDevice = dev.index;
+      saveConfig({ inputDevice: dev.index });
+      rebuildMenu();
     },
-  ];
-  for (const dev of devices) {
-    if (dev === "Default") continue;
-    micSubmenu.push({
-      label: dev,
-      type: "radio",
-      checked: config.inputDevice === dev,
-      click: () => {
-        config.inputDevice = dev;
-        saveConfig({ inputDevice: dev });
-        rebuildMenu();
-      },
-    });
-  }
+  }));
   template.push({
-    label: `Microphone: ${config.inputDevice || "Default"}`,
+    label: `Microphone: ${currentDeviceName}`,
     submenu: micSubmenu,
   });
 

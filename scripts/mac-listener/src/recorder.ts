@@ -1,50 +1,63 @@
-import { spawn, execSync, type ChildProcess } from "child_process";
+import { spawn, execSync } from "child_process";
 import type { RecordingHandle } from "./types";
 
 /**
- * Start recording from microphone using sox `rec` command.
+ * Start recording from microphone using ffmpeg (avfoundation on macOS).
+ * Much lighter on CPU than sox/rec which does unnecessary resampling.
+ *
  * @param outputPath - path to output WAV file
  * @param maxDuration - max duration in seconds (0 = unlimited, for toggle mode)
- * @param inputDevice - sox input device (empty = system default)
+ * @param inputDevice - avfoundation audio device index or name (empty = default ":0")
  */
 export function startRecording(
   outputPath: string,
   maxDuration: number = 0,
   inputDevice: string = ""
 ): RecordingHandle {
-  // Output format args
-  const args: string[] = [
-    "-r", "16000",   // 16kHz sample rate
-    "-c", "1",       // mono
-    "-b", "16",      // 16-bit
-    "-e", "signed-integer",
-    "-t", "wav",
-    outputPath,
-  ];
+  // avfoundation input: "none:<audio_device>" — no video, only audio
+  const audioInput = inputDevice && inputDevice !== "Default"
+    ? `:${inputDevice}`
+    : ":0";
 
-  // macOS CoreAudio: select input device via AUDIODEV env var
-  const env = { ...process.env };
-  if (inputDevice && inputDevice !== "Default") {
-    env.AUDIODEV = inputDevice;
-  }
+  const args: string[] = [
+    "-f", "avfoundation",
+    "-i", audioInput,
+    "-ar", "16000",   // 16kHz sample rate
+    "-ac", "1",       // mono
+    "-sample_fmt", "s16",
+    "-y",             // overwrite
+  ];
 
   // Duration limit (for continuous mode)
   if (maxDuration > 0) {
-    args.push("trim", "0", String(maxDuration));
+    args.push("-t", String(maxDuration));
   }
 
-  const proc = spawn("rec", args, {
-    stdio: ["ignore", "pipe", "pipe"],
-    env,
+  args.push(outputPath);
+
+  console.log(`[rec] ffmpeg ${args.join(" ")}`);
+
+  const proc = spawn("ffmpeg", args, {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  // Log stderr for debugging
+  let stderr = "";
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
   });
 
   const promise = new Promise<boolean>((resolve) => {
     proc.on("close", (code) => {
-      // rec exits 0 normally, or non-zero on SIGINT (which is fine for toggle)
-      resolve(code === 0 || code === null);
+      if (code !== 0 && code !== 255) {
+        // 255 = killed by signal, which is expected for toggle mode
+        const lastLines = stderr.split("\n").slice(-3).join("\n");
+        console.error(`[rec] ffmpeg exited ${code}: ${lastLines}`);
+      }
+      resolve(true); // WAV should be written even on SIGINT
     });
     proc.on("error", (err) => {
-      console.error("rec error:", err.message);
+      console.error("[rec] ffmpeg spawn error:", err.message);
       resolve(false);
     });
   });
@@ -59,12 +72,21 @@ export function startRecording(
 
 /**
  * Stop a running recording gracefully.
+ * Sends 'q' to ffmpeg stdin for clean shutdown (writes proper WAV header).
  */
 export async function stopRecording(handle: RecordingHandle): Promise<boolean> {
   if (handle.process.exitCode !== null) {
     return handle.promise;
   }
-  handle.process.kill("SIGINT");
+
+  // Send 'q' to ffmpeg for graceful stop (writes WAV header properly)
+  try {
+    handle.process.stdin?.write("q");
+  } catch {
+    // stdin may be closed
+    handle.process.kill("SIGINT");
+  }
+
   // Wait up to 5s for process to exit
   const timeout = new Promise<boolean>((resolve) => {
     setTimeout(() => {
@@ -78,35 +100,43 @@ export async function stopRecording(handle: RecordingHandle): Promise<boolean> {
 }
 
 /**
- * List available INPUT audio devices on macOS.
- * Parses system_profiler SPAudioDataType to find devices with "Input Channels".
+ * List available audio INPUT devices via ffmpeg avfoundation.
+ * Returns array of { index, name } for audio devices.
  */
-export function listInputDevices(): string[] {
-  try {
-    const output = execSync("system_profiler SPAudioDataType 2>/dev/null", {
-      encoding: "utf-8",
-      timeout: 10000,
-    });
+export interface AudioDevice {
+  index: string;
+  name: string;
+}
 
-    const devices: string[] = [];
-    let currentDevice = "";
+export function listInputDevices(): AudioDevice[] {
+  try {
+    const output = execSync(
+      'ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true',
+      { encoding: "utf-8", timeout: 5000 }
+    );
+
+    const devices: AudioDevice[] = [];
+    let inAudio = false;
 
     for (const line of output.split("\n")) {
-      // Device name is indented with 8 spaces and ends with ":"
-      const deviceMatch = line.match(/^        (.+):$/);
-      if (deviceMatch) {
-        currentDevice = deviceMatch[1].trim();
+      if (line.includes("AVFoundation audio devices:")) {
+        inAudio = true;
         continue;
       }
-      // If this device has input channels, it's a microphone
-      if (currentDevice && line.includes("Input Channels")) {
-        devices.push(currentDevice);
-        currentDevice = "";
+      if (line.includes("AVFoundation video devices:")) {
+        inAudio = false;
+        continue;
+      }
+      if (inAudio) {
+        const match = line.match(/\[(\d+)\]\s+(.+)/);
+        if (match) {
+          devices.push({ index: match[1], name: match[2].trim() });
+        }
       }
     }
 
-    return devices.length > 0 ? devices : ["Default"];
+    return devices.length > 0 ? devices : [{ index: "0", name: "Default" }];
   } catch {
-    return ["Default"];
+    return [{ index: "0", name: "Default" }];
   }
 }
