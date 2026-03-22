@@ -40,6 +40,7 @@ interface LockData {
   token: string
   startedBy: string
   startedAt: number
+  baseUrl?: string
 }
 
 interface AdminState {
@@ -93,7 +94,8 @@ export function isAdminRunning(): { running: boolean; url?: string; token?: stri
   // Check lock file (another bot may have started it)
   const lock = readLock()
   if (lock && isProcessAlive(lock.pid)) {
-    return { running: true, url: buildBaseUrl(lock.port), token: lock.token, port: lock.port }
+    const url = lock.baseUrl || buildBaseUrl(lock.port)
+    return { running: true, url, token: lock.token, port: lock.port }
   }
 
   // Stale lock
@@ -154,7 +156,8 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
   })
 
   // Write lock
-  writeLock({ pid: process.pid, port, token, startedBy: botName, startedAt: Date.now() })
+  const baseUrl = buildBaseUrl(port)
+  writeLock({ pid: process.pid, port, token, startedBy: botName, startedAt: Date.now(), baseUrl })
 
   // Start inactivity timer
   resetTimer()

@@ -578,6 +578,11 @@ async function handleMessage(
         ? `[Short-term context — fades over time. Use SaveFact for permanent storage.]\n${memoryCtx}\n\n${currentMessage}`
         : currentMessage
 
+      // Inject language preference so the agent responds in the user's chosen language
+      if (lang === 'en') {
+        fullMessage = `[⚙️ User language preference: English. Respond in English.]\n\n${fullMessage}`
+      }
+
       // Inject user-added group context (human messages during debate)
       const groupCtx = inGroup ? readGroupContext(chatIdStr) : null
       if (groupCtx) {
@@ -787,7 +792,7 @@ async function handleMessage(
         throw err
       } finally {
         // Always clean up plan state — even on error
-        if (planPhase) {
+        if (getPlanPhase(chatIdStr)) {
           clearPlanState(chatIdStr)
         }
       }
@@ -1335,16 +1340,31 @@ export function createBot(): Bot {
 
     const { isAdminRunning, startAdmin } = await import('./admin/on-demand.js')
 
+    // Telegram rejects localhost/private-IP URLs in inline buttons — detect and fallback to text
+    const canUseInlineUrl = (url: string) => {
+      try {
+        const u = new URL(url)
+        return u.protocol === 'https:' || (!u.hostname.startsWith('localhost') && !u.hostname.startsWith('127.') && !u.hostname.startsWith('192.168.') && !u.hostname.startsWith('10.'))
+      } catch { return false }
+    }
+
+    const replyWithAdminUrl = async (text: string, url: string) => {
+      if (canUseInlineUrl(url)) {
+        await ctx.reply(text, { reply_markup: { inline_keyboard: [
+          [{ text: t('admin.open'), url }],
+          [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
+        ] } })
+      } else {
+        await ctx.reply(`${text}\n\n${url}`, { reply_markup: { inline_keyboard: [
+          [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
+        ] } })
+      }
+    }
+
     const status = isAdminRunning()
     if (status.running) {
       const url = `${status.url}/?token=${status.token}`
-      await ctx.reply(
-        t('admin.running'),
-        { reply_markup: { inline_keyboard: [
-          [{ text: t('admin.open'), url }],
-          [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
-        ] } }
-      )
+      await replyWithAdminUrl(t('admin.running'), url)
       return
     }
 
@@ -1355,15 +1375,7 @@ export function createBot(): Bot {
       ctx.api.sendMessage(chatId, t('admin.idle')).catch(() => {})
     })
 
-    await ctx.reply(
-      t('admin.started'),
-      {
-        reply_markup: { inline_keyboard: [
-          [{ text: t('admin.open'), url }],
-          [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
-        ] },
-      }
-    )
+    await replyWithAdminUrl(t('admin.started'), url)
   })
 
   // /restart — restart bot process (watchdog will auto-restart)
