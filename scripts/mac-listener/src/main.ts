@@ -31,6 +31,9 @@ let recordingSeconds = 0;
 let lastTranscript = "";
 let continuousRunning = false;
 let cachedDevices: AudioDevice[] | null = null;
+let chunkCount = 0;
+let healthTimer: ReturnType<typeof setInterval> | null = null;
+const appStartedAt = Date.now();
 
 // ── Tray Icons ───────────────────────────────────────────────────────
 
@@ -170,6 +173,7 @@ async function processChunk(wavPath: string, skipVad: boolean = false) {
 
   if (result.ok) {
     console.log(`Uploaded: ${basename(wavPath)}`);
+    chunkCount++;
     if (result.transcript) {
       lastTranscript = result.transcript;
     }
@@ -214,6 +218,49 @@ async function runContinuousLoop() {
 
     recordingHandle = startRecording(nextPath, config.chunkDuration, config.inputDevice);
   }
+}
+
+// ── Health Ping ──────────────────────────────────────────────────────
+
+function sendHealthPing() {
+  if (!config.uploadUrl) return;
+  try {
+    const url = new URL(config.uploadUrl);
+    const pingUrl = `${url.protocol}//${url.host}/health-ping`;
+    const { request } = url.protocol === "https:" ? require("https") : require("http");
+
+    const uptimeSeconds = (Date.now() - appStartedAt) / 1000;
+    const body = JSON.stringify({
+      device_id: config.deviceId,
+      uptime_seconds: Math.round(uptimeSeconds),
+      cpu_temp: null,
+      load_avg: null,
+      ram_used_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      ram_total_mb: Math.round(require("os").totalmem() / 1024 / 1024),
+      chunks_recorded: chunkCount,
+      chunks_uploaded: 0,
+      queue_size: getQueueSize(config),
+      recording: state === "recording",
+    });
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Content-Length": String(Buffer.byteLength(body)),
+    };
+    if (config.uploadToken) {
+      headers["Authorization"] = `Bearer ${config.uploadToken}`;
+    }
+
+    const req = request(pingUrl, { method: "POST", headers, timeout: 5000 }, () => {});
+    req.on("error", () => {}); // non-critical
+    req.write(body);
+    req.end();
+  } catch {} // non-critical
+}
+
+function startHealthPing() {
+  sendHealthPing(); // immediate
+  healthTimer = setInterval(sendHealthPing, 60_000); // every 60s
 }
 
 // ── Server Status Check ──────────────────────────────────────────────
@@ -430,6 +477,9 @@ app.whenReady().then(() => {
   processRetryQueue(config).then((n) => {
     if (n > 0) console.log(`Startup: uploaded ${n} queued files`);
   });
+
+  // Start health ping (registers device in admin panel)
+  startHealthPing();
 });
 
 app.on("before-quit", async () => {
