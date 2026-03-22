@@ -51,6 +51,7 @@ const pendingPolls = new Map<string, {
 const ASK_USER_TIMEOUT_MS = 120_000 // 2 min to answer
 
 // --- Permission request pending responses (ask mode) ---
+let permissionRequestCounter = 0
 const pendingPermissions = new Map<string, {
   resolve: (allowed: boolean) => void
   timeout: ReturnType<typeof setTimeout>
@@ -747,18 +748,19 @@ async function handleMessage(
 
         // Permission callback for ask mode
         const onPermissionRequest = agentModeForRun === 'ask' ? async (toolName: string, summary: string) => {
+          const requestId = `${chatIdStr}:${++permissionRequestCounter}`
           const msg = `🔐 <b>${escapeHtml(toolName)}</b>\n<code>${escapeHtml(summary)}</code>`
           const keyboard = [
-            [{ text: '✅ Дозволити', callback_data: 'perm:allow' },
-             { text: '❌ Заборонити', callback_data: 'perm:deny' }],
+            [{ text: '✅ Дозволити', callback_data: `perm:allow:${requestId}` },
+             { text: '❌ Заборонити', callback_data: `perm:deny:${requestId}` }],
           ]
           await ctx.api.sendMessage(chatId, msg, { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } })
           return new Promise<boolean>((resolve) => {
             const timeout = setTimeout(() => {
-              pendingPermissions.delete(chatIdStr)
+              pendingPermissions.delete(requestId)
               resolve(false) // timeout = deny
             }, ASK_USER_TIMEOUT_MS)
-            pendingPermissions.set(chatIdStr, { resolve, timeout })
+            pendingPermissions.set(requestId, { resolve, timeout })
           })
         } : undefined
 
@@ -926,11 +928,14 @@ export function createBot(): Bot {
     // Permission request callback (ask mode)
     if (ctx.callbackQuery?.data?.startsWith('perm:')) {
       const chatIdStr = String(ctx.chat?.id)
-      const action = ctx.callbackQuery.data.slice(5) // remove 'perm:'
-      const pending = pendingPermissions.get(chatIdStr)
+      // Format: perm:allow:requestId or perm:deny:requestId
+      const parts = ctx.callbackQuery.data.split(':')
+      const action = parts[1]
+      const requestId = parts.slice(2).join(':')
+      const pending = pendingPermissions.get(requestId)
       if (pending) {
         clearTimeout(pending.timeout)
-        pendingPermissions.delete(chatIdStr)
+        pendingPermissions.delete(requestId)
         const allowed = action === 'allow'
         pending.resolve(allowed)
         await ctx.answerCallbackQuery({ text: allowed ? '✅' : '❌' })
