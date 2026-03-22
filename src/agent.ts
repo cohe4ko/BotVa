@@ -51,8 +51,9 @@ async function runAgentOnce(
 
   const abortController = createAbortController(chatId)
 
+  let mcpServers: Record<string, any> = {}
   try {
-    const mcpServers: Record<string, any> = await buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() }, mcpAllowList)
+    mcpServers = await buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() }, mcpAllowList)
 
     // Built-in tools MCP (image generation, voice, telegraph, etc.)
     if (builtinMcpServer) {
@@ -318,6 +319,16 @@ async function runAgentOnce(
     watchdog.stop()
     clearActiveQuery(chatId)
     if (typingInterval) clearInterval(typingInterval)
+    // Close MCP servers
+    for (const [name, server] of Object.entries(mcpServers)) {
+      try {
+        if (typeof server?.close === 'function') await server.close()
+        else if (typeof server?.stop === 'function') await server.stop()
+        else if (typeof server?.instance?.close === 'function') await server.instance.close()
+      } catch (err) {
+        logger.warn({ err, name }, 'MCP server cleanup failed')
+      }
+    }
   }
 
   return { text: resultText, newSessionId, usage, sessionFailed }
