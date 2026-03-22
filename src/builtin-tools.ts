@@ -637,7 +637,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('SaveFact')) tools.push(makeSaveFactTool(chatIdStr, usedTools))
   if (isOn('SearchMemory')) tools.push(makeSearchMemoryTool(chatIdStr, usedTools))
   if (isOn('DeleteFact')) tools.push(makeDeleteFactTool(chatIdStr, usedTools))
-  if (isOn('SearchMemory')) tools.push(makeBoostFactTool(chatIdStr, usedTools))
+  if (isOn('BoostFact')) tools.push(makeBoostFactTool(chatIdStr, usedTools))
 
   // --- Email (SMTP) ---
 
