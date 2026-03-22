@@ -33,49 +33,21 @@ let continuousRunning = false;
 
 // ── Tray Icons ───────────────────────────────────────────────────────
 
+const ASSETS_DIR = join(__dirname, "..", "assets");
+
 function createTrayIcon(color: "idle" | "recording" | "uploading"): Electron.NativeImage {
-  // Create a simple 22x22 icon using nativeImage
-  // Template images work with macOS dark/light mode
-  const size = 22;
-  const canvas = Buffer.alloc(size * size * 4); // RGBA
-
-  // Draw a circle
-  const cx = 11, cy = 11, r = 8;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = x - cx, dy = y - cy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const idx = (y * size + x) * 4;
-
-      if (dist <= r) {
-        if (color === "idle") {
-          // Gray circle (template image — will adapt to menu bar)
-          canvas[idx] = 128;     // R
-          canvas[idx + 1] = 128; // G
-          canvas[idx + 2] = 128; // B
-          canvas[idx + 3] = dist <= r - 1 ? 200 : 100; // A (antialiased edge)
-        } else if (color === "recording") {
-          // Red filled circle
-          canvas[idx] = 255;     // R
-          canvas[idx + 1] = 59;  // G
-          canvas[idx + 2] = 48;  // B
-          canvas[idx + 3] = dist <= r - 1 ? 255 : 128;
-        } else {
-          // Blue circle (uploading)
-          canvas[idx] = 50;      // R
-          canvas[idx + 1] = 130; // G
-          canvas[idx + 2] = 246; // B
-          canvas[idx + 3] = dist <= r - 1 ? 255 : 128;
-        }
-      }
-    }
+  const iconFiles: Record<string, string> = {
+    idle: "trayTemplate.png",
+    recording: "tray-recording.png",
+    uploading: "tray-uploading.png",
+  };
+  const file = join(ASSETS_DIR, iconFiles[color]);
+  const img = nativeImage.createFromPath(file);
+  // Mark idle icon as template so macOS adapts to dark/light mode
+  if (color === "idle") {
+    img.setTemplateImage(true);
   }
-
-  return nativeImage.createFromBuffer(canvas, {
-    width: size,
-    height: size,
-    scaleFactor: 2.0,
-  });
+  return img;
 }
 
 // ── Timer ────────────────────────────────────────────────────────────
