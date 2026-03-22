@@ -1,0 +1,19 @@
+{
+  "name": "mac-listener",
+  "version": "1.0.0",
+  "description": "Mac microphone listener — Electron tray app, sends audio to BotVa receiver",
+  "main": "dist/main.js",
+  "scripts": {
+    "compile": "tsc",
+    "start": "tsc && electron .",
+    "dev": "tsc --watch & electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "electron": "^35.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
