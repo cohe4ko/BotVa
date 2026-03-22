@@ -84,7 +84,7 @@ function startSocketListener(): void {
             const preview = (text ?? '').slice(0, 500)
             sendMessage(ALLOWED_CHAT_ID!, `✅ Відповідь для ${req.from}: ${preview}`).catch(() => {})
           }
-          conn.write(JSON.stringify({ answer: text ?? 'Немає відповіді', sessionId: newSessionId }) + '\n')
+          conn.write(JSON.stringify({ answer: text ?? 'No reply', sessionId: newSessionId }) + '\n')
           conn.end()
         })
         .catch((err) => {

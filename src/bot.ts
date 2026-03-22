@@ -450,7 +450,7 @@ async function handleMessage(
         // Paused: inject context AND resume
         pausedChats.delete(chatIdStr)
         appendGroupContext(chatIdStr, rawText)
-        await ctx.api.sendMessage(chatId, `📌 Додано до контексту. Діалог відновлено.`).catch(() => {})
+        await ctx.api.sendMessage(chatId, chatT(chatIdStr)('group.context.resumed')).catch(() => {})
         debateLog(chatIdStr, 'CONTEXT_INJECTED_AND_RESUMED', { text: rawText.slice(0, 100) })
         // Write resume signal to relay so bots pick up
         try {
@@ -460,7 +460,7 @@ async function handleMessage(
       } else {
         // Active debate, not paused/stopped: pure context injection
         appendGroupContext(chatIdStr, rawText)
-        await ctx.api.sendMessage(chatId, `📌 Додано до контексту`).catch(() => {})
+        await ctx.api.sendMessage(chatId, chatT(chatIdStr)('group.context.injected')).catch(() => {})
         debateLog(chatIdStr, 'CONTEXT_INJECTED', { text: rawText.slice(0, 100) })
         return
       }
@@ -489,7 +489,7 @@ async function handleMessage(
       const state = getGroupState(chatIdStr)
       debateLog(chatIdStr, 'SKIP:iteration_limit', { count: state?.count, max: state?.max })
       if (state && state.count === state.max + 1) {
-        await ctx.api.sendMessage(chatId, `🛑 Ліміт ітерацій (${state.max}). /stop для reset.`).catch(() => {})
+        await ctx.api.sendMessage(chatId, chatT(chatIdStr)('group.iteration.limit', { max: state.max })).catch(() => {})
       }
       return
     }
@@ -517,7 +517,7 @@ async function handleMessage(
       const delayMs = randomGroupDelay()
       const delaySec = Math.round(delayMs / 1000)
       debateLog(chatIdStr, 'DELAY', { seconds: delaySec, count: chatState.count })
-      await ctx.api.sendMessage(chatId, `⏳ Прийняв. Думаю ${delaySec}с...`).catch(() => {})
+      await ctx.api.sendMessage(chatId, chatT(chatIdStr)('group.thinking', { sec: delaySec })).catch(() => {})
       await sleep(delayMs)
       // Re-check stopped/paused after delay (user may have sent /stop during sleep)
       if (stoppedChats.has(chatIdStr)) {
@@ -1098,7 +1098,7 @@ export function createBot(): Bot {
         await ctx.answerCallbackQuery({ text: '✅' })
         try {
           if (msg && 'text' in msg) {
-            await ctx.editMessageText(`${msg.text}\n\n✅ <b>Збережено</b>`, { parse_mode: 'HTML' })
+            await ctx.editMessageText(`${msg.text}\n\n${chatT(String(ctx.chat!.id))('review.saved')}`, { parse_mode: 'HTML' })
           }
         } catch {}
       } else if (action === 'decline' && factId) {
@@ -1106,7 +1106,7 @@ export function createBot(): Bot {
         await ctx.answerCallbackQuery({ text: '❌' })
         try {
           if (msg && 'text' in msg) {
-            await ctx.editMessageText(`${msg.text}\n\n❌ <b>Пропущено</b>`, { parse_mode: 'HTML' })
+            await ctx.editMessageText(`${msg.text}\n\n${chatT(String(ctx.chat!.id))('review.skipped')}`, { parse_mode: 'HTML' })
           }
         } catch {}
       } else if (action === 'skip') {
@@ -1121,7 +1121,7 @@ export function createBot(): Bot {
       } else {
         const stats = getReviewStats()
         if (stats.approved > 0 || stats.declined > 0) {
-          await ctx.api.sendMessage(ctx.chat!.id, `✅ Всі факти переглянуто!\n\n📊 +${stats.approved} збережено, ${stats.declined} пропущено`)
+          await ctx.api.sendMessage(ctx.chat!.id, chatT(String(ctx.chat!.id))('review.allDone', { approved: stats.approved, declined: stats.declined }))
         }
       }
       return
@@ -1135,7 +1135,7 @@ export function createBot(): Bot {
         return
       }
       if (String(ctx.chat?.id) !== ownerChatId) {
-        await ctx.answerCallbackQuery({ text: '⛔ Тільки власник' })
+        await ctx.answerCallbackQuery({ text: chatT(String(ctx.chat!.id))('review.ownerOnly') })
         return
       }
       const parts = ctx.callbackQuery.data.split(':')
@@ -1151,11 +1151,11 @@ export function createBot(): Bot {
           clearTimeout(pending.timeout)
           pendingGroupApprovals.delete(groupId)
         }
-        await ctx.answerCallbackQuery({ text: '✅ Групу додано' })
+        await ctx.answerCallbackQuery({ text: chatT(String(ctx.chat!.id))('review.groupAdded') })
         try {
           const msg = ctx.callbackQuery.message
           if (msg && 'text' in msg) {
-            await ctx.editMessageText(`${msg.text}\n\n✅ <b>Дозволено</b>`, { parse_mode: 'HTML' })
+            await ctx.editMessageText(`${msg.text}\n\n${chatT(String(ctx.chat!.id))('review.groupAllowed')}`, { parse_mode: 'HTML' })
           }
         } catch {}
       } else if (action === 'deny') {
@@ -1164,11 +1164,11 @@ export function createBot(): Bot {
           pendingGroupApprovals.delete(groupId)
         }
         try { await bot.api.leaveChat(Number(groupId)) } catch {}
-        await ctx.answerCallbackQuery({ text: '❌ Відхилено, бот вийшов' })
+        await ctx.answerCallbackQuery({ text: chatT(String(ctx.chat!.id))('review.groupDenied') })
         try {
           const msg = ctx.callbackQuery.message
           if (msg && 'text' in msg) {
-            await ctx.editMessageText(`${msg.text}\n\n❌ <b>Відхилено</b>`, { parse_mode: 'HTML' })
+            await ctx.editMessageText(`${msg.text}\n\n${chatT(String(ctx.chat!.id))('review.groupDeniedLabel')}`, { parse_mode: 'HTML' })
           }
         } catch {}
       }
@@ -1222,13 +1222,15 @@ export function createBot(): Bot {
   async function sendListenerFactForReview(ctx: Context, item: import('./listener-facts.js').FactReviewItem) {
     const chatId = ctx.chat?.id
     if (!chatId) return
+    const t = chatT(String(chatId))
     const typeEmoji = item.type === 'fact' ? '💡' : item.type === 'decision' ? '✅' : '📌'
-    const typeLabel = item.type === 'fact' ? 'Факт' : item.type === 'decision' ? 'Рішення' : 'Задача'
+    const typeKey = item.type === 'fact' ? 'review.type.fact' : item.type === 'decision' ? 'review.type.decision' : 'review.type.task'
+    const typeLabel = t(typeKey)
     const time = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, '$1:$2')
     const topicsStr = item.topics.length > 0 ? `\n🏷 ${item.topics.join(', ')}` : ''
 
     const text = [
-      `${typeEmoji} <b>${typeLabel} із запису</b>`,
+      `${typeEmoji} <b>${typeLabel} ${t('review.fromRecording')}</b>`,
       `📅 ${item.date} ${time} · 🔊 ${item.device}${topicsStr}`,
       '',
       item.content,
@@ -1238,9 +1240,9 @@ export function createBot(): Bot {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[
-          { text: '✅ Зберегти', callback_data: `lr:approve:${item.id}` },
-          { text: '❌ Пропустити', callback_data: `lr:decline:${item.id}` },
-          { text: '⏭ Потім', callback_data: 'lr:skip' },
+          { text: t('review.btn.save'), callback_data: `lr:approve:${item.id}` },
+          { text: t('review.btn.skip'), callback_data: `lr:decline:${item.id}` },
+          { text: t('review.btn.later'), callback_data: 'lr:skip' },
         ]],
       },
     })
@@ -1254,11 +1256,11 @@ export function createBot(): Bot {
     const stats = getReviewStats()
     const next = getNextPendingFact()
     if (!next) {
-      await ctx.reply(`📋 Немає фактів для перегляду.\n\n📊 Всього: ${stats.approved} збережено, ${stats.declined} пропущено`)
+      await ctx.reply(chatT(String(ctx.chat.id))('review.noFacts', { approved: stats.approved, declined: stats.declined }))
       return
     }
     if (added > 0) {
-      await ctx.reply(`📋 Знайдено ${stats.pending} нових фактів із записів. Починаємо перегляд:`)
+      await ctx.reply(chatT(String(ctx.chat.id))('review.found', { pending: stats.pending }))
     }
     await sendListenerFactForReview(ctx, next)
   })
@@ -1367,7 +1369,7 @@ export function createBot(): Bot {
   // /restart — restart bot process (watchdog will auto-restart)
   bot.command('restart', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
-    await ctx.reply('🔄 Restarting in 5s...')
+    await ctx.reply(chatT(String(ctx.chat.id))('cmd.restart'))
     setTimeout(() => process.exit(42), 5000)
   })
 
@@ -1383,21 +1385,22 @@ export function createBot(): Bot {
         })
       })
 
-    const msg = await ctx.reply('🔄 Updating...\n\n`git pull`...', { parse_mode: 'Markdown' })
+    const t = chatT(String(ctx.chat.id))
+    const msg = await ctx.reply(t('cmd.update.start'), { parse_mode: 'Markdown' })
     try {
       const pullResult = await run('git pull')
       if (pullResult.includes('Already up to date')) {
-        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, '✅ Already up to date.')
+        await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.upToDate'))
         return
       }
 
-      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `🔄 Updating...\n\n\`git pull\` ✓\n\`npm run build\`...`, { parse_mode: 'Markdown' })
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.building'), { parse_mode: 'Markdown' })
       await run('npm run build')
 
-      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `✅ Updated!\n\n\`\`\`\n${pullResult}\n\`\`\`\n\nRestarting...`, { parse_mode: 'Markdown' })
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.done', { result: pullResult }), { parse_mode: 'Markdown' })
       setTimeout(() => process.exit(42), 1000)
     } catch (err: any) {
-      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, `❌ Update failed:\n\n\`\`\`\n${err.message}\n\`\`\``, { parse_mode: 'Markdown' })
+      await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.failed', { error: err.message }), { parse_mode: 'Markdown' })
     }
   })
 
@@ -1410,8 +1413,9 @@ export function createBot(): Bot {
     const sender = ctx.message?.from
     if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
     const chatIdStr = String(chatId)
+    const t = chatT(chatIdStr)
     if (stoppedChats.has(chatIdStr)) {
-      await ctx.reply('⏹ Вже зупинено.')
+      await ctx.reply(t('group.stop.already'))
       return
     }
     const state = getGroupState(chatIdStr)
@@ -1420,7 +1424,7 @@ export function createBot(): Bot {
     relayClear(chatIdStr)
     clearGroupContext(chatIdStr)
     stoppedChats.add(chatIdStr)
-    await ctx.reply(`⏹ Діалог зупинено${state ? ` (було ${state.count} ітерацій)` : ''}.`)
+    await ctx.reply(state ? t('group.stop.done', { count: state.count }) : t('group.stop.done.short'))
   })
 
   // /pause — temporarily pause group debate (resume with /resume or any human message)
@@ -1431,13 +1435,14 @@ export function createBot(): Bot {
     const sender = ctx.message?.from
     if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
     const chatIdStr = String(chatId)
+    const t = chatT(chatIdStr)
     if (pausedChats.has(chatIdStr)) {
-      await ctx.reply('⏸ Вже призупинено.')
+      await ctx.reply(t('group.pause.already'))
       return
     }
     pausedChats.add(chatIdStr)
     debateLog(chatIdStr, 'PAUSED')
-    await ctx.reply('⏸ Діалог на паузі. /resume або нове повідомлення щоб продовжити.')
+    await ctx.reply(t('group.pause.done'))
   })
 
   // /resume — resume paused group debate
@@ -1448,19 +1453,20 @@ export function createBot(): Bot {
     const sender = ctx.message?.from
     if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
     const chatIdStr = String(chatId)
+    const t = chatT(chatIdStr)
     if (pausedChats.has(chatIdStr)) {
       pausedChats.delete(chatIdStr)
       debateLog(chatIdStr, 'RESUMED')
-      await ctx.reply('▶️ Діалог відновлено.')
+      await ctx.reply(t('group.resume.done'))
       // Write resume signal to relay so paused bots pick up
       try {
         relayWrite(chatIdStr, ctx.me?.username ?? BOT_NAME, '[System: debate resumed — continue from where you left off]')
         debateLog(chatIdStr, 'RESUME_RELAY_WRITTEN')
       } catch { /* ignore */ }
     } else if (stoppedChats.has(chatIdStr)) {
-      await ctx.reply('⏹ Діалог був зупинений через /stop. Надішли нове повідомлення для нового діалогу.')
+      await ctx.reply(t('group.resume.stopped'))
     } else {
-      await ctx.reply('▶️ Діалог не на паузі.')
+      await ctx.reply(t('group.resume.notPaused'))
     }
   })
 

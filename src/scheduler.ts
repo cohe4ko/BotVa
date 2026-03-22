@@ -2,6 +2,7 @@ import cronParser from 'cron-parser'
 import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent, markReminderFailed, deleteReminder } from './db.js'
 import { runAgent } from './agent.js'
 import { logger } from './logger.js'
+import { chatT } from './bot-i18n.js'
 import type { Api } from 'grammy'
 
 type Sender = (chatId: string, text: string) => Promise<void>
@@ -74,8 +75,9 @@ export async function runDueTasks(): Promise<void> {
     }
     runningTasks.add(task.id)
     try {
+      const t = chatT(task.chat_id)
       if (sender) {
-        await sender(task.chat_id, `⏰ Виконую заплановану задачу: ${task.prompt.slice(0, 100)}...`)
+        await sender(task.chat_id, t('sched.running', { prompt: task.prompt.slice(0, 100) }))
       }
 
       // Create builtin MCP server with minimal tools to save context window
@@ -113,7 +115,7 @@ export async function runDueTasks(): Promise<void> {
       if (result.includes('{{agent.crash}}')) {
         logger.warn({ taskId: task.id }, 'Scheduled task crashed, retrying once')
         if (sender) {
-          await sender(task.chat_id, '⚠️ Задача впала, повторюю...')
+          await sender(task.chat_id, t('sched.retry'))
         }
         const retry = await runAgent(
           task.prompt, undefined, undefined, task.chat_id,
@@ -123,7 +125,7 @@ export async function runDueTasks(): Promise<void> {
       }
 
       if (sender && !result.includes('{{agent.crash}}')) {
-        await sender(task.chat_id, `📋 Результат задачі:\n\n${result}`)
+        await sender(task.chat_id, t('sched.result', { result }))
       }
 
       updateTaskAfterRun(task.id, result.slice(0, 5000))
@@ -132,7 +134,7 @@ export async function runDueTasks(): Promise<void> {
     } catch (err) {
       logger.error({ err, taskId: task.id }, 'Task execution failed')
       if (sender) {
-        await sender(task.chat_id, `Задача не виконана: ${err instanceof Error ? err.message : String(err)}`)
+        await sender(task.chat_id, chatT(task.chat_id)('sched.failed', { error: err instanceof Error ? err.message : String(err) }))
       }
       // next_run already advanced — just save error result
       updateTaskAfterRun(task.id, `ERROR: ${err}`)

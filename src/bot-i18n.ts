@@ -239,6 +239,56 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.session.last': 'Last message',
     'menu.session': 'Sessions (switch, save, import)',
 
+    // Group debate
+    'group.context.injected': '📌 Added to context',
+    'group.context.resumed': '📌 Added to context. Debate resumed.',
+    'group.iteration.limit': '🛑 Iteration limit ({max}). /stop to reset.',
+    'group.thinking': '⏳ Got it. Thinking {sec}s...',
+    'group.stop.already': '⏹ Already stopped.',
+    'group.stop.done': '⏹ Debate stopped ({count} iterations).',
+    'group.stop.done.short': '⏹ Debate stopped.',
+    'group.pause.already': '⏸ Already paused.',
+    'group.pause.done': '⏸ Debate paused. /resume or send a message to continue.',
+    'group.resume.done': '▶️ Debate resumed.',
+    'group.resume.stopped': '⏹ Debate was stopped via /stop. Send a new message to start a new debate.',
+    'group.resume.notPaused': '▶️ Debate is not paused.',
+
+    // Fact review
+    'review.saved': '✅ <b>Saved</b>',
+    'review.skipped': '❌ <b>Skipped</b>',
+    'review.allDone': '✅ All facts reviewed!\n\n📊 +{approved} saved, {declined} skipped',
+    'review.ownerOnly': '⛔ Owner only',
+    'review.groupAdded': '✅ Group added',
+    'review.groupAllowed': '✅ <b>Allowed</b>',
+    'review.groupDenied': '❌ Denied, bot left',
+    'review.groupDeniedLabel': '❌ <b>Denied</b>',
+    'review.noFacts': '📋 No facts to review.\n\n📊 Total: {approved} saved, {declined} skipped',
+    'review.found': '📋 Found {pending} new facts from recordings. Starting review:',
+    'review.type.fact': 'Fact',
+    'review.type.decision': 'Decision',
+    'review.type.task': 'Task',
+    'review.fromRecording': 'from recording',
+    'review.btn.save': '✅ Save',
+    'review.btn.skip': '❌ Skip',
+    'review.btn.later': '⏭ Later',
+
+    // Restart / Update
+    'cmd.restart': '🔄 Restarting in 5s...',
+    'cmd.update.start': '🔄 Updating...\n\n`git pull`...',
+    'cmd.update.upToDate': '✅ Already up to date.',
+    'cmd.update.building': '🔄 Updating...\n\n`git pull` ✓\n`npm run build`...',
+    'cmd.update.done': '✅ Updated!\n\n```\n{result}\n```\n\nRestarting...',
+    'cmd.update.failed': '❌ Update failed:\n\n```\n{error}\n```',
+
+    // Scheduler
+    'sched.running': '⏰ Running scheduled task: {prompt}...',
+    'sched.retry': '⚠️ Task crashed, retrying...',
+    'sched.result': '📋 Task result:\n\n{result}',
+    'sched.failed': 'Task failed: {error}',
+
+    // Colleague
+    'colleague.noReply': 'No reply',
+
     // Bot commands menu
     'menu.start': 'Start',
     'menu.new': 'New session (clear context)',
@@ -486,6 +536,56 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.session.first': 'Перше повідомлення',
     'cmd.session.last': 'Останнє повідомлення',
     'menu.session': 'Сесії (перемикання, збереження, імпорт)',
+
+    // Group debate
+    'group.context.injected': '📌 Додано до контексту',
+    'group.context.resumed': '📌 Додано до контексту. Діалог відновлено.',
+    'group.iteration.limit': '🛑 Ліміт ітерацій ({max}). /stop для reset.',
+    'group.thinking': '⏳ Прийняв. Думаю {sec}с...',
+    'group.stop.already': '⏹ Вже зупинено.',
+    'group.stop.done': '⏹ Діалог зупинено (було {count} ітерацій).',
+    'group.stop.done.short': '⏹ Діалог зупинено.',
+    'group.pause.already': '⏸ Вже призупинено.',
+    'group.pause.done': '⏸ Діалог на паузі. /resume або нове повідомлення щоб продовжити.',
+    'group.resume.done': '▶️ Діалог відновлено.',
+    'group.resume.stopped': '⏹ Діалог був зупинений через /stop. Надішли нове повідомлення для нового діалогу.',
+    'group.resume.notPaused': '▶️ Діалог не на паузі.',
+
+    // Fact review
+    'review.saved': '✅ <b>Збережено</b>',
+    'review.skipped': '❌ <b>Пропущено</b>',
+    'review.allDone': '✅ Всі факти переглянуто!\n\n📊 +{approved} збережено, {declined} пропущено',
+    'review.ownerOnly': '⛔ Тільки власник',
+    'review.groupAdded': '✅ Групу додано',
+    'review.groupAllowed': '✅ <b>Дозволено</b>',
+    'review.groupDenied': '❌ Відхилено, бот вийшов',
+    'review.groupDeniedLabel': '❌ <b>Відхилено</b>',
+    'review.noFacts': '📋 Немає фактів для перегляду.\n\n📊 Всього: {approved} збережено, {declined} пропущено',
+    'review.found': '📋 Знайдено {pending} нових фактів із записів. Починаємо перегляд:',
+    'review.type.fact': 'Факт',
+    'review.type.decision': 'Рішення',
+    'review.type.task': 'Задача',
+    'review.fromRecording': 'із запису',
+    'review.btn.save': '✅ Зберегти',
+    'review.btn.skip': '❌ Пропустити',
+    'review.btn.later': '⏭ Потім',
+
+    // Restart / Update
+    'cmd.restart': '🔄 Перезапуск через 5с...',
+    'cmd.update.start': '🔄 Оновлення...\n\n`git pull`...',
+    'cmd.update.upToDate': '✅ Вже актуальна версія.',
+    'cmd.update.building': '🔄 Оновлення...\n\n`git pull` ✓\n`npm run build`...',
+    'cmd.update.done': '✅ Оновлено!\n\n```\n{result}\n```\n\nПерезапуск...',
+    'cmd.update.failed': '❌ Помилка оновлення:\n\n```\n{error}\n```',
+
+    // Scheduler
+    'sched.running': '⏰ Виконую заплановану задачу: {prompt}...',
+    'sched.retry': '⚠️ Задача впала, повторюю...',
+    'sched.result': '📋 Результат задачі:\n\n{result}',
+    'sched.failed': 'Задача не виконана: {error}',
+
+    // Colleague
+    'colleague.noReply': 'Немає відповіді',
 
     // Bot commands menu
     'menu.start': 'Почати роботу',

@@ -33,54 +33,6 @@ function mdToHtml(md: string): string {
   return s
 }
 
-// Cute Ukrainian tool names for "blonde" mode
-const CUTE_TOOL_NAMES: Record<string, string> = {
-  Read: '📖 читаємо файлик',
-  Write: '✏️ пишемо файлик',
-  Edit: '💅 міняємо буквочки',
-  Glob: '🔍 шукаємо файлики',
-  Grep: '👀 продивляємось папочки',
-  Bash: '⚡ запускаємо команду',
-  WebSearch: '🌐 гуглимо',
-  WebFetch: '📥 завантажуємо сторіночку',
-  Agent: '🤖 помічник думає',
-  TodoWrite: '📝 записуємо задачку',
-  TodoRead: '📋 дивимось задачки',
-  NotebookEdit: '📓 редагуємо зошит',
-  Skill: '✨ використовуємо скіл',
-}
-
-// Cute status messages for "blonde" mode
-const CUTE_STATUSES: Record<string, string> = {
-  compacting: '🧹 прибираємо в голові...',
-  compacted: '🧹 прибрали в голові',
-  auth: '🔑 авторизуємось...',
-  authFail: '🔑 ой, не пустили',
-  hookFail: '⚙️ ой, щось зламалось',
-  rateLimit: '⏳ трішки зачекаємо...',
-  billing: '💳 ой, з оплатою щось',
-  authError: '🔑 не вдалось увійти',
-  serverError: '🔥 серверу поганенько',
-  working: '⏳ працюємо',
-  done: '✅ зробили!',
-}
-
-// Cute MCP tool name prefixes for "blonde" mode
-const CUTE_MCP_PREFIXES: Record<string, string> = {
-  'bitrix24': '📋 дивимось CRM',
-  'home-assistant': '🏠 керуємо будинком',
-  'stagehand': '🎭 керуємо браузером',
-  'playwright': '🎭 керуємо браузером',
-  'macos-control': '🖥️ керуємо маком',
-  'google-workspace': '📧 дивимось пошту',
-  'meta-ads': '📣 крутимо рекламку',
-  'notion': '📔 гортаємо нотатки',
-  'pubmed': '🔬 читаємо наукове',
-  'medical': '💊 дивимось пігулочки',
-  'spacedome': '⛺ будуємо купол',
-  'freecad': '📐 малюємо фігурки',
-}
-
 // Tool-specific icons for standard mode
 const TOOL_ICONS: Record<string, string> = {
   Read: '📖',
