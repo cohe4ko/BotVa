@@ -50,6 +50,41 @@ const TOOL_ICONS: Record<string, string> = {
   Skill: '✨',
   AskGemini: '💎',
   GeminiSearch: '💎',
+  // Builtin tools
+  GenerateImage: '🎨',
+  EditImage: '🖌️',
+  TextToSpeech: '🗣️',
+  SendMedia: '📎',
+  SetReaction: '😊',
+  ForwardMessage: '↗️',
+  PublishTelegraph: '📰',
+  ShareFile: '📤',
+  ListGalleryImages: '🖼️',
+  SendGalleryImage: '🖼️',
+  DeleteGalleryImage: '🖼️',
+  CreateBackup: '💾',
+  ListBackups: '💾',
+  VerifyBackup: '💾',
+  RestoreBackup: '💾',
+  DeleteBackup: '💾',
+  SendEmail: '📧',
+  SaveFact: '🧠',
+  SearchMemory: '🧠',
+  DeleteFact: '🧹',
+  CreateBot: '🤖',
+  DeleteBot: '🤖',
+  ListBots: '🤖',
+  CurrencyRates: '💱',
+  GetCurrentTime: '🕐',
+  CreateReminder: '⏰',
+  ListReminders: '⏰',
+  DeleteReminder: '⏰',
+  RunPython: '🐍',
+  AskUser: '❓',
+  TakeScreenshot: '📸',
+  NameSession: '🏷️',
+  ReadWorkspaceFile: '📂',
+  WriteWorkspaceFile: '📂',
 }
 
 // MCP server icon prefixes
@@ -103,7 +138,7 @@ function toolIcon(name: string): string {
 }
 
 // Regex matching any tool icon (for replacement in progress/result), works inside <code>
-const TOOL_ICON_RE = /^(<code>)?(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐🎨][\uFE0F]?/
+const TOOL_ICON_RE = /^(<code>)?(\s*)[📖✏️✂️🔍👀⚡🌐📥🤖📝📋📓✨💎🔧⏳✅🏠🎭🖥️📧📣📔🔬💊⛺📐🎨🖌️🗣️📎😊↗️📰📤🖼️💾🧠🧹💱🕐⏰🐍❓📸🏷️📂📦💫][\uFE0F]?/
 
 function toolDetail(name: string, input: Record<string, unknown>): string {
   const i = input
@@ -327,6 +362,27 @@ export class ProgressReporter {
               TodoRead: 'progress.cute.todoread', NotebookEdit: 'progress.cute.notebookedit',
               Skill: 'progress.cute.skill',
               AskGemini: 'progress.cute.askgemini', GeminiSearch: 'progress.cute.geminisearch',
+              // Builtin tools
+              GenerateImage: 'progress.cute.generateimage', EditImage: 'progress.cute.editimage',
+              TextToSpeech: 'progress.cute.texttospeech', SendMedia: 'progress.cute.sendmedia',
+              SetReaction: 'progress.cute.setreaction', ForwardMessage: 'progress.cute.forwardmessage',
+              PublishTelegraph: 'progress.cute.publishtelegraph', ShareFile: 'progress.cute.sharefile',
+              ListGalleryImages: 'progress.cute.gallery', SendGalleryImage: 'progress.cute.gallery',
+              DeleteGalleryImage: 'progress.cute.gallery',
+              CreateBackup: 'progress.cute.backup', ListBackups: 'progress.cute.backup',
+              VerifyBackup: 'progress.cute.backup', RestoreBackup: 'progress.cute.backup',
+              DeleteBackup: 'progress.cute.backup',
+              SendEmail: 'progress.cute.sendemail',
+              SaveFact: 'progress.cute.savefact', SearchMemory: 'progress.cute.searchmemory',
+              DeleteFact: 'progress.cute.deletefact',
+              CreateBot: 'progress.cute.botmanage', DeleteBot: 'progress.cute.botmanage',
+              ListBots: 'progress.cute.botmanage',
+              CurrencyRates: 'progress.cute.currencyrates', GetCurrentTime: 'progress.cute.getcurrenttime',
+              CreateReminder: 'progress.cute.reminder', ListReminders: 'progress.cute.reminder',
+              DeleteReminder: 'progress.cute.reminder',
+              RunPython: 'progress.cute.runpython', AskUser: 'progress.cute.askuser',
+              TakeScreenshot: 'progress.cute.takescreenshot', NameSession: 'progress.cute.namesession',
+              ReadWorkspaceFile: 'progress.cute.workspacefile', WriteWorkspaceFile: 'progress.cute.workspacefile',
             }
             const cuteMcpKeys: Record<string, string> = {
               'bitrix24': 'progress.cute.bitrix24', 'home-assistant': 'progress.cute.homeassistant',
