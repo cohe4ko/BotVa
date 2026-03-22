@@ -55,6 +55,10 @@ vi.mock('./agent-watchdog.js', () => ({
   },
 }))
 
+vi.mock('./disk-sessions.js', () => ({
+  getClaudeProjectDir: vi.fn(() => testDir),
+}))
+
 const mockAbortController = { abort: vi.fn(), signal: { aborted: false } }
 const mockIsCancelled = vi.fn(() => false)
 const mockIsInterrupted = vi.fn(() => false)
@@ -73,6 +77,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }))
 
 import { runAgent } from './agent.js'
+import { writeFileSync } from 'fs'
+import { join } from 'path'
+
+// Helper: create a fake session file so validateSessionFile returns true
+function createFakeSession(sessionId: string): void {
+  writeFileSync(join(testDir, `${sessionId}.jsonl`), '{"type":"system"}\n')
+}
 
 // Helper: create async generator from events
 async function* eventStream(events: any[]) {
@@ -211,6 +222,7 @@ describe('runAgent', () => {
 
   describe('retry logic', () => {
     it('retries without session on process crash with session', async () => {
+      createFakeSession('existing-session')
       let callCount = 0
       mockQuery.mockImplementation(async function* () {
         callCount++
@@ -228,6 +240,7 @@ describe('runAgent', () => {
     })
 
     it('returns double crash when retry returns no text', async () => {
+      createFakeSession('existing-session')
       let callCount = 0
       mockIsInterrupted.mockReturnValue(false)
       mockIsCancelled.mockReturnValue(false)
@@ -247,6 +260,7 @@ describe('runAgent', () => {
     })
 
     it('returns crash template when retry also crashes without session', async () => {
+      createFakeSession('existing-session')
       mockQuery.mockImplementation(async function* () {
         throw new Error('exited with code 1')
       })

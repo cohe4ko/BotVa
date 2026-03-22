@@ -81,6 +81,7 @@ describe('downloadMedia', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        headers: { get: () => '8' },
         arrayBuffer: async () => new ArrayBuffer(8),
       })
 
@@ -101,6 +102,7 @@ describe('downloadMedia', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        headers: { get: () => '4' },
         arrayBuffer: async () => new ArrayBuffer(4),
       })
 
@@ -133,6 +135,7 @@ describe('downloadMedia', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        headers: { get: () => '2' },
         arrayBuffer: async () => new ArrayBuffer(2),
       })
 

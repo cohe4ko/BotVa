@@ -95,12 +95,13 @@
 GenerateImage, EditImage, TextToSpeech, SendMedia, SetReaction, ForwardMessage, PublishTelegraph, ShareFile,
 ListGalleryImages, SendGalleryImage, DeleteGalleryImage,
 CreateBackup, ListBackups, VerifyBackup, RestoreBackup, DeleteBackup, SendEmail,
-SaveFact, SearchMemory, DeleteFact,
+SaveFact, SearchMemory, DeleteFact, BoostFact,
 CreateBot, DeleteBot, ListBots,
 CurrencyRates, GetCurrentTime,
 CreateReminder, ListReminders, DeleteReminder,
 RunPython, AskUser, TakeScreenshot, NameSession,
 AskGemini, GeminiSearch,
+PinMessage, OpenWebApp, SendLocation, SendSticker, SendAnimation,
 ReadWorkspaceFile, WriteWorkspaceFile
 
 **MCP сервери** (mcp-servers.json):
