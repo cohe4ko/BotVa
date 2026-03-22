@@ -1127,6 +1127,10 @@ export function createBot(): Bot {
     // Group approval callback
     if (ctx.callbackQuery?.data?.startsWith('grp:')) {
       const ownerChatId = ALLOWED_CHAT_ID.split(',')[0]?.trim()
+      if (!ownerChatId) {
+        await ctx.answerCallbackQuery({ text: 'Owner not configured' })
+        return
+      }
       if (String(ctx.chat?.id) !== ownerChatId) {
         await ctx.answerCallbackQuery({ text: '⛔ Тільки власник' })
         return
