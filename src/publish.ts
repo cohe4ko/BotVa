@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -9,10 +9,10 @@ const PUBLISH_SCRIPT = path.join(__dirname, '..', 'scripts', 'publish.sh');
 
 export async function publishFile(localPath: string, subfolder?: string): Promise<string | null> {
     try {
-        const args = [PUBLISH_SCRIPT, localPath];
+        const args = [localPath];
         if (subfolder) args.push(subfolder);
 
-        const url = execSync(args.join(' '), {
+        const url = execFileSync(PUBLISH_SCRIPT, args, {
             encoding: 'utf-8',
             timeout: 30000,
             env: { ...process.env, BOT_DIR: process.env.BOT_DIR || '' },
