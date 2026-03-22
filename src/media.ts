@@ -1,8 +1,12 @@
-import { writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs'
+import { writeFileSync, createWriteStream, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs'
 import { join, dirname, resolve } from 'path'
+import { pipeline } from 'stream/promises'
+import { Readable } from 'stream'
 import { fileURLToPath } from 'url'
 import { PROJECT_ROOT, BOT_NAME } from './config.js'
 import { logger } from './logger.js'
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50MB Telegram limit
 
 export const UPLOADS_DIR = resolve(PROJECT_ROOT, 'workspace', BOT_NAME, 'uploads')
 
@@ -36,14 +40,24 @@ export async function downloadMedia(
   )
   if (!fileRes.ok) throw new Error(`Failed to download file: ${fileRes.status}`)
 
-  const buffer = Buffer.from(await fileRes.arrayBuffer())
+  const contentLength = Number(fileRes.headers.get('content-length') || 0)
+  if (contentLength > MAX_FILE_SIZE) {
+    throw new Error(`File too large: ${Math.round(contentLength / 1024 / 1024)}MB exceeds 50MB limit`)
+  }
 
   const ext = remotePath.includes('.') ? remotePath.slice(remotePath.lastIndexOf('.')) : ''
   const safeName = originalFilename ? sanitizeFilename(originalFilename) : `file${ext}`
   const localPath = join(UPLOADS_DIR, `${Date.now()}_${safeName}`)
 
-  writeFileSync(localPath, buffer)
-  logger.info({ localPath, size: buffer.length }, 'Media downloaded')
+  // Stream large files to disk instead of buffering in memory
+  if (contentLength > 10 * 1024 * 1024 && fileRes.body) {
+    await pipeline(Readable.fromWeb(fileRes.body as any), createWriteStream(localPath))
+    logger.info({ localPath, size: contentLength }, 'Media streamed to disk')
+  } else {
+    const buffer = Buffer.from(await fileRes.arrayBuffer())
+    writeFileSync(localPath, buffer)
+    logger.info({ localPath, size: buffer.length }, 'Media downloaded')
+  }
   return localPath
 }
 

@@ -105,7 +105,8 @@ export async function transcribeAudio(filePath: string): Promise<string> {
     throw new Error(`Groq transcription failed: ${response.status}`)
   }
 
-  const data = await response.json() as { text: string }
+  const data = await response.json() as { text?: string }
+  if (!data?.text) throw new Error('Groq STT returned no text: ' + JSON.stringify(data))
   logger.info({ chars: data.text.length }, 'Audio transcribed')
   return data.text
 }
