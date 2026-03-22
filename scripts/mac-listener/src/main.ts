@@ -145,7 +145,21 @@ async function doStopRecording() {
   await processChunk(wavPath);
 }
 
-async function processChunk(wavPath: string) {
+async function doForceUpload() {
+  if (state !== "recording" || !recordingHandle) return;
+
+  continuousRunning = false;
+  await stopRecording(recordingHandle);
+  stopTimer();
+
+  const wavPath = recordingHandle.outputPath;
+  recordingHandle = null;
+
+  // Skip VAD — force upload
+  await processChunk(wavPath, true);
+}
+
+async function processChunk(wavPath: string, skipVad: boolean = false) {
   if (!existsSync(wavPath) || statSync(wavPath).size < 1000) {
     state = "idle";
     tray?.setImage(createTrayIcon("idle"));
@@ -153,18 +167,23 @@ async function processChunk(wavPath: string) {
     return;
   }
 
-  // VAD
-  const speechPct = detectSpeechPercentage(wavPath, config.silenceThreshold);
   const sizeKb = (statSync(wavPath).size / 1024).toFixed(1);
-  console.log(`Speech: ${speechPct.toFixed(1)}% (${sizeKb} KB)`);
 
-  if (speechPct < config.minSpeechPct) {
-    console.log(`Silence (${speechPct.toFixed(1)}% < ${config.minSpeechPct}%), skipping`);
-    unlinkSync(wavPath);
-    state = "idle";
-    tray?.setImage(createTrayIcon("idle"));
-    rebuildMenu();
-    return;
+  if (!skipVad) {
+    // VAD
+    const speechPct = detectSpeechPercentage(wavPath, config.silenceThreshold);
+    console.log(`Speech: ${speechPct.toFixed(1)}% (${sizeKb} KB)`);
+
+    if (speechPct < config.minSpeechPct) {
+      console.log(`Silence (${speechPct.toFixed(1)}% < ${config.minSpeechPct}%), skipping`);
+      unlinkSync(wavPath);
+      state = "idle";
+      tray?.setImage(createTrayIcon("idle"));
+      rebuildMenu();
+      return;
+    }
+  } else {
+    console.log(`Force upload (${sizeKb} KB), skipping VAD`);
   }
 
   // Upload
@@ -264,11 +283,15 @@ function rebuildMenu() {
     { type: "separator" },
   ];
 
-  // Start/Stop button
+  // Start/Stop button + Force Upload
   if (state === "recording") {
     template.push({
       label: "■ Stop Recording",
       click: () => doStopRecording(),
+    });
+    template.push({
+      label: "⚡ Force Upload Now",
+      click: () => doForceUpload(),
     });
   } else if (state === "idle") {
     template.push({
