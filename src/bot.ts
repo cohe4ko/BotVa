@@ -782,6 +782,8 @@ async function handleMessage(
         usage = result.usage
       } catch (err) {
         logAudit(chatIdStr, 'error', err instanceof Error ? err.message : String(err))
+        const errMsg = err instanceof Error ? err.message : String(err)
+        await saveConversationTurn(chatIdStr, currentMessage, `[Error]: ${errMsg}`).catch(() => {})
         throw err
       } finally {
         // Always clean up plan state — even on error
