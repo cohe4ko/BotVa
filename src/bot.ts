@@ -39,12 +39,6 @@ const pendingQuestions = new Map<string, {
   timeout: ReturnType<typeof setTimeout>
 }>()
 
-const pendingReplyKeyboard = new Map<string, {
-  resolve: (answer: string) => void
-  reject: (err: Error) => void
-  timeout: ReturnType<typeof setTimeout>
-}>()
-
 const pendingPolls = new Map<string, {
   chatId: number
   options: string[]
@@ -1517,16 +1511,6 @@ export function createBot(): Bot {
     const text = ctx.message.text
     const chatIdStr = String(ctx.chat.id)
 
-    // Reply keyboard answer interception
-    const pendingReply = pendingReplyKeyboard.get(chatIdStr)
-    if (pendingReply) {
-      clearTimeout(pendingReply.timeout)
-      pendingReplyKeyboard.delete(chatIdStr)
-      // Remove reply keyboard — must NOT delete this message, otherwise keyboard stays
-      await ctx.reply(`→ ${text}`, { reply_markup: { remove_keyboard: true } }).catch(() => {})
-      pendingReply.resolve(text)
-      return
-    }
 
     // skip known bot commands (they have their own handlers above)
     if (/^\/(start|chatid|new|newchat|forget|memory|voice|usage|stats|model|cancel|delay|style|show_team_work|admin|lang|settings|session|stop|pause|resume|restart|update)\b/.test(text)) return
