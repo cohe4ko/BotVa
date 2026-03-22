@@ -1517,8 +1517,8 @@ Use when:
 If title + address are provided → sends as Venue (place card with name).
 Otherwise → sends as plain location pin.`,
       {
-        latitude: z.coerce.number().describe('Latitude (-90 to 90)'),
-        longitude: z.coerce.number().describe('Longitude (-180 to 180)'),
+        latitude: z.coerce.number().min(-90).max(90).describe('Latitude (-90 to 90)'),
+        longitude: z.coerce.number().min(-180).max(180).describe('Longitude (-180 to 180)'),
         title: z.string().optional().describe('Venue name (e.g. "Starbucks"). If provided with address, sends as Venue'),
         address: z.string().optional().describe('Venue address (e.g. "вул. Шевченка, 1"). Required together with title for Venue'),
         foursquare_id: z.string().optional().describe('Foursquare place ID for rich venue card'),
