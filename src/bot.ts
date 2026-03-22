@@ -1407,6 +1407,10 @@ export function createBot(): Bot {
     const sender = ctx.message?.from
     if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
     const chatIdStr = String(chatId)
+    if (stoppedChats.has(chatIdStr)) {
+      await ctx.reply('⏹ Вже зупинено.')
+      return
+    }
     const state = getGroupState(chatIdStr)
     resetGroupIterations(chatIdStr)
     resetDebateState(chatIdStr)
@@ -1424,6 +1428,10 @@ export function createBot(): Bot {
     const sender = ctx.message?.from
     if (!sender || sender.is_bot || !isAuthorised(sender.id)) return
     const chatIdStr = String(chatId)
+    if (pausedChats.has(chatIdStr)) {
+      await ctx.reply('⏸ Вже призупинено.')
+      return
+    }
     pausedChats.add(chatIdStr)
     debateLog(chatIdStr, 'PAUSED')
     await ctx.reply('⏸ Діалог на паузі. /resume або нове повідомлення щоб продовжити.')
