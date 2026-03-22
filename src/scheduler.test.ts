@@ -11,12 +11,24 @@ const mockAdvanceTaskNextRun = vi.fn()
 const mockUpdateTaskAfterRun = vi.fn()
 const mockGetDueReminders = vi.fn((): any[] => [])
 const mockMarkReminderSent = vi.fn()
+const mockMarkReminderFailed = vi.fn(() => 0)
+const mockDeleteReminder = vi.fn()
 vi.mock('./db.js', () => ({
   getDueTasks: () => mockGetDueTasks(),
   advanceTaskNextRun: (...args: unknown[]) => (mockAdvanceTaskNextRun as Function)(...args),
   updateTaskAfterRun: (...args: unknown[]) => (mockUpdateTaskAfterRun as Function)(...args),
   getDueReminders: () => mockGetDueReminders(),
   markReminderSent: (...args: unknown[]) => (mockMarkReminderSent as Function)(...args),
+  markReminderFailed: (...args: unknown[]) => (mockMarkReminderFailed as Function)(...args),
+  deleteReminder: (...args: unknown[]) => (mockDeleteReminder as Function)(...args),
+  getChatSetting: () => undefined,
+}))
+
+vi.mock('./bot-i18n.js', () => ({
+  chatT: () => (key: string, params?: Record<string, string>) => {
+    if (params) return `${key}: ${JSON.stringify(params)}`
+    return key
+  },
 }))
 
 const mockRunAgent = vi.fn(async () => ({ text: 'agent result', newSessionId: undefined, usage: undefined }))

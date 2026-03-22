@@ -396,6 +396,7 @@ app.get('/terminal', (c) => {
         connect(params.get('session'));
       })();
     </script>
+    ${guideBlock(t('guide.terminal.title'), [t('guide.terminal.1'), t('guide.terminal.2'), t('guide.terminal.3')])}
   `
   return c.html(layout(t('terminal.title'), content, '/terminal', t, lang, 'terminal'))
 })

@@ -26,6 +26,48 @@ const PAGE_ICONS: Record<string, string> = {
   '/terminal': 'terminal',
 }
 
+const TOP_NAV_KEYS: Record<string, string> = {
+  team: 'nav.team', gallery: 'nav.gallery', records: 'nav.records',
+  storage: 'nav.storage', backup: 'nav.backup', diagnostics: 'nav.diagnostics',
+  terminal: 'nav.terminal', system: 'nav.system', docs: 'nav.docs',
+  templates: 'nav.templates', 'create-bot': 'nav.new',
+}
+
+const BOT_SECTION_KEYS: Record<string, string> = {
+  config: 'botnav.config', knowledge: 'botnav.knowledge', facts: 'botnav.facts',
+  tasks: 'botnav.tasks', sessions: 'botnav.sessions', settings: 'botnav.settings',
+  usage: 'botnav.usage', images: 'botnav.images', logs: 'botnav.logs',
+  diagnostics: 'botnav.diagnostics',
+}
+
+function breadcrumb(activePath: string, t: (k: string) => string): HtmlContent {
+  if (activePath === '/') return html`` as HtmlEscapedString
+  const crumbs: { label: string; href?: string }[] = [{ label: t('nav.dashboard'), href: '/' }]
+
+  const botMatch = activePath.match(/^\/bot\/([^/]+)(?:\/(\w+))?/)
+  if (botMatch) {
+    const [, botName, section] = botMatch
+    crumbs.push({ label: botName, href: `/bot/${botName}/config` })
+    if (section) {
+      const key = BOT_SECTION_KEYS[section]
+      crumbs.push({ label: key ? t(key) : section })
+    }
+  } else {
+    const seg = activePath.split('/').filter(Boolean)[0]
+    if (seg) {
+      const key = TOP_NAV_KEYS[seg]
+      crumbs.push({ label: key ? t(key) : seg })
+    }
+  }
+
+  if (crumbs.length <= 1) return html`` as HtmlEscapedString
+  return html`<nav class="breadcrumb" style="font-size:0.75rem;color:var(--mc-text-dim);margin-bottom:0.75rem">${crumbs.map((c, i) =>
+    i < crumbs.length - 1
+      ? html`<a href="${c.href}" style="color:var(--mc-text-dim);text-decoration:none">${c.label}</a><span style="margin:0 0.35rem">›</span>`
+      : html`<span style="color:var(--mc-text)">${c.label}</span>`
+  )}</nav>` as HtmlEscapedString
+}
+
 export function layout(title: string, content: HtmlContent, activePath = '/', t?: TFunc, lang?: Lang, pageIcon?: string): HtmlContent {
   const bots = getBotNames()
   const _t = t ?? ((k: string) => k)
@@ -146,6 +188,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
         return topIcon ? html`<div class="page-bg-icon"><i data-lucide="${topIcon}"></i></div>` : ''
       })()}
       <main class="mc-main">
+        ${breadcrumb(activePath, _t)}
         ${content}
       </main>
       <footer class="mc-footer">${_t('nav.footer')}</footer>

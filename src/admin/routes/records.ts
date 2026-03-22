@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
-import { guideBlock } from '../views/components.js'
+import { guideBlock, pagination } from '../views/components.js'
 import { getProjectRoot, getBotNames, insertFactForBot } from '../db-multi.js'
 import { readEnv } from '../env-parser.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs'
@@ -246,11 +246,26 @@ function renderDevicesFragment(devices: DeviceStatus[] | null, t: TFunc) {
 // --- Routes ---
 
 // GET /records -- date list page
+const RECORDS_PAGE_SIZE = 30
+
 app.get('/records', async (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
+  const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1)
+  const from = c.req.query('from') || undefined
+  const to = c.req.query('to') || undefined
 
-  const dates = getDateList()
+  let dates = getDateList()
+  if (from) dates = dates.filter(d => d.date >= from)
+  if (to) dates = dates.filter(d => d.date <= to)
+  const totalRecords = dates.length
+  const totalPages = Math.max(1, Math.ceil(totalRecords / RECORDS_PAGE_SIZE))
+  const pageDates = dates.slice((page - 1) * RECORDS_PAGE_SIZE, page * RECORDS_PAGE_SIZE)
+
+  const params = new URLSearchParams()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const baseUrl = `/records${params.toString() ? `?${params}` : ''}`
 
   const content = html`
     <h2>${icon('mic')} ${t('records.title')}</h2>
@@ -375,6 +390,14 @@ app.get('/records', async (c) => {
     </script>
 
     <h3 style="margin-top:1.5rem">${icon('calendar')} ${t('records.recordings')}</h3>
+    <form method="GET" action="/records" class="filter-bar" style="margin-bottom:0.75rem">
+      <label><small>From</small> <input type="date" name="from" value="${from ?? ''}" style="font-size:0.8rem"></label>
+      <label><small>To</small> <input type="date" name="to" value="${to ?? ''}" style="font-size:0.8rem"></label>
+      <button type="submit" class="btn-sm">${icon('search', 13)}</button>
+      ${(from || to) ? html`<a href="/records" role="button" class="btn-sm outline" style="text-decoration:none">${icon('x', 13)}</a>` : ''}
+      <div style="flex:1"></div>
+      <small style="color:var(--mc-text-dim);align-self:center">${totalRecords} ${t('records.days') ?? 'days'}</small>
+    </form>
     ${dates.length === 0
       ? html`<p style="color:var(--mc-text-dim)">${t('records.noRecords')}. ${t('records.noRecordsHint')} <code>workspace/listener/</code>.</p>`
       : html`
@@ -389,7 +412,7 @@ app.get('/records', async (c) => {
               </tr>
             </thead>
             <tbody>
-              ${dates.map(d => html`
+              ${pageDates.map(d => html`
                 <tr style="cursor:pointer" onclick="location.href='/records/${d.date}'">
                   <td><strong>${d.date}</strong></td>
                   <td style="text-align:right;font-variant-numeric:tabular-nums">${d.chunkCount}</td>
@@ -402,6 +425,7 @@ app.get('/records', async (c) => {
             </tbody>
           </table>
         </div>
+        ${pagination(page, totalPages, baseUrl)}
       `
     }
 
