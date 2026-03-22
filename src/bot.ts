@@ -782,6 +782,11 @@ async function handleMessage(
       } catch (err) {
         logAudit(chatIdStr, 'error', err instanceof Error ? err.message : String(err))
         throw err
+      } finally {
+        // Always clean up plan state — even on error
+        if (planPhase) {
+          clearPlanState(chatIdStr)
+        }
       }
 
       // Update session
@@ -833,11 +838,6 @@ async function handleMessage(
       // Translate agent error markers {{key}} to localized text
       const t = chatT(chatIdStr)
       text = text.replace(/\{\{([a-z._]+)\}\}/g, (_, key) => t(key))
-
-      // Reset plan state after execution completes
-      if (getPlanPhase(chatIdStr) === 'executing') {
-        clearPlanState(chatIdStr)
-      }
 
       // Save memory
       await saveConversationTurn(chatIdStr, currentMessage, text)
