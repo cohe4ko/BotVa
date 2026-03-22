@@ -1,13 +1,15 @@
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
-import { formatCost, formatTs, truncate } from '../views/components.js'
-import { getImagenSummary, getImagenRows, getImagenDaily } from '../db-multi.js'
+import { formatCost, formatTs, truncate, pagination } from '../views/components.js'
+import { getImagenSummary, getImagenRows, getImagenCount, getImagenDaily } from '../db-multi.js'
 import { imageTokenCost } from '../../pricing.js'
 import { validateBot, botName } from '../bot-middleware.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 const app = new Hono<I18nEnv>()
+
+const PAGE_SIZE = 20
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -19,18 +21,22 @@ app.get('/bot/:name/images', validateBot, (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
   const name = botName(c)
+  const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1)
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
   const todayTs = Math.floor(todayStart.getTime() / 1000)
 
   const emptyImagen = { total: 0, generates: 0, edits: 0, inputTokens: 0, outputTokens: 0, totalImageBytes: 0, estimatedCostUSD: 0 }
   let imgToday = emptyImagen, imgWeek = emptyImagen, imgMonth = emptyImagen
   let imgRecent: ReturnType<typeof getImagenRows> = []
+  let totalRows = 0
   try {
     imgToday = getImagenSummary(name, todayTs)
     imgWeek = getImagenSummary(name, todayTs - 7 * 86400)
     imgMonth = getImagenSummary(name, todayTs - 30 * 86400)
-    imgRecent = getImagenRows(name, 30)
+    totalRows = getImagenCount(name)
+    imgRecent = getImagenRows(name, PAGE_SIZE, (page - 1) * PAGE_SIZE)
   } catch { /* table may not exist */ }
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE))
 
   const content = html`
     ${botNav(name, 'images', t)}
@@ -74,6 +80,7 @@ app.get('/bot/:name/images', validateBot, (c) => {
           </tbody>
         </table>
       </div>
+      ${pagination(page, totalPages, `/bot/${name}/images`)}
     ` : html`
       <div class="empty-state">
         <div class="empty-icon"><i data-lucide="image-off" style="width:32px;height:32px"></i></div>

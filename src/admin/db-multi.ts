@@ -521,10 +521,16 @@ export function getImagenSummary(bot: BotName, sinceTs: number): { total: number
   return { ...row, estimatedCostUSD: imageTokenCost(row.outputTokens ?? 0) }
 }
 
-export function getImagenRows(bot: BotName, limit = 50): ImagenRow[] {
+export function getImagenRows(bot: BotName, limit = 50, offset = 0): ImagenRow[] {
   ensureImagenTable(bot)
-  return getBotDb(bot).prepare('SELECT * FROM imagen_usage ORDER BY created_at DESC LIMIT ?')
-    .all(limit) as unknown as ImagenRow[]
+  return getBotDb(bot).prepare('SELECT * FROM imagen_usage ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .all(limit, offset) as unknown as ImagenRow[]
+}
+
+export function getImagenCount(bot: BotName): number {
+  ensureImagenTable(bot)
+  const row = getBotDb(bot).prepare('SELECT COUNT(*) as cnt FROM imagen_usage').get() as { cnt: number }
+  return row.cnt
 }
 
 export function getImagenDaily(bot: BotName, days = 30): { date: string; count: number; cost: number }[] {
