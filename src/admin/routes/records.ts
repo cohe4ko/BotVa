@@ -590,7 +590,7 @@ app.get('/records/:date', (c) => {
         const data = await res.json();
         if (data.ok) {
           btn.innerHTML = '✅';
-          setTimeout(() => reloadWithBot('#chunk-' + baseId), 800);
+          setTimeout(() => reloadWithBot('chunk-' + baseId), 800);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
@@ -625,12 +625,14 @@ app.get('/records/:date', (c) => {
         setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
       }
     }
-    // Persist bot selection in URL
+    // Persist bot selection + scroll position in URL
     function getSelectedBot() { return document.getElementById('target-bot').value; }
-    function reloadWithBot(anchor) {
+    function reloadWithBot(highlightId) {
       const url = new URL(location.href);
       url.searchParams.set('bot', getSelectedBot());
-      url.hash = anchor || '';
+      url.searchParams.set('scrollY', String(window.scrollY));
+      if (highlightId) url.searchParams.set('hl', highlightId);
+      url.hash = '';
       location.href = url.toString();
     }
     function updateSaveButtons() {
@@ -639,15 +641,36 @@ app.get('/records/:date', (c) => {
         btn.textContent = '✅ → ' + bot;
       });
     }
-    // Restore bot from URL on load
+    // Restore bot, scroll position, and highlight on load
     (function() {
-      const p = new URLSearchParams(location.search).get('bot');
+      const params = new URLSearchParams(location.search);
+      const p = params.get('bot');
       if (p) {
         const sel = document.getElementById('target-bot');
         if (sel) { for (const o of sel.options) { if (o.value === p) { sel.value = p; break; } } }
       }
       updateSaveButtons();
       document.getElementById('target-bot').addEventListener('change', updateSaveButtons);
+      // Restore scroll
+      const scrollY = params.get('scrollY');
+      if (scrollY) {
+        requestAnimationFrame(() => window.scrollTo(0, parseInt(scrollY)));
+        // Clean URL params
+        const clean = new URL(location.href);
+        clean.searchParams.delete('scrollY');
+        clean.searchParams.delete('hl');
+        history.replaceState(null, '', clean.toString());
+      }
+      // Highlight changed chunk
+      const hl = params.get('hl');
+      if (hl) {
+        const el = document.getElementById(hl);
+        if (el) {
+          el.style.transition = 'box-shadow 0.3s';
+          el.style.boxShadow = '0 0 0 3px rgba(255, 100, 150, 0.5)';
+          setTimeout(() => { el.style.boxShadow = ''; }, 4000);
+        }
+      }
     })();
 
     async function reviewFact(id, status) {
@@ -677,7 +700,7 @@ app.get('/records/:date', (c) => {
         const data = await res.json();
         if (data.ok) {
           btn.innerHTML = '✅ ' + data.facts + ' items';
-          setTimeout(() => reloadWithBot('#chunk-' + baseId), 1000);
+          setTimeout(() => reloadWithBot('chunk-' + baseId), 1000);
         } else {
           btn.innerHTML = '❌ ' + (data.error || 'Error');
           setTimeout(() => { btn.innerHTML = origText; btn.disabled = false; }, 3000);
