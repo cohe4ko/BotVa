@@ -316,15 +316,20 @@ app.get('/', (c) => {
         <tbody>
           ${[
             ['/start', t('sys.tgStart')],
-            ['/chatid', t('sys.tgChatid')],
-            ['/newchat', t('sys.tgNewchat')],
-            ['/model', t('sys.tgModel')],
-            ['/memory', t('sys.tgMemory')],
-            ['/voice', t('sys.tgVoice')],
-            ['/usage', t('sys.tgUsage')],
-            ['/stats', t('sys.tgStats')],
-            ['/img <prompt>', t('sys.tgImg')],
+            ['/new', t('sys.tgNew')],
             ['/cancel', t('sys.tgCancel')],
+            ['/model', t('sys.tgModel')],
+            ['/usage', t('sys.tgUsage')],
+            ['/settings', t('sys.tgSettings')],
+            ['/session', t('sys.tgSession')],
+            ['/admin', t('sys.tgAdmin')],
+            ['/restart', t('sys.tgRestart')],
+            ['/update', t('sys.tgUpdate')],
+            ['/review', t('sys.tgReview')],
+            ['/chatid', t('sys.tgChatid')],
+            ['/stop', t('sys.tgStop')],
+            ['/pause', t('sys.tgPause')],
+            ['/resume', t('sys.tgResume')],
           ].map(([cmd, desc]) => html`<tr><td><code>${cmd}</code></td><td>${desc}</td></tr>`)}
         </tbody>
       </table>
