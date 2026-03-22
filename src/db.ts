@@ -137,9 +137,9 @@ export function initDatabase(): void {
   // Migration: add embedding column for vector search
   try { d.exec('ALTER TABLE facts ADD COLUMN embedding BLOB') } catch { /* already exists */ }
   // Migration: add 'preference' to sector CHECK constraint (SQLite requires table recreate)
-  try {
-    const tableInfo = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facts'").get() as { sql: string } | undefined
-    if (tableInfo?.sql && !tableInfo.sql.includes("'preference'")) {
+  const tableInfo = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='facts'").get() as { sql: string } | undefined
+  if (tableInfo?.sql && !tableInfo.sql.includes("'preference'")) {
+    try {
       d.exec('BEGIN')
       d.exec('ALTER TABLE facts RENAME TO facts_old')
       d.exec(`
@@ -159,8 +159,11 @@ export function initDatabase(): void {
       d.exec('INSERT INTO facts SELECT * FROM facts_old')
       d.exec('DROP TABLE facts_old')
       d.exec('COMMIT')
+    } catch (err) {
+      try { d.exec('ROLLBACK') } catch { /* already rolled back */ }
+      throw new Error(`Facts table migration failed (adding 'preference' sector): ${err instanceof Error ? err.message : String(err)}`)
     }
-  } catch { /* already migrated or fresh db */ }
+  }
 
   // Migration: add importance, usefulness, access_count columns (savant memory)
   try { d.exec('ALTER TABLE facts ADD COLUMN importance REAL NOT NULL DEFAULT 0.5') } catch { /* already exists */ }
@@ -218,6 +221,8 @@ export function initDatabase(): void {
   d.exec(`
     CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, remind_at)
   `)
+  // Migration: add fail_count to reminders
+  try { d.exec('ALTER TABLE reminders ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
 
   // Saved sessions — multiple sessions per chat for switching
   d.exec(`
@@ -436,7 +441,14 @@ export function deleteFact(id: number, chatId: string): boolean {
     if (row) {
       d.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, row.content, row.tags)
     }
-  } catch { /* FTS may be out of sync */ }
+  } catch (err) {
+    logger.error({ err, factId: id }, 'FTS delete failed, attempting rebuild')
+    try {
+      d.prepare("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')").run()
+    } catch (rebuildErr) {
+      logger.error({ err: rebuildErr, factId: id }, 'CRITICAL: FTS rebuild also failed')
+    }
+  }
   const result = d.prepare("DELETE FROM facts WHERE id = ? AND chat_id IN (?, 'admin')").run(id, chatId)
   return (result as unknown as { changes: number }).changes > 0
 }
@@ -446,7 +458,7 @@ export function searchFacts(chatId: string, query: string, limit = 10, topic?: s
   if (!sanitized) return []
 
   const d = extDb ?? getDb()
-  const ftsQuery = sanitized.split(/\s+/).map(w => `${w}*`).join(' OR ')
+  const ftsQuery = sanitized.split(/\s+/).map(w => `"${w}"*`).join(' OR ')
   try {
     if (topic) {
       return d.prepare(`
@@ -794,6 +806,14 @@ export function getDueReminders(): Reminder[] {
 
 export function markReminderSent(id: number): void {
   getDb().prepare("UPDATE reminders SET status = 'sent' WHERE id = ?").run(id)
+}
+
+/** Increment fail_count and return new value */
+export function markReminderFailed(id: number): number {
+  const d = getDb()
+  d.prepare('UPDATE reminders SET fail_count = fail_count + 1 WHERE id = ?').run(id)
+  const row = d.prepare('SELECT fail_count FROM reminders WHERE id = ?').get(id) as { fail_count: number } | undefined
+  return row?.fail_count ?? 0
 }
 
 export function listReminders(chatId: string): Reminder[] {

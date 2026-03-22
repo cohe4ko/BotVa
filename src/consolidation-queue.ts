@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { STORE_DIR } from './config.js'
 import { logger } from './logger.js'
+
+const FAILED_LOG_PATH = join(STORE_DIR, 'failed-consolidations.log')
 
 const QUEUE_PATH = join(STORE_DIR, 'consolidation-queue.json')
 export const MAX_ATTEMPTS = 3
@@ -56,8 +58,14 @@ export function markFailed(targetDate: string, type: 'daily' | 'weekly', error: 
   item.attempts++
   item.lastError = error
   if (item.attempts >= MAX_ATTEMPTS) {
-    logger.warn({ targetDate, type, attempts: item.attempts, error }, 'Consolidation item exceeded max attempts, removing')
+    logger.error({ targetDate, type, attempts: item.attempts, error }, 'Consolidation item exceeded max attempts, removing')
     saveQueue(queue.filter(q => !(q.targetDate === targetDate && q.type === type)))
+    // Persist failure details to log file
+    try {
+      mkdirSync(STORE_DIR, { recursive: true })
+      const line = `[${new Date().toISOString()}] FAILED ${type} consolidation for ${targetDate} after ${item.attempts} attempts: ${error}\n`
+      appendFileSync(FAILED_LOG_PATH, line)
+    } catch { /* best effort */ }
   } else {
     saveQueue(queue)
     logger.info({ targetDate, type, attempts: item.attempts, error }, 'Consolidation item failed, will retry')

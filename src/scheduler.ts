@@ -1,5 +1,5 @@
 import cronParser from 'cron-parser'
-import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent } from './db.js'
+import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent, markReminderFailed, deleteReminder } from './db.js'
 import { runAgent } from './agent.js'
 import { logger } from './logger.js'
 import type { Api } from 'grammy'
@@ -37,6 +37,8 @@ export function computeNextRun(cronExpression: string): number {
   return Math.floor(interval.next().getTime() / 1000)
 }
 
+const REMINDER_MAX_ATTEMPTS = 3
+
 async function sendDueReminders(): Promise<void> {
   const reminders = getDueReminders()
   for (const r of reminders) {
@@ -45,7 +47,13 @@ async function sendDueReminders(): Promise<void> {
       markReminderSent(r.id)
       logger.info({ reminderId: r.id }, 'Reminder sent')
     } catch (err) {
-      logger.error({ err, reminderId: r.id }, 'Failed to send reminder')
+      const failCount = markReminderFailed(r.id)
+      if (failCount >= REMINDER_MAX_ATTEMPTS) {
+        logger.error({ err, reminderId: r.id, attempts: failCount }, 'Reminder exceeded max attempts, deleting')
+        deleteReminder(r.id, r.chat_id)
+      } else {
+        logger.warn({ err, reminderId: r.id, attempts: failCount }, 'Failed to send reminder, will retry')
+      }
     }
   }
 }
