@@ -658,7 +658,7 @@ export class ProgressReporter {
         this.lines.splice(this.streamingLineIdx, 1)
         // Fix indexes
         for (const [id, idx] of this.toolLines) {
-          if (idx > this.streamingLineIdx) {
+          if (idx >= this.streamingLineIdx) {
             this.toolLines.set(id, idx - 1)
           }
         }
