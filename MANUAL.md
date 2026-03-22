@@ -105,8 +105,6 @@
 
 ## Gallery
 
-<img src="screenshots/admin-gallery.jpg" alt="Gallery" width="700">
-
 Автоматична галерея всіх зображень, згенерованих ботами.
 
 - Зображення зберігаються при кожному виклику GenerateImage / EditImage (Gemini).
