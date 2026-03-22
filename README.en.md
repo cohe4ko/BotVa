@@ -8,16 +8,25 @@
 
 Multi-bot Telegram platform powered by Claude AI. One server — many bots, each with its own role, memory, knowledge, and integrations.
 
+<p align="center">
+  <img src="screenshots/admin-dashboard.jpg" alt="BotVa Dashboard" width="700">
+</p>
+
 ## What Makes BotVa Different
 
-- **Memory as a first-class entity.** SQLite with a salience model (facts decay at 0.98/day, reinforced on access) + daily markdown digests. At 4 AM the bot summarizes the day via Claude and updates KEY_EVENTS.md
-- **Bot team.** Bots communicate via Unix sockets (Colleague MCP), a manager distributes tasks in parallel. Recursion protection on delegation
-- **Full isolation.** Each bot has its own .env, database, knowledge, memory, voice, and role. All run from a single process and are managed from one admin panel
-- **Live management.** Web panel for creating bots, editing .env, image gallery, cron tasks, backups, diagnostics — no restarts needed
-- **Dynamic integrations.** MCP servers connect based on env variables — add `BITRIX24_WEBHOOK_URL` and the bot gets CRM. No code changes
+- **Memory as a first-class entity.** Facts in SQLite (topic, tags, access_count) + daily diary logs + weekly consolidations via Claude. Consolidation runs automatically every night
+- **Bot team.** Bots communicate via Unix sockets (Colleague MCP), a manager distributes tasks in parallel via `Promise.allSettled()`
+- **Full isolation.** Each bot is a separate process with its own .env, database, knowledge, memory, voice, and role. All managed from one admin panel
+- **Live management.** Web panel for creating bots, image gallery, cron tasks, backups, diagnostics. Model and temperature change without restart; .env changes require restart via UI
+- **Dynamic integrations.** MCP servers connect based on env variables — add `BITRIX24_WEBHOOK_URL`, restart the bot and it gets CRM. No code changes
 - **Philosophy.** The base role (`_soul.md`) is a manifesto: how to think, how to communicate, when to stay silent. Not "certainly!", but a human conversation
 
 ## Key Features
+
+<p align="center">
+  <img src="screenshots/telegram-demo-result.jpg" alt="Bot in action — parallel tools" width="500">
+</p>
+<p align="center"><em>Parallel execution: web search, image generation, Python chart, currency rates — in a single request</em></p>
 
 - **Multiple bots** from a single Node.js instance
 - **13 ready-made roles** — from personal assistant to webmaster
@@ -69,6 +78,18 @@ npm run admin              # Start admin panel
 
 After starting, message your bot in Telegram — it will respond.
 
+<details>
+<summary>Creating a bot via web interface</summary>
+
+<img src="screenshots/admin-create-bot.jpg" alt="Create Bot" width="700">
+
+Choose a role, enter the Telegram token from @BotFather and your chat ID. API keys can be added later.
+
+<img src="screenshots/admin-bot-created.jpg" alt="Bot created" width="700">
+
+After creation — file structure and next steps.
+</details>
+
 ## Bot Roles
 
 When creating a bot you choose a role — it defines specialization, tools, and style.
@@ -95,6 +116,15 @@ npm run new-bot -- <slug> <role> [--emoji 🤖] [--name "Name"]
 
 ## Features
 
+### Telegram
+
+First interaction with the bot — greeting, profile setup, reminders, and search with clarifying questions:
+
+<p align="center">
+  <img src="screenshots/telegram-start.jpg" alt="First interaction" width="400">
+  <img src="screenshots/telegram-askuser.jpg" alt="AskUser — clarifying questions" width="400">
+</p>
+
 ### Voice
 
 The bot understands voice messages and can respond with voice. STT via Groq Whisper (requires `GROQ_API_KEY`), TTS via Edge-TTS (free). The `/voice` command toggles voice responses.
@@ -106,6 +136,12 @@ Generation and editing via Gemini (`GOOGLE_API_KEY`). Use `/img description` or 
 ### Memory
 
 Three-tier system: facts (persistent storage with topics and tags), daily markdown logs, workspace files (USER.md, MEMORY.md). Consolidation at `NIGHT_OWL_HOUR`.
+
+<p align="center">
+  <img src="screenshots/telegram-memory.jpg" alt="Saving facts to memory" width="400">
+  <img src="screenshots/telegram-user-profile.jpg" alt="User profile via AskUser" width="400">
+</p>
+<p align="center"><em>Left: saving facts via SaveFact/SearchMemory. Right: profile setup via AskUser</em></p>
 
 ### Scheduler
 
@@ -142,6 +178,8 @@ Detailed guide: [MANUAL.md](MANUAL.md)
 
 ## Admin Panel
 
+<img src="screenshots/admin-dashboard-5bots.jpg" alt="Dashboard — 5 bots" width="700">
+
 Web interface for bot management. Two ways to start:
 
 ```bash
@@ -174,6 +212,12 @@ npm run admin
 Detailed guide: [MANUAL.md](MANUAL.md)
 
 ## Telegram Commands
+
+<p align="center">
+  <img src="screenshots/telegram-commands.jpg" alt="Telegram commands" width="400">
+  <img src="screenshots/telegram-settings.jpg" alt="Bot settings" width="400">
+</p>
+<p align="center"><em>Commands /usage, /model, /facts, /settings — manage the bot from Telegram</em></p>
 
 | Command | Description |
 |---------|-------------|

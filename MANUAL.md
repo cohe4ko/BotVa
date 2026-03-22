@@ -2,6 +2,8 @@
 
 ## Dashboard
 
+<img src="screenshots/admin-dashboard.jpg" alt="Dashboard" width="700">
+
 Головна сторінка адмін-панелі. Все, що потрібно бачити одразу після входу.
 
 **Зверху:**
@@ -103,6 +105,8 @@
 
 ## Gallery
 
+<img src="screenshots/admin-gallery.jpg" alt="Gallery" width="700">
+
 Автоматична галерея всіх зображень, згенерованих ботами.
 
 - Зображення зберігаються при кожному виклику GenerateImage / EditImage (Gemini).
@@ -111,7 +115,13 @@
 - Боти можуть надсилати зображення з галереї через `SendGalleryImage`.
 - Видалення через кнопку або `DeleteGalleryImage`.
 
+Пошук по prompt та фільтр по даті:
+
+<img src="screenshots/admin-gallery-filters.jpg" alt="Gallery — пошук та фільтри" width="700">
+
 ## Records
+
+<img src="screenshots/admin-records.jpg" alt="Records" width="700">
 
 Аудіозаписи з кімнатних пристроїв (Raspberry Pi).
 
@@ -128,6 +138,8 @@
 5. Можна перетранскрибувати іншою мовою.
 
 ## Storage
+
+<img src="screenshots/admin-storage.jpg" alt="Storage" width="700">
 
 Аналіз використання диску проекту.
 
@@ -146,6 +158,8 @@
 **Небезпечно:** бази даних (`.db`), knowledge файли, `.env`.
 
 ## Backup
+
+<img src="screenshots/admin-backup.jpg" alt="Backup" width="700">
 
 Створення та відновлення бекапів.
 
@@ -167,6 +181,8 @@
 
 ## Diagnostics
 
+<img src="screenshots/admin-diagnostics.jpg" alt="System Diagnostics" width="700">
+
 AI-powered діагностика системи.
 
 ### Що збирає
@@ -187,7 +203,13 @@ AI-powered діагностика системи.
 
 Аналіз займає 30-60 секунд.
 
+Звіти по ботах та рекомендації:
+
+<img src="screenshots/admin-diagnostics-reports.jpg" alt="Bot Reports та Recommendations" width="700">
+
 ## Terminal
+
+<img src="screenshots/admin-terminal.jpg" alt="Terminal" width="700">
 
 Браузерний shell-термінал сервера (xterm.js).
 
@@ -198,6 +220,8 @@ AI-powered діагностика системи.
 - Корисний для: `git status`, перегляду логів, запуску скриптів, `npm test`.
 
 ## System
+
+<img src="screenshots/admin-system.jpg" alt="System" width="700">
 
 Глобальні перемикачі та конфігурація.
 
@@ -237,6 +261,8 @@ AI-powered діагностика системи.
 
 ### Skills
 
+<img src="screenshots/admin-system-skills.jpg" alt="Skills та Settings" width="700">
+
 Claude Code скіли, доступні ботам.
 
 - Enable/Disable — перемикання через перейменування SKILL.md ↔ SKILL.md.off.
@@ -253,6 +279,8 @@ Claude Code скіли, доступні ботам.
 
 ### Config
 
+<img src="screenshots/admin-bot-config.jpg" alt="Bot Config" width="700">
+
 Основні налаштування бота:
 - Модель (Opus / Sonnet / Haiku) та температура
 - `.env` редактор — всі env-змінні бота
@@ -265,6 +293,8 @@ Claude Code скіли, доступні ботам.
 - Ці файли додаються в контекст агента при кожному запиті
 
 ### Facts
+
+<img src="screenshots/admin-bot-facts.jpg" alt="Bot Facts" width="700">
 
 Абсолютна пам'ять бота — факти що ніколи не згасають:
 - Перегляд, пошук, редагування, видалення
@@ -287,6 +317,8 @@ Claude Code скіли, доступні ботам.
 
 ### Usage
 
+<img src="screenshots/admin-bot-usage.jpg" alt="Bot Usage" width="700">
+
 Аналітика використання:
 - Токени та витрати по днях
 - Input / Output / Cache breakdown
@@ -302,6 +334,8 @@ Claude Code скіли, доступні ботам.
 
 ### Diagnostics (bot)
 
+<img src="screenshots/admin-agent-diagnostics.jpg" alt="Agent Diagnostics" width="700">
+
 Діагностика конкретного бота:
 - Стан env-змінних
 - MCP серверів
@@ -309,6 +343,11 @@ Claude Code скіли, доступні ботам.
 - Останні помилки
 
 ## Telegram-команди
+
+<p align="center">
+  <img src="screenshots/telegram-settings.jpg" alt="/settings — налаштування бота" width="400">
+</p>
+<p align="center"><em>Команда /settings — голос, мова, стиль прогресу, agent mode</em></p>
 
 | Команда | Що робить |
 |---------|-----------|

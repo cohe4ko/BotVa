@@ -42,6 +42,12 @@ npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "Мій 
 
 ## Веб-інсталятор
 
+<p align="center">
+  <img src="screenshots/installer-step1.jpg" alt="Інсталятор — крок 1" width="500">
+  <img src="screenshots/installer-step2.jpg" alt="Інсталятор — крок 2" width="500">
+</p>
+<p align="center"><em>Крок 1: IP-адреса та домен сервера. Крок 2: токен бота, інтеграції</em></p>
+
 Автоматичне встановлення на новий сервер через веб-форму. Підтримує DigitalOcean, будь-який Ubuntu VPS.
 
 Детальна інструкція: [installer/README.md](installer/README.md)

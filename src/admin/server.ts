@@ -37,6 +37,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.use('/gallery-img/*', serveStatic({ root: 'workspace/', rewriteRequestPath: (path) => path.replace('/gallery-img/', '/gallery/') }))
   app.use('/gallery-thumb/*', serveStatic({ root: 'workspace/', rewriteRequestPath: (path) => path.replace('/gallery-thumb/', '/gallery/thumbs/') }))
   app.use('/records-audio/*', serveStatic({ root: 'workspace/listener/', rewriteRequestPath: (path) => path.replace('/records-audio/', '/audio/') }))
+  app.use('/screenshots/*', serveStatic({ root: './' }))
 
   // Auth
   app.use('*', authMiddleware)

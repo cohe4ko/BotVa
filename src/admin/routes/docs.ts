@@ -19,7 +19,9 @@ function readFile(path: string): string | null {
 function renderMd(md: string): string {
   // Strip YAML frontmatter
   const cleaned = md.replace(/^---[\s\S]*?---\n*/m, '')
-  return marked.parse(cleaned, { async: false }) as string
+  const rendered = marked.parse(cleaned, { async: false }) as string
+  // Rewrite relative screenshot paths to absolute for admin panel serving
+  return rendered.replace(/src="screenshots\//g, 'src="/screenshots/')
 }
 
 /** List .md files in a directory (non-recursive), excluding _ prefixed */
