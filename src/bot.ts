@@ -1017,19 +1017,36 @@ export function createBot(): Bot {
       if (!isAuthorised(ctx.chat!.id)) return
       const chatIdStr = String(ctx.chat?.id)
       const key = ctx.callbackQuery.data.replace('settings:', '')
-      await handleSettingsCallback(ctx, chatIdStr, key, clearPlanState)
+      try {
+        await handleSettingsCallback(ctx, chatIdStr, key, clearPlanState)
+      } catch (err) {
+        logger.error({ err, chatId: chatIdStr }, 'Settings callback failed')
+        await ctx.answerCallbackQuery({ text: '❌ Error' }).catch(() => {})
+      }
       return
     }
     // Model selection callback (delegated to bot-settings module)
     if (ctx.callbackQuery?.data?.startsWith('model:')) {
       if (!isAuthorised(ctx.chat!.id)) return
-      await handleModelCallback(ctx, String(ctx.chat?.id), ctx.callbackQuery.data.replace('model:', ''))
+      const chatIdStr = String(ctx.chat?.id)
+      try {
+        await handleModelCallback(ctx, chatIdStr, ctx.callbackQuery.data.replace('model:', ''))
+      } catch (err) {
+        logger.error({ err, chatId: chatIdStr }, 'Model callback failed')
+        await ctx.answerCallbackQuery({ text: '❌ Error' }).catch(() => {})
+      }
       return
     }
     // Session callbacks (delegated to bot-settings module)
     if (ctx.callbackQuery?.data?.startsWith('ses:')) {
       if (!isAuthorised(ctx.chat!.id)) return
-      await handleSessionCallback(ctx, String(ctx.chat?.id), ctx.callbackQuery.data.slice(4))
+      const chatIdStr = String(ctx.chat?.id)
+      try {
+        await handleSessionCallback(ctx, chatIdStr, ctx.callbackQuery.data.slice(4))
+      } catch (err) {
+        logger.error({ err, chatId: chatIdStr }, 'Session callback failed')
+        await ctx.answerCallbackQuery({ text: '❌ Error' }).catch(() => {})
+      }
       return
     }
     // Listener fact review callback (lr:approve:id, lr:decline:id, lr:skip)
