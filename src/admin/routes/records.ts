@@ -79,7 +79,7 @@ function getDateList(): DateInfo[] {
   let allReviewItems: FactReviewItem[] = []
   try { collectPendingFacts(); allReviewItems = getFactsForDate('__all__') } catch {}
   // getFactsForDate filters by date, so we need all items
-  const store = (() => { try { const p = join(DATA_DIR, '..', 'fact-reviews.json'); return existsSync(p) ? JSON.parse(readFileSync(p, 'utf-8')).items as FactReviewItem[] : [] } catch { return [] } })()
+  const store = (() => { try { const p = join(DATA_DIR, 'fact-reviews.json'); return existsSync(p) ? JSON.parse(readFileSync(p, 'utf-8')).items as FactReviewItem[] : [] } catch { return [] } })()
 
   return dates.map(date => {
     const chunkCount = safeFileList(join(transcriptsDir, date), '.json').length
