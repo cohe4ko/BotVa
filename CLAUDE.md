@@ -83,7 +83,7 @@
 
 Принципи:
 - Лівий стовпець: фрази КОРИСТУВАЧА ("увімкни світло", "знайди статтю")
-- Середній: конкретний tool (bitrix24_create_lead, GenerateImage, WebSearch)
+- Середній: конкретний tool (GenerateImage, WebSearch, google_calendar_create)
 - Правий: коли НЕ використовувати цей tool (найважливіший стовпець для якості routing)
 - Якщо MCP має різні tools -- вказувати конкретний tool name
 - Для складних сценаріїв: 2-3 few-shot приклади (запит -> дії бота)
@@ -147,7 +147,7 @@ pptx, ship-learn-next
 - [ ] Файл має маркери `--- IDENTITY ---`, `--- ROLE ---`, `--- TOOLS ---`
 - [ ] Є "Коли який інструмент" з таблицею trigger->action->when NOT
 - [ ] Trigger написані мовою КОРИСТУВАЧА (не розробника)
-- [ ] Tools конкретні (bitrix24_get_deal, не "CRM")
+- [ ] Tools конкретні (google_calendar_list, не "Calendar")
 - [ ] Для кожного tool є "Коли НЕ використовувати"
 - [ ] Є 2-3 робочих сценарії (workflows) з кроками
 - [ ] Є guardrails (що НЕ робити)

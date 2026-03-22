@@ -127,7 +127,7 @@
 
 | Сервер | Опис | URL |
 |--------|------|-----|
-| **PubMed** | Пошук наукових статей, metadata, PDF download | вбудований |
+| **PubMed** | Пошук наукових статей, metadata, PDF download | [jjcipher/pubmed-mcp](https://github.com/jjcipher/pubmed-mcp) |
 | **Nipoppy** 🆕 | Neuroimaging datasets (BIDS standard). Brainhack 2026 project | [nipoppy/mcp](https://github.com/nipoppy/mcp) |
 | **PBPK MCP** 🆕 | Фармакокінетичне моделювання (PBPK) з Open Systems Pharmacology Suite | [ToxMCP/pbpk-mcp](https://github.com/ToxMCP/pbpk-mcp) |
 
@@ -162,8 +162,8 @@
 
 | Сервер | Опис | URL |
 |--------|------|-----|
-| **Meta Ads** | Facebook/Instagram реклама: campaigns, audiences, creatives, insights | вбудований |
-| **Bitrix24** | CRM: контакти, ліди, угоди, компанії | вбудований |
+| **Meta Ads** | Facebook/Instagram реклама: campaigns, audiences, creatives, insights | [angheljf/meta-ads-mcp](https://github.com/angheljf/meta-ads-mcp) |
+| **Bitrix24** | CRM: контакти, ліди, угоди, компанії | [cohe4ko/bitrix24-mcp](https://github.com/cohe4ko/bitrix24-mcp) |
 
 ## 📂 Productivity
 

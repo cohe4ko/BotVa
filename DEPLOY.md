@@ -60,7 +60,7 @@ npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "Мій 
 3. Вказати Telegram-токен від @BotFather та chat ID
 4. Натиснути Install -- через 3-5 хвилин бот працює
 
-**Опціонально:** домен для адмін-панелі (HTTPS через Cloudflare), Groq API Key (голосові повідомлення), MCP-інтеграції (Bitrix24, Meta Ads, PubMed).
+**Опціонально:** домен для адмін-панелі (HTTPS через Cloudflare), Groq API Key (голосові повідомлення).
 
 <details>
 <summary>Запуск інсталятора локально</summary>
@@ -155,9 +155,6 @@ docker run -p 3456:3456 botva-installer
 
 | Змінна | Опис |
 |--------|------|
-| `BITRIX24_WEBHOOK_URL` | Bitrix24 CRM |
-| `META_ACCESS_TOKEN` | Meta/Facebook Ads |
-| `META_APP_SECRET` | Meta/Facebook Ads |
 | `HA_URL` | Home Assistant URL |
 | `HA_TOKEN` | Home Assistant токен |
 

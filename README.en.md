@@ -37,7 +37,7 @@ Multi-bot Telegram platform powered by Claude AI. One server — many bots, each
 - **Bot team** — communication via Unix sockets, task delegation
 - **Scheduler** — cron tasks with full tool access
 - **Utilities** — currency rates, time, Python sandbox, email, Telegraph
-- **Integrations** — CRM, ads, Google Workspace, smart home, PubMed
+- **Integrations** — Google Workspace, smart home, any MCP servers
 - **Web search** — search, scraping, AI browser (Stagehand)
 - **Admin panel** — full web interface for management
 - **Backups** — full and per-bot, with SHA256 verification
@@ -167,12 +167,8 @@ Detailed guide: [MANUAL.md](MANUAL.md)
 
 | Integration | MCP Server | Required Variables |
 |-------------|-----------|-------------------|
-| Bitrix24 CRM | `bitrix24` | `BITRIX24_WEBHOOK_URL` |
-| Meta/Facebook Ads | `meta-ads-mcp` | `META_ACCESS_TOKEN`, `META_APP_SECRET` |
 | Google Calendar, Gmail, Drive | `google-workspace` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
 | Home Assistant | `home-assistant` | `HA_URL`, `HA_TOKEN` |
-| PubMed (medical research) | `pubmed` | — (Python 3) |
-| Miro (boards, diagrams) | `miro` | — (remote HTTP, OAuth) |
 
 ## Admin Panel
 
@@ -253,11 +249,8 @@ BotVa/
 │   ├── _tools.md           # Base tool routing
 │   └── *.md                # Roles (personal-assistant, researcher, ...)
 ├── mcp-servers/            # MCP servers
-│   ├── bitrix24/           # Bitrix24 CRM
-│   ├── meta-ads-mcp/       # Meta/Facebook Ads
 │   ├── colleague/          # Inter-bot communication
-│   ├── manager/            # Manager coordination
-│   └── pubmed/             # PubMed search
+│   └── manager/            # Manager coordination
 ├── scripts/                # Management scripts
 ├── installer/              # Web installer
 ├── bots/                   # Bot data (gitignored)
