@@ -261,6 +261,7 @@ function getGroupState(chatId: string) {
   const state = groupIterations.get(chatId)
   if (state && Date.now() - state.startedAt > GROUP_TIMEOUT_MS) {
     groupIterations.delete(chatId)
+    groupDebateState.delete(chatId)
     return undefined
   }
   return state
