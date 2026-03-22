@@ -131,6 +131,40 @@ export function cleanWhisperHallucinations(text: string): string {
   return cleaned.replace(/\s{2,}/g, ' ').trim()
 }
 
+// Map common Ukrainian/Russian topic phrases to single English words
+const TOPIC_MAP: Record<string, string> = {
+  'здоров': 'health', 'медич': 'health', 'лікар': 'health', 'діагноз': 'health', 'аналіз': 'health',
+  'здоровь': 'health', 'врач': 'health', 'медицин': 'health',
+  'робот': 'work', 'праця': 'work', 'проект': 'work', 'бізнес': 'business',
+  'розроб': 'tech', 'програм': 'tech', 'код': 'tech', 'бот': 'tech', 'сервер': 'tech',
+  'будів': 'construction', 'ремонт': 'construction', 'матеріал': 'construction',
+  'інженер': 'engineering', 'конструкц': 'engineering', 'купол': 'engineering',
+  'земел': 'property', 'ділянк': 'property', 'будинок': 'property', 'теплиц': 'home',
+  'сім': 'family', 'родин': 'family', 'діт': 'family', 'мам': 'family',
+  'фінанс': 'finance', 'гроші': 'finance', 'оплат': 'finance', 'ціна': 'finance',
+  'патент': 'legal', 'юрид': 'legal', 'ліценз': 'legal',
+  'їж': 'food', 'кух': 'food', 'готув': 'food',
+  'подорож': 'travel', 'поїзд': 'travel',
+  'навчан': 'education', 'курс': 'education',
+  'авто': 'auto', 'машин': 'auto',
+}
+
+/** Normalize topic to one lowercase English word */
+export function normalizeTopic(raw: string): string {
+  if (!raw) return 'general'
+  const lower = raw.toLowerCase().trim()
+  // Already a short English word
+  if (/^[a-z]{2,15}$/.test(lower)) return lower
+  // Try to map from known patterns
+  for (const [pattern, topic] of Object.entries(TOPIC_MAP)) {
+    if (lower.includes(pattern)) return topic
+  }
+  // Last resort: take first word, transliterate if needed
+  const firstWord = lower.split(/[\s,]+/)[0]
+  if (/^[a-z]+$/.test(firstWord) && firstWord.length <= 15) return firstWord
+  return 'general'
+}
+
 export async function analyzeTranscript(text: string): Promise<AnalysisResult> {
   const cleanedText = cleanWhisperHallucinations(text)
   if (!cleanedText || cleanedText.length < 5) return { ...EMPTY, summary: '' }

@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, statSy
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { getFactsForDate, collectPendingFacts, reviewFact, type FactReviewItem } from '../../listener-facts.js'
-import { analyzeTranscript, cleanWhisperHallucinations, normalizeItem, type AnalysisItem } from '../../listener-analyze.js'
+import { analyzeTranscript, cleanWhisperHallucinations, normalizeItem, normalizeTopic, type AnalysisItem } from '../../listener-analyze.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -895,7 +895,9 @@ app.post('/records/review-fact', async (c) => {
       const chatId = botEnv['ALLOWED_CHAT_ID']?.split(',')[0]?.trim() || 'admin'
       const sector = item.type === 'fact' ? 'semantic' as const : 'episodic' as const
       const importance = item.type === 'task' ? 0.7 : item.type === 'decision' ? 0.6 : 0.5
-      const topic = item.topic || item.topics[0] || 'general'
+      const rawTopic = item.topic || item.topics[0] || 'general'
+      // Normalize topic: must be one English word, lowercase
+      const topic = normalizeTopic(rawTopic)
       const tags = item.tags ? `${item.tags},${item.device},listener` : [...item.topics, item.device, 'listener'].join(',')
       const timePrefix = item.timestamp.replace(/T(\d{2})-(\d{2}).*/, ' $1:$2')
       const content = `[${timePrefix}] ${item.content}`
