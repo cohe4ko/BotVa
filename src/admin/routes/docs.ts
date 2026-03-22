@@ -63,8 +63,10 @@ function getOverviewFiles(root: string): DocFile[] {
 function getMcpFiles(root: string): DocFile[] {
   const mcpDir = resolve(root, 'mcp-servers')
   if (!existsSync(mcpDir)) return []
+  // Only show colleague and manager — core MCP servers
+  const coreServers = new Set(['colleague', 'manager'])
   return readdirSync(mcpDir, { withFileTypes: true })
-    .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+    .filter(d => d.isDirectory() && coreServers.has(d.name))
     .filter(d => existsSync(resolve(mcpDir, d.name, 'README.md')))
     .map(d => ({ name: d.name, path: resolve(mcpDir, d.name, 'README.md') }))
 }

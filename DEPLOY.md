@@ -38,7 +38,7 @@ npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "Мій 
 ./scripts/deploy.sh start
 ```
 
-Також можна створити бота через веб: `npm run admin` → http://localhost:3000 → Create Bot.
+Також можна створити бота через веб: `./scripts/deploy.sh admin` → http://localhost:3000 → Create Bot.
 
 ## Веб-інсталятор
 
@@ -48,9 +48,22 @@ npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "Мій 
 </p>
 <p align="center"><em>Крок 1: IP-адреса та домен сервера. Крок 2: токен бота, інтеграції</em></p>
 
-Автоматичне встановлення на новий сервер через веб-форму. Підтримує DigitalOcean, будь-який Ubuntu VPS.
+Найшвидший спосіб встановити BotVa на VPS -- через готовий веб-інсталятор:
 
-Детальна інструкція: [installer/README.md](installer/README.md)
+**https://botva-installer.onrender.com/**
+
+Інсталятор підключається до сервера по SSH, встановлює залежності, клонує репозиторій, створює першого бота та запускає систему. Підтримує Ubuntu 24.04 (DigitalOcean, Hetzner, будь-який VPS з 1 GB RAM).
+
+**Що потрібно:**
+1. Створити VPS (наприклад, дроплет на DigitalOcean)
+2. Відкрити інсталятор, ввести IP-адресу та root-пароль
+3. Вказати Telegram-токен від @BotFather та chat ID
+4. Натиснути Install -- через 3-5 хвилин бот працює
+
+**Опціонально:** домен для адмін-панелі (HTTPS через Cloudflare), Groq API Key (голосові повідомлення), MCP-інтеграції (Bitrix24, Meta Ads, PubMed).
+
+<details>
+<summary>Запуск інсталятора локально</summary>
 
 ```bash
 cd installer
@@ -59,11 +72,11 @@ npm start
 # Відкриється http://localhost:3456
 ```
 
-Інсталятор можна розгорнути як standalone сервіс:
-
+Також можна розгорнути як standalone сервіс:
 - **Render** -- `render.yaml` Blueprint (безкоштовно)
 - **Railway** -- auto-detect Node.js
 - **Docker** -- `docker build -t botva-installer . && docker run -p 3456:3456 botva-installer`
+</details>
 
 ## Docker
 
@@ -219,11 +232,8 @@ bots/<name>/
 - Per-bot: `bots/<name>/.mcp.json` (специфічні для бота)
 
 Вбудовані MCP-сервери в `mcp-servers/`:
-- **bitrix24** -- CRM (контакти, ліди, угоди)
-- **meta-ads-mcp** -- Meta/Facebook Ads
 - **colleague** -- міжботова комунікація (Unix-сокети)
 - **manager** -- координація менеджером
-- **pubmed** -- PubMed наукові статті
 
 Зовнішні (підключаються через env-змінні):
 - **google-workspace** -- Calendar, Gmail, Drive

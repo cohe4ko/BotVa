@@ -29,7 +29,7 @@ Multi-bot Telegram platform powered by Claude AI. One server — many bots, each
 <p align="center"><em>Parallel execution: web search, image generation, Python chart, currency rates — in a single request</em></p>
 
 - **Multiple bots** from a single Node.js instance
-- **13 ready-made roles** — from personal assistant to webmaster
+- **12 ready-made roles** — from personal assistant to webmaster
 - **Memory** — facts (long-term storage) + daily diary logs with consolidation
 - **Voice** — voice messages and responses (Groq STT + Edge TTS)
 - **Images** — generation and editing via Gemini with auto-gallery
@@ -44,13 +44,11 @@ Multi-bot Telegram platform powered by Claude AI. One server — many bots, each
 
 ## Quick Start
 
-### Requirements
+### Install on VPS (fastest way)
 
-- Node.js 20+
-- macOS or Linux
-- Git
+Open **https://botva-installer.onrender.com/**, enter your server IP and Telegram token -- and in 3-5 minutes the bot is running. Details: [DEPLOY.md](DEPLOY.md)
 
-### Installation
+### Local Installation
 
 ```bash
 # 1. Clone
@@ -64,10 +62,11 @@ cd BotVa
 npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "My Bot"
 
 # 3. Create your first bot (option B: web interface)
-npm run admin              # Start admin panel
+./scripts/deploy.sh admin  # Start admin panel
 #    Open http://localhost:3000 → Create Bot
+#    Token and chat ID are entered in the creation form
 
-# 4. Configure tokens
+# 4. Configure tokens (if using CLI)
 #    Edit bots/my-bot/.env:
 #    - TELEGRAM_BOT_TOKEN  (get from @BotFather in Telegram)
 #    - ALLOWED_CHAT_ID     (send /chatid to the bot after starting)
@@ -107,7 +106,6 @@ When creating a bot you choose a role — it defines specialization, tools, and 
 | Manager | `manager` | Bot team coordination, task delegation |
 | Product/Market | `product-market` | CRM analytics, positioning, competitors |
 | Webmaster | `webmaster` | Website, content, deploy, SEO |
-| Smart Home Engineer | `dome-engineer` | Automation, scenarios, Home Assistant |
 | Debate Researcher | `debate-researcher` | Analysis from opposing perspectives |
 
 ```bash
@@ -187,7 +185,7 @@ Web interface for bot management. Two ways to start:
 /admin
 
 # 2. As a standalone service (persistent)
-npm run admin
+./scripts/deploy.sh admin
 ```
 
 | Section | Description |
