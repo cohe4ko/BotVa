@@ -298,9 +298,6 @@ input::placeholder { color: var(--text-muted); }
       <label data-i18n="mcp_label"></label>
       <div class="hint" data-i18n="mcp_hint"></div>
       <div class="checkbox-group">
-        <label class="checkbox"><input type="checkbox" id="mcp-bitrix24" checked> <span>Bitrix24</span> <span class="cb-desc" data-i18n="mcp_bitrix24"></span></label>
-        <label class="checkbox"><input type="checkbox" id="mcp-meta-ads-mcp" checked> <span>Meta Ads</span> <span class="cb-desc" data-i18n="mcp_meta"></span></label>
-        <label class="checkbox"><input type="checkbox" id="mcp-pubmed" checked> <span>PubMed</span> <span class="cb-desc" data-i18n="mcp_pubmed"></span></label>
         <label class="checkbox"><input type="checkbox" id="mcp-colleague" checked> <span>Colleague</span> <span class="cb-desc" data-i18n="mcp_colleague"></span></label>
         <label class="checkbox"><input type="checkbox" id="mcp-manager" checked> <span>Manager</span> <span class="cb-desc" data-i18n="mcp_manager"></span></label>
       </div>
@@ -383,9 +380,6 @@ const i18n = {
     repo_error: 'Введіть URL git репозиторію',
     mcp_label: 'MCP сервери (інтеграції)',
     mcp_hint: 'Оберіть які інтеграції встановити. Можна додати пізніше.',
-    mcp_bitrix24: '— CRM: контакти, ліди, угоди',
-    mcp_meta: '— Facebook/Instagram реклама',
-    mcp_pubmed: '— пошук наукових статей (медицина)',
     mcp_colleague: '— зв\'язок між ботами (Unix sockets)',
     mcp_manager: '— координація ботів менеджером',
     action_needed: 'Потрібна ваша дія!',
@@ -437,9 +431,6 @@ const i18n = {
     repo_error: 'Enter a git repository URL',
     mcp_label: 'MCP servers (integrations)',
     mcp_hint: 'Choose which integrations to install. You can add more later.',
-    mcp_bitrix24: '— CRM: contacts, leads, deals',
-    mcp_meta: '— Facebook/Instagram ads',
-    mcp_pubmed: '— scientific articles search (medicine)',
     mcp_colleague: '— inter-bot communication (Unix sockets)',
     mcp_manager: '— bot coordination by manager',
     action_needed: 'Action required!',
@@ -480,7 +471,7 @@ function applyI18n() {
 
 // ---- Session storage ----
 const FIELDS = ['ip', 'password', 'domain', 'admin-port', 'bot-token', 'chat-id', 'groq-key', 'bot-name', 'repo-url'];
-const MCP_IDS = ['mcp-bitrix24', 'mcp-meta-ads-mcp', 'mcp-pubmed', 'mcp-colleague', 'mcp-manager'];
+const MCP_IDS = ['mcp-colleague', 'mcp-manager'];
 const SS_KEY = 'botva-installer';
 
 function saveFields() {
@@ -654,7 +645,7 @@ function startInstall() {
         repoUrl: $('repo-url').value.trim(),
         adminPort: $('admin-port').value.trim() || '3000',
         groqKey: $('groq-key').value.trim(),
-        mcpServers: ['bitrix24', 'meta-ads-mcp', 'pubmed', 'colleague', 'manager']
+        mcpServers: ['colleague', 'manager']
           .filter(name => document.getElementById('mcp-' + name)?.checked),
       }
     }));
