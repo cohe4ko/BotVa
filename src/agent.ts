@@ -8,6 +8,34 @@ import { isManager } from './team.js'
 import { logger } from './logger.js'
 import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted } from './request-queue.js'
 import { AgentWatchdog } from './agent-watchdog.js'
+import { getClaudeProjectDir } from './disk-sessions.js'
+import { existsSync, openSync, readSync, closeSync } from 'fs'
+import { join } from 'path'
+
+/** Check session .jsonl file exists and has valid JSON on first line */
+function validateSessionFile(sessionId: string): boolean {
+  try {
+    const filePath = join(getClaudeProjectDir(BOT_DIR), `${sessionId}.jsonl`)
+    if (!existsSync(filePath)) return false
+    // Read only the first 4KB to avoid loading large session files
+    const fd = openSync(filePath, 'r')
+    try {
+      const buf = Buffer.alloc(4096)
+      const bytesRead = readSync(fd, buf, 0, 4096, 0)
+      if (bytesRead === 0) return false
+      const chunk = buf.toString('utf-8', 0, bytesRead)
+      const newlineIdx = chunk.indexOf('\n')
+      const firstLine = (newlineIdx >= 0 ? chunk.slice(0, newlineIdx) : chunk).trim()
+      if (!firstLine) return false
+      JSON.parse(firstLine)
+      return true
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return false
+  }
+}
 
 export interface UsageStats {
   inputTokens: number
@@ -348,6 +376,17 @@ export async function runAgent(
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
+
+  // Validate session file before passing to SDK — corrupted files cause crashes
+  if (sessionId) {
+    const validSession = validateSessionFile(sessionId)
+    if (!validSession) {
+      logger.warn({ chatId, sessionId: sessionId.slice(0, 8) }, 'Session file missing or corrupted, starting fresh')
+      const { clearSession } = await import('./db.js')
+      clearSession(chatId)
+      sessionId = undefined
+    }
+  }
 
   const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList)
 
