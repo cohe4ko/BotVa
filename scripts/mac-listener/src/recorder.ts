@@ -12,22 +12,21 @@ export function startRecording(
   maxDuration: number = 0,
   inputDevice: string = ""
 ): RecordingHandle {
-  const args: string[] = [];
-
-  // Input device override (macOS coreaudio)
-  if (inputDevice) {
-    args.push("-d", inputDevice);
-  }
-
-  // Output format
-  args.push(
+  // Output format args
+  const args: string[] = [
     "-r", "16000",   // 16kHz sample rate
     "-c", "1",       // mono
     "-b", "16",      // 16-bit
     "-e", "signed-integer",
     "-t", "wav",
-    outputPath
-  );
+    outputPath,
+  ];
+
+  // macOS CoreAudio: select input device via AUDIODEV env var
+  const env = { ...process.env };
+  if (inputDevice && inputDevice !== "Default") {
+    env.AUDIODEV = inputDevice;
+  }
 
   // Duration limit (for continuous mode)
   if (maxDuration > 0) {
@@ -36,6 +35,7 @@ export function startRecording(
 
   const proc = spawn("rec", args, {
     stdio: ["ignore", "pipe", "pipe"],
+    env,
   });
 
   const promise = new Promise<boolean>((resolve) => {
@@ -78,38 +78,31 @@ export async function stopRecording(handle: RecordingHandle): Promise<boolean> {
 }
 
 /**
- * List available input devices from sox.
- * Returns array of device names.
+ * List available INPUT audio devices on macOS.
+ * Parses system_profiler SPAudioDataType to find devices with "Input Channels".
  */
 export function listInputDevices(): string[] {
   try {
-    // On macOS, sox uses coreaudio; list devices via system_profiler or sox
-    const output = execSync("rec --list-devices 2>&1 || true", {
+    const output = execSync("system_profiler SPAudioDataType 2>/dev/null", {
       encoding: "utf-8",
-      timeout: 5000,
+      timeout: 10000,
     });
 
-    // Parse sox output — look for device names
     const devices: string[] = [];
-    for (const line of output.split("\n")) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith("rec") && !trimmed.startsWith("--")) {
-        devices.push(trimmed);
-      }
-    }
+    let currentDevice = "";
 
-    // Fallback: use macOS system_profiler
-    if (devices.length === 0) {
-      try {
-        const spOutput = execSync(
-          'system_profiler SPAudioDataType 2>/dev/null | grep "Input Source"',
-          { encoding: "utf-8", timeout: 5000 }
-        );
-        for (const line of spOutput.split("\n")) {
-          const match = line.match(/Input Source:\s*(.+)/);
-          if (match) devices.push(match[1].trim());
-        }
-      } catch {}
+    for (const line of output.split("\n")) {
+      // Device name is indented with 8 spaces and ends with ":"
+      const deviceMatch = line.match(/^        (.+):$/);
+      if (deviceMatch) {
+        currentDevice = deviceMatch[1].trim();
+        continue;
+      }
+      // If this device has input channels, it's a microphone
+      if (currentDevice && line.includes("Input Channels")) {
+        devices.push(currentDevice);
+        currentDevice = "";
+      }
     }
 
     return devices.length > 0 ? devices : ["Default"];
