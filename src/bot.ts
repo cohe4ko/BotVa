@@ -1340,11 +1340,11 @@ export function createBot(): Bot {
 
     const { isAdminRunning, startAdmin } = await import('./admin/on-demand.js')
 
-    // Telegram rejects localhost/private-IP URLs in inline buttons — detect and fallback to text
+    // Telegram rejects localhost URLs in inline buttons — detect and fallback to text
     const canUseInlineUrl = (url: string) => {
       try {
         const u = new URL(url)
-        return u.protocol === 'https:' || (!u.hostname.startsWith('localhost') && !u.hostname.startsWith('127.') && !u.hostname.startsWith('192.168.') && !u.hostname.startsWith('10.'))
+        return u.hostname !== 'localhost' && !u.hostname.startsWith('127.')
       } catch { return false }
     }
 
