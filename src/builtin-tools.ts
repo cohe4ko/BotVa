@@ -1242,17 +1242,17 @@ type 'system': captures the current system screen (macOS).`,
           }
 
           await ctx.replyWithChatAction('upload_photo')
-          const { execSync } = await import('child_process')
+          const { execFileSync } = await import('child_process')
           const { unlinkSync } = await import('fs')
           const ts = Date.now()
           const rawPath = `/tmp/ss-${ts}.png`
 
           if (type === 'web') {
-            const args = ['npx', 'playwright', 'screenshot', url!, rawPath]
+            const args = ['playwright', 'screenshot', url!, rawPath]
             if (fullPage) args.push('--full-page')
-            execSync(args.join(' '), { timeout: 30000, stdio: 'pipe' })
+            execFileSync('npx', args, { timeout: 30000, stdio: 'pipe' })
           } else {
-            execSync(`screencapture -x ${rawPath}`, { timeout: 5000, stdio: 'pipe' })
+            execFileSync('screencapture', ['-x', rawPath], { timeout: 5000, stdio: 'pipe' })
           }
 
           // Optimize with sharp
