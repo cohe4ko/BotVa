@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "bitrix24-remote": {
-      "command": "node",
-      "args": ["C:/Dev/bitrix24/mcp-proxy.cjs"],
-      "env": {}
-    }
-  }
-}

@@ -8,6 +8,10 @@
 
 Мульти-бот Telegram-платформа на базі Claude AI. Один сервер -- багато ботів, кожен зі своєю роллю, пам'яттю, знаннями та інтеграціями.
 
+<p align="center">
+  <img src="screenshots/admin-dashboard.jpg" alt="BotVa Dashboard" width="700">
+</p>
+
 ## Чим BotVa відрізняється
 
 - **Пам'ять як першокласна сутність.** SQLite з salience-моделлю (факти згасають з коефіцієнтом 0.98/день, підсилюються при зверненні) + щоденні markdown-конспекти. О 4 ранку бот узагальнює день через Claude і оновлює KEY_EVENTS.md
@@ -18,6 +22,11 @@
 - **Філософія.** Базова роль (`_soul.md`) -- маніфест: як думати, як спілкуватись, коли мовчати. Не "certainly!", а людська розмова
 
 ## Ключові можливості
+
+<p align="center">
+  <img src="screenshots/telegram-demo-result.jpg" alt="Бот в дії — паралельні інструменти" width="500">
+</p>
+<p align="center"><em>Паралельне виконання: веб-пошук, генерація зображення, Python-графік, курси валют — одним запитом</em></p>
 
 - **Кілька ботів** з одного інстансу Node.js
 - **13 готових ролей** -- від персонального асистента до вебмайстра
@@ -57,6 +66,7 @@ npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "Мій 
 # 3. Створити першого бота (варіант B: веб-інтерфейс)
 npm run admin              # Запустити адмін-панель
 #    Відкрий http://localhost:3000 → Create Bot
+#    (див. скріншот нижче)
 
 # 4. Налаштувати токени
 #    Відкрий bots/my-bot/.env:
@@ -68,6 +78,18 @@ npm run admin              # Запустити адмін-панель
 ```
 
 Після запуску напиши боту в Telegram -- він відповість.
+
+<details>
+<summary>Створення бота через веб-інтерфейс</summary>
+
+<img src="screenshots/admin-create-bot.jpg" alt="Створення бота" width="700">
+
+Обери роль, введи Telegram-токен від @BotFather та chat ID. API-ключі можна додати пізніше.
+
+<img src="screenshots/admin-bot-created.jpg" alt="Бот створено" width="700">
+
+Після створення — структура файлів та наступні кроки.
+</details>
 
 ## Ролі ботів
 
@@ -95,6 +117,15 @@ npm run new-bot -- <slug> <роль> [--emoji 🤖] [--name "Назва"]
 
 ## Можливості
 
+### Telegram
+
+Перша взаємодія з ботом — привітання, налаштування профілю, нагадування та пошук з уточнюючими питаннями:
+
+<p align="center">
+  <img src="screenshots/telegram-start.jpg" alt="Перша взаємодія" width="400">
+  <img src="screenshots/telegram-askuser.jpg" alt="AskUser — уточнюючі питання" width="400">
+</p>
+
 ### Голос
 
 Бот розуміє голосові повідомлення та може відповідати голосом. STT через Groq Whisper (потрібен `GROQ_API_KEY`), TTS через Edge-TTS (безкоштовно). Команда `/voice` вмикає/вимикає голосові відповіді.
@@ -106,6 +137,12 @@ npm run new-bot -- <slug> <роль> [--emoji 🤖] [--name "Назва"]
 ### Пам'ять
 
 Трирівнева система: факти (постійне сховище з topic та tags), щоденні markdown-логи, workspace-файли (USER.md, MEMORY.md). Консолідація о `NIGHT_OWL_HOUR`.
+
+<p align="center">
+  <img src="screenshots/telegram-memory.jpg" alt="Збереження фактів у пам'ять" width="400">
+  <img src="screenshots/telegram-user-profile.jpg" alt="Профіль користувача через AskUser" width="400">
+</p>
+<p align="center"><em>Ліворуч: збереження фактів через SaveFact/SearchMemory. Праворуч: заповнення профілю через AskUser</em></p>
 
 ### Планувальник
 
@@ -131,16 +168,22 @@ CurrencyRates (готівкові курси), GetCurrentTime, RunPython (sandbo
 
 ## Інтеграції
 
+Будь-який [MCP-сервер](https://modelcontextprotocol.io) можна підключити через `mcp-servers.json`.
+
+**Вбудовані (в комплекті):**
+
 | Інтеграція | MCP-сервер | Потрібні змінні |
 |------------|-----------|-----------------|
-| Bitrix24 CRM | `bitrix24` | `BITRIX24_WEBHOOK_URL` |
-| Meta/Facebook Ads | `meta-ads-mcp` | `META_ACCESS_TOKEN`, `META_APP_SECRET` |
+| Playwright (headless Chrome) | `playwright-remote` | -- |
+| Stagehand (AI-браузер) | `stagehand` | `GOOGLE_API_KEY` |
 | Google Calendar, Gmail, Drive | `google-workspace` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
 | Home Assistant | `home-assistant` | `HA_URL`, `HA_TOKEN` |
-| PubMed (медичні дослідження) | `pubmed` | -- (Python 3) |
-| Miro (дошки, діаграми) | `miro` | -- (remote HTTP, OAuth) |
+
+Інші MCP-сервери (CRM, реклама, наукові бази тощо) додаються як запис в `mcp-servers.json` та увімкнюються в адмінці System → MCP Servers.
 
 ## Адмін-панель
+
+<img src="screenshots/admin-dashboard-5bots.jpg" alt="Dashboard — 5 ботів" width="700">
 
 Веб-інтерфейс для управління ботами. Два способи запуску:
 
@@ -174,6 +217,12 @@ npm run admin
 Детальний посібник: [MANUAL.md](MANUAL.md)
 
 ## Telegram-команди
+
+<p align="center">
+  <img src="screenshots/telegram-commands.jpg" alt="Telegram-команди" width="400">
+  <img src="screenshots/telegram-settings.jpg" alt="Налаштування бота" width="400">
+</p>
+<p align="center"><em>Команди /usage, /model, /facts, /settings — управління ботом з Telegram</em></p>
 
 | Команда | Опис |
 |---------|------|
@@ -211,11 +260,8 @@ BotVa/
 │   ├── _tools.md           # Базовий routing інструментів
 │   └── *.md                # Ролі (personal-assistant, researcher, ...)
 ├── mcp-servers/            # MCP сервери
-│   ├── bitrix24/           # Bitrix24 CRM
-│   ├── meta-ads-mcp/       # Meta/Facebook Ads
 │   ├── colleague/          # Міжботова комунікація
-│   ├── manager/            # Координація менеджером
-│   └── pubmed/             # PubMed пошук
+│   └── manager/            # Координація менеджером
 ├── scripts/                # Скрипти управління
 ├── installer/              # Веб-інсталятор
 ├── bots/                   # Дані ботів (gitignored)

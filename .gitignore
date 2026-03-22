@@ -15,7 +15,9 @@ agents/
 knowledge/
 .claude/
 !.claude/skills/
-mcp-servers/bitrix24-mcp-server/
+mcp-servers/bitrix24/
+mcp-servers/meta-ads-mcp/
+mcp-servers/pubmed/
 mcp-servers/*/build/
 mcp-servers/*/node_modules/
 mcp-servers/*/venv/

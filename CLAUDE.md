@@ -104,14 +104,34 @@ AskGemini, GeminiSearch,
 ReadWorkspaceFile, WriteWorkspaceFile
 
 **MCP сервери** (mcp-servers.json):
-- bitrix24 -- CRM: контакти, ліди, угоди, компанії, звіти
 - google-workspace -- Calendar, Gmail, Drive
 - home-assistant -- розумний дім
-- meta-ads -- Facebook/Instagram реклама
 - stagehand -- AI-браузер (act, extract, observe)
-- pubmed -- наукові статті (медицина)
-- miro -- дошки, діаграми, схеми (remote HTTP)
 - playwright-remote -- headless Chrome
+- Будь-який MCP сервер можна додати через `mcp-servers.json` (див. нижче)
+
+### Як підключити MCP інтеграцію
+
+1. Знайти MCP сервер (npm, pypi, або локальний)
+2. Додати запис в `mcp-servers.json`:
+```json
+"my-server": {
+  "command": "npx",
+  "args": ["my-mcp-server"],
+  "envVars": ["MY_API_KEY"],
+  "envPassthrough": ["MY_API_KEY"],
+  "enabled": true
+}
+```
+3. Додати env vars в `.env` бота
+4. Увімкнути/вимкнути в адмінці: System → MCP Servers
+
+**Типи серверів:**
+- `npx <package>` -- npm-пакети (playwright, stagehand)
+- `uvx <package>` -- Python-пакети (google-workspace, home-assistant)
+- `node path/to/server.js` -- локальні Node.js сервери
+- `python path/to/server.py` -- локальні Python сервери
+- Remote HTTP/SSE: додати `"type": "http"`, `"url": "https://..."` замість command/args
 
 **Skills** (~/.claude/skills/):
 deep-research, article-extractor, youtube-transcript, content-research-writer,

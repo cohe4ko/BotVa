@@ -180,11 +180,8 @@ do_setup() {
   # Descriptions for known MCP servers
   mcp_desc() {
     case "$1" in
-      bitrix24)     echo "Bitrix24 CRM — leads, contacts, deals, companies" ;;
-      meta-ads-mcp) echo "Meta Ads — Facebook/Instagram ad campaigns" ;;
       colleague)    echo "Inter-bot communication via Unix sockets" ;;
       manager)      echo "Manager bot coordination tools" ;;
-      pubmed)       echo "PubMed article search & analysis (Python)" ;;
       *)            echo "" ;;
     esac
   }
@@ -412,11 +409,21 @@ do_start() {
   fi
 
   for bot in "${BOTS[@]}"; do
+    # Check both node PID and wrapper — prevent double-start
     pid=$(get_pid "$bot")
     if is_alive "$pid"; then
       warn "$bot already running (PID $pid)"
       continue
     fi
+    # Also check for stale wrappers
+    local stale
+    stale=$(pgrep -f "start-bot-safe.sh $bot\$" 2>/dev/null || true)
+    if [ -n "$stale" ]; then
+      warn "$bot has stale wrapper(s): $stale — killing first"
+      echo "$stale" | xargs kill 2>/dev/null || true
+      sleep 1
+    fi
+
     bash "$DIR/scripts/start-bot-safe.sh" "$bot" >> "$DIR/workspace/logs/botva-$bot.log" 2>&1 &
     WRAPPER_PID=$!
     # Save wrapper PID for stop command
@@ -438,7 +445,9 @@ do_stop() {
   echo -e "${BOLD}Stopping BotVa bots...${NC}"
 
   for bot in "${BOTS[@]}"; do
-    # Stop wrapper first (sends SIGTERM → wrapper kills child node → both exit)
+    local stopped=false
+
+    # 1. Stop wrapper by PID file
     local wrapper_pidfile="bots/$bot/store/wrapper.pid"
     if [ -f "$wrapper_pidfile" ]; then
       local wpid
@@ -446,20 +455,56 @@ do_stop() {
       if is_alive "$wpid"; then
         kill "$wpid" 2>/dev/null
         info "$bot wrapper stopped (PID $wpid)"
+        stopped=true
       fi
       rm -f "$wrapper_pidfile"
     fi
 
-    # Also kill node process directly (in case started without wrapper)
+    # 2. Stop node process by PID file
     pid=$(get_pid "$bot")
     if is_alive "$pid"; then
       kill "$pid" 2>/dev/null
       info "$bot stopped (PID $pid)"
-    else
-      # Only warn if wrapper was also not running
-      [ ! -f "$wrapper_pidfile" ] && warn "$bot not running"
+      stopped=true
+    fi
+
+    # 3. Kill ALL remaining wrappers for this bot (catches duplicates)
+    local stale_wrappers
+    stale_wrappers=$(pgrep -f "start-bot-safe.sh $bot\$" 2>/dev/null || true)
+    if [ -n "$stale_wrappers" ]; then
+      echo "$stale_wrappers" | xargs kill 2>/dev/null || true
+      info "$bot killed stale wrappers: $stale_wrappers"
+      stopped=true
+    fi
+
+    # 4. Kill ALL remaining node processes for this bot (catches zombies)
+    # BOT_NAME is an env var, not visible in cmdline. Check botva.pid in bot's store.
+    local bot_pidfile="bots/$bot/store/botva.pid"
+    if [ -f "$bot_pidfile" ]; then
+      local bpid
+      bpid=$(cat "$bot_pidfile")
+      if is_alive "$bpid"; then
+        kill "$bpid" 2>/dev/null || true
+        info "$bot killed node process from pidfile: $bpid"
+        stopped=true
+      fi
+    fi
+
+    if [ "$stopped" = false ]; then
+      warn "$bot not running"
     fi
   done
+
+  # 5. Kill any remaining dist/index.js processes (catches all zombies)
+  local remaining
+  remaining=$(pgrep -f "dist/index.js" 2>/dev/null || true)
+  if [ -n "$remaining" ]; then
+    warn "Killing remaining dist/index.js processes: $remaining"
+    echo "$remaining" | xargs kill 2>/dev/null || true
+  fi
+
+  # 6. Wait for processes to actually exit
+  sleep 1
 }
 
 do_restart() {

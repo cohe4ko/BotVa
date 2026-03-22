@@ -72,13 +72,6 @@ export function ensureMcpConfig(): void {
       enabled: true,
       persistent: true,
     },
-    'bitrix24': {
-      command: 'node',
-      args: [`${PROJECT_ROOT}/mcp-servers/bitrix24/build/index.js`],
-      envVars: ['BITRIX24_WEBHOOK_URL'],
-      envPassthrough: ['BITRIX24_WEBHOOK_URL'],
-      enabled: true,
-    },
     'google-workspace': {
       command: 'uvx',
       args: ['workspace-mcp', '--single-user', '--tool-tier', 'core'],
@@ -91,18 +84,6 @@ export function ensureMcpConfig(): void {
       args: ['hass-mcp'],
       envVars: ['HA_URL', 'HA_TOKEN'],
       envPassthrough: ['HA_URL', 'HA_TOKEN'],
-      enabled: true,
-    },
-    'meta-ads': {
-      command: 'node',
-      args: [`${PROJECT_ROOT}/mcp-servers/meta-ads-mcp/build/index.js`],
-      envVars: ['META_ACCESS_TOKEN'],
-      envPassthrough: ['META_ACCESS_TOKEN', 'META_APP_SECRET'],
-      enabled: true,
-    },
-    'pubmed': {
-      command: `${PROJECT_ROOT}/mcp-servers/pubmed/venv/bin/python`,
-      args: [`${PROJECT_ROOT}/mcp-servers/pubmed/pubmed_server.py`],
       enabled: true,
     },
     'macos-control': {

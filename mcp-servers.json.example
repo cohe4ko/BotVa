@@ -22,19 +22,6 @@
     "enabled": true,
     "persistent": true
   },
-  "bitrix24": {
-    "command": "node",
-    "args": [
-      "__PROJECT_ROOT__/mcp-servers/bitrix24/build/index.js"
-    ],
-    "envVars": [
-      "BITRIX24_WEBHOOK_URL"
-    ],
-    "envPassthrough": [
-      "BITRIX24_WEBHOOK_URL"
-    ],
-    "enabled": true
-  },
   "google-workspace": {
     "command": "uvx",
     "args": [
@@ -55,24 +42,18 @@
     ],
     "enabled": true
   },
-  "meta-ads": {
-    "command": "node",
+  "home-assistant": {
+    "command": "uvx",
     "args": [
-      "__PROJECT_ROOT__/mcp-servers/meta-ads-mcp/build/index.js"
+      "hass-mcp"
     ],
     "envVars": [
-      "META_ACCESS_TOKEN"
+      "HA_URL",
+      "HA_TOKEN"
     ],
     "envPassthrough": [
-      "META_ACCESS_TOKEN",
-      "META_APP_SECRET"
-    ],
-    "enabled": true
-  },
-  "pubmed": {
-    "command": "__PROJECT_ROOT__/mcp-servers/pubmed/venv/bin/python",
-    "args": [
-      "__PROJECT_ROOT__/mcp-servers/pubmed/pubmed_server.py"
+      "HA_URL",
+      "HA_TOKEN"
     ],
     "enabled": true
   }
