@@ -74,7 +74,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
       const previewParts: string[] = []
       if (preferences.length > 0) {
         const lines = preferences.map(f => `- ${f.content}`)
-        previewParts.push(`[⚠️ IMPORTANT — ${t('facts.previewPreferences') ?? 'User preferences. Follow these instructions.'}]\n${lines.join('\n')}`)
+        previewParts.push(`[⚠️ IMPORTANT — ${t('facts.previewPreferences')}]\n${lines.join('\n')}`)
       }
       if (regularFacts.length > 0) {
         const TOKEN_BUDGET = 1500
@@ -91,7 +91,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
         }
         let factsBlock = `[Potentially relevant facts from memory — auto-search. No need to call SearchMemory for these.]\n${lines.join('\n')}`
         if (searchResult.hasMore) {
-          factsBlock += `\n\n[💡 ${t('facts.previewHasMore') ?? 'There are more facts on this topic. Use SearchMemory for a deeper search.'}]`
+          factsBlock += `\n\n[💡 ${t('facts.previewHasMore')}]`
         }
         previewParts.push(factsBlock)
       }
@@ -145,19 +145,19 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
       ${(q || topicFilter) ? html`<a href="/bot/${name}/facts" role="button" class="btn-sm outline" style="text-decoration:none">${icon('x', 13)}</a>` : ''}
     </form>
     <details style="margin-bottom:1rem">
-      <summary style="cursor:pointer;font-size:0.85rem;font-weight:500">${icon('plus', 13)} ${t('facts.addFact') ?? 'Add fact'}</summary>
+      <summary style="cursor:pointer;font-size:0.85rem;font-weight:500">${icon('plus', 13)} ${t('facts.addFact')}</summary>
       <form hx-post="/bot/${name}/facts/add" hx-target="#facts-alerts" hx-swap="innerHTML" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem;max-width:500px">
-        <textarea name="content" rows="3" required placeholder="${t('facts.contentPlaceholder') ?? 'Fact content...'}" style="font-size:0.85rem"></textarea>
+        <textarea name="content" rows="3" required placeholder="${t('facts.contentPlaceholder')}" style="font-size:0.85rem"></textarea>
         <div style="display:flex;gap:0.4rem">
-          <input name="topic" placeholder="${t('facts.topicPlaceholder') ?? 'Topic (e.g. health, work)'}" style="flex:1;font-size:0.8rem">
+          <input name="topic" placeholder="${t('facts.topicPlaceholder')}" style="flex:1;font-size:0.8rem">
           <select name="sector" style="font-size:0.8rem">
             <option value="semantic">semantic</option>
             <option value="preference">preference</option>
             <option value="episodic">episodic</option>
           </select>
         </div>
-        <input name="tags" placeholder="${t('facts.tagsPlaceholder') ?? 'Tags (comma-separated)'}" style="font-size:0.8rem">
-        <button type="submit" class="btn-sm" style="align-self:flex-start">${icon('plus', 12)} ${t('facts.addBtn') ?? 'Add'}</button>
+        <input name="tags" placeholder="${t('facts.tagsPlaceholder')}" style="font-size:0.8rem">
+        <button type="submit" class="btn-sm" style="align-self:flex-start">${icon('plus', 12)} ${t('facts.addBtn')}</button>
       </form>
     </details>
     <div id="rebuild-section" style="margin-bottom:1rem">
@@ -306,7 +306,7 @@ app.post('/bot/:name/facts/add', validateBot, async (c) => {
     const chatRow = db.prepare('SELECT chat_id FROM facts GROUP BY chat_id ORDER BY COUNT(*) DESC LIMIT 1').get() as { chat_id: string } | undefined
     const chatId = chatRow?.chat_id || 'admin'
     const factId = insertFactForBot(name, chatId, content, topic, sector, tags, 'admin-panel')
-    return c.html(alert('success', t('facts.added', { id: String(factId) }) ?? `Fact #${factId} added`))
+    return c.html(alert('success', t('facts.added', { id: String(factId) })))
   } catch (err) {
     logger.error({ err, bot: name }, 'Failed to add fact from admin')
     return c.html(alert('error', err instanceof Error ? err.message : String(err)))

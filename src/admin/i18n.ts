@@ -136,6 +136,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'records.noFacts': 'No facts extracted yet. Click "Extract facts" to analyze.',
     'records.saveToBot': 'Save facts to',
     'records.receiverTimeout': 'Receiver offline or timeout',
+    'records.days': 'days',
 
     // Terminal
     'terminal.title': 'Terminal',
@@ -209,6 +210,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'dash.embeddingOffline': 'Offline',
     'dash.embeddingRequests': 'Requests',
     'dash.embeddingTexts': 'Texts embedded',
+    'dash.usage': 'Usage',
 
     // Status badges
     'status.running': 'running',
@@ -227,6 +229,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'botnav.images': 'Images',
     'botnav.logs': 'Logs',
     'botnav.diagnostics': 'Diagnostics',
+    'botnav.audit': 'Audit',
 
     // Bot config
     'config.agentSettings': 'Agent Settings',
@@ -375,6 +378,14 @@ const translations: Record<Lang, Record<string, string>> = {
     'facts.rebuildStopped': 'Stopped. {facts} facts saved ({current}/{total} files processed).',
     'facts.stop': 'Stop',
     'facts.noFiles': 'No .md or .txt files found in knowledge/',
+    'facts.addFact': 'Add fact',
+    'facts.contentPlaceholder': 'Fact content...',
+    'facts.topicPlaceholder': 'Topic (e.g. health, work)',
+    'facts.tagsPlaceholder': 'Tags (comma-separated)',
+    'facts.addBtn': 'Add',
+    'facts.added': 'Fact #{id} added',
+    'facts.previewPreferences': 'User preferences. Follow these instructions.',
+    'facts.previewHasMore': 'There are more facts on this topic. Use SearchMemory for a deeper search.',
 
     // Tasks
     'tasks.createNew': 'Create new task',
@@ -412,6 +423,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'tasks.cronTasks': 'Cron Tasks',
     'tasks.task': 'task',
     'tasks.tasks': 'tasks',
+    'mem.id': 'ID',
 
     // Sessions
     'sess.title': 'Sessions',
@@ -516,6 +528,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'gallery.dropzone': 'Drop images here or click to upload',
     'gallery.generating': 'Generating image...',
     'gallery.editingImage': 'Editing image...',
+    'gallery.searchPrompt': 'Search prompts...',
     'gallery.reset': 'Reset',
     'gallery.generateNew': 'Generate new',
 
@@ -786,6 +799,8 @@ const translations: Record<Lang, Record<string, string>> = {
     // Common
     'common.save': 'Save',
     'common.back': 'Back',
+    'common.cancel': 'Cancel',
+    'common.created': 'Created',
   },
 
   uk: {
@@ -916,6 +931,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'records.noFacts': 'Фактів ще не витягнуто. Натисніть "Витягти факти" для аналізу.',
     'records.saveToBot': 'Зберігати факти в',
     'records.receiverTimeout': 'Receiver офлайн або таймаут',
+    'records.days': 'днів',
 
     // Terminal
     'terminal.title': 'Термінал',
@@ -989,6 +1005,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'dash.embeddingOffline': 'Офлайн',
     'dash.embeddingRequests': 'Запити',
     'dash.embeddingTexts': 'Текстів оброблено',
+    'dash.usage': 'Використання',
 
     // Status badges
     'status.running': 'працює',
@@ -1007,6 +1024,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'botnav.images': 'Зображення',
     'botnav.logs': 'Логи',
     'botnav.diagnostics': 'Діагностика',
+    'botnav.audit': 'Аудит',
 
     // Bot config
     'config.agentSettings': 'Налаштування агента',
@@ -1156,6 +1174,14 @@ const translations: Record<Lang, Record<string, string>> = {
     'facts.rebuildStopped': 'Зупинено. {facts} фактів збережено ({current}/{total} файлів оброблено).',
     'facts.stop': 'Стоп',
     'facts.noFiles': 'Не знайдено .md або .txt файлів в knowledge/',
+    'facts.addFact': 'Додати факт',
+    'facts.contentPlaceholder': 'Зміст факту...',
+    'facts.topicPlaceholder': 'Тема (напр. здоровʼя, робота)',
+    'facts.tagsPlaceholder': 'Теги (через кому)',
+    'facts.addBtn': 'Додати',
+    'facts.added': 'Факт #{id} додано',
+    'facts.previewPreferences': 'Уподобання користувача. Дотримуйся цих інструкцій.',
+    'facts.previewHasMore': 'На цю тему є ще факти. Використай SearchMemory для глибшого пошуку.',
 
     // Tasks
     'tasks.createNew': 'Створити нову задачу',
@@ -1193,6 +1219,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'tasks.cronTasks': 'Cron-задачі',
     'tasks.task': 'задача',
     'tasks.tasks': 'задач',
+    'mem.id': 'ID',
 
     // Sessions
     'sess.title': 'Сесії',
@@ -1297,6 +1324,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'gallery.dropzone': 'Перетягніть зображення або натисніть для завантаження',
     'gallery.generating': 'Генерація зображення...',
     'gallery.editingImage': 'Редагування зображення...',
+    'gallery.searchPrompt': 'Пошук по промптах...',
     'gallery.reset': 'Скинути',
     'gallery.generateNew': 'Нове зображення',
 
@@ -1567,6 +1595,8 @@ const translations: Record<Lang, Record<string, string>> = {
     // Common
     'common.save': 'Зберегти',
     'common.back': 'Назад',
+    'common.cancel': 'Скасувати',
+    'common.created': 'Створено',
   },
 }
 

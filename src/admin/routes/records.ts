@@ -396,7 +396,7 @@ app.get('/records', async (c) => {
       <button type="submit" class="btn-sm">${icon('search', 13)}</button>
       ${(from || to) ? html`<a href="/records" role="button" class="btn-sm outline" style="text-decoration:none">${icon('x', 13)}</a>` : ''}
       <div style="flex:1"></div>
-      <small style="color:var(--mc-text-dim);align-self:center">${totalRecords} ${t('records.days') ?? 'days'}</small>
+      <small style="color:var(--mc-text-dim);align-self:center">${totalRecords} ${t('records.days')}</small>
     </form>
     ${dates.length === 0
       ? html`<p style="color:var(--mc-text-dim)">${t('records.noRecords')}. ${t('records.noRecordsHint')} <code>workspace/listener/</code>.</p>`

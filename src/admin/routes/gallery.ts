@@ -80,7 +80,7 @@ app.get('/gallery', (c) => {
       </label>
       <label class="filter-search">
         <small>Prompt</small>
-        <input type="search" name="q" value="${q ?? ''}" placeholder="${t('gallery.searchPrompt') ?? 'Search prompts...'}">
+        <input type="search" name="q" value="${q ?? ''}" placeholder="${t('gallery.searchPrompt')}">
       </label>
       <label>
         <small>From</small>
