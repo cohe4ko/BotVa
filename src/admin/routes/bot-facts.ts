@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
 import { alert, formatTs, truncate, pagination } from '../views/components.js'
-import { getFacts, countFacts, getFactTopics, updateFactContent, deleteFact, getBotDir, getBotDb, type FactRow } from '../db-multi.js'
+import { getFacts, countFacts, getFactTopics, updateFactContent, deleteFact, insertFactForBot, getBotDir, getBotDb, type FactRow } from '../db-multi.js'
 import { validateBot, botName } from '../bot-middleware.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { existsSync, readdirSync, readFileSync } from 'fs'
@@ -74,7 +74,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
       const previewParts: string[] = []
       if (preferences.length > 0) {
         const lines = preferences.map(f => `- ${f.content}`)
-        previewParts.push(`[⚠️ IMPORTANT — User preferences. Follow these instructions.]\n${lines.join('\n')}`)
+        previewParts.push(`[⚠️ IMPORTANT — ${t('facts.previewPreferences') ?? 'User preferences. Follow these instructions.'}]\n${lines.join('\n')}`)
       }
       if (regularFacts.length > 0) {
         const TOKEN_BUDGET = 1500
@@ -91,7 +91,7 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
         }
         let factsBlock = `[Potentially relevant facts from memory — auto-search. No need to call SearchMemory for these.]\n${lines.join('\n')}`
         if (searchResult.hasMore) {
-          factsBlock += '\n\n[💡 На цю тему є ще факти в пам\'яті. Використай SearchMemory для детальнішого пошуку.]'
+          factsBlock += `\n\n[💡 ${t('facts.previewHasMore') ?? 'There are more facts on this topic. Use SearchMemory for a deeper search.'}]`
         }
         previewParts.push(factsBlock)
       }
@@ -144,6 +144,22 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
       <button type="submit" name="mode" value="recall" class="btn-sm outline">${icon('zap', 13)} ${t('facts.recallBtn')}</button>
       ${(q || topicFilter) ? html`<a href="/bot/${name}/facts" role="button" class="btn-sm outline" style="text-decoration:none">${icon('x', 13)}</a>` : ''}
     </form>
+    <details style="margin-bottom:1rem">
+      <summary style="cursor:pointer;font-size:0.85rem;font-weight:500">${icon('plus', 13)} ${t('facts.addFact') ?? 'Add fact'}</summary>
+      <form hx-post="/bot/${name}/facts/add" hx-target="#facts-alerts" hx-swap="innerHTML" style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem;max-width:500px">
+        <textarea name="content" rows="3" required placeholder="${t('facts.contentPlaceholder') ?? 'Fact content...'}" style="font-size:0.85rem"></textarea>
+        <div style="display:flex;gap:0.4rem">
+          <input name="topic" placeholder="${t('facts.topicPlaceholder') ?? 'Topic (e.g. health, work)'}" style="flex:1;font-size:0.8rem">
+          <select name="sector" style="font-size:0.8rem">
+            <option value="semantic">semantic</option>
+            <option value="preference">preference</option>
+            <option value="episodic">episodic</option>
+          </select>
+        </div>
+        <input name="tags" placeholder="${t('facts.tagsPlaceholder') ?? 'Tags (comma-separated)'}" style="font-size:0.8rem">
+        <button type="submit" class="btn-sm" style="align-self:flex-start">${icon('plus', 12)} ${t('facts.addBtn') ?? 'Add'}</button>
+      </form>
+    </details>
     <div id="rebuild-section" style="margin-bottom:1rem">
       ${isRebuilding
         ? html`<div id="rebuild-progress" hx-get="/bot/${name}/facts/rebuild/status" hx-trigger="every 1s" hx-swap="innerHTML"></div>`
@@ -272,6 +288,29 @@ app.get('/bot/:name/facts', validateBot, async (c) => {
     ) : ''}
   `
   return c.html(layout(`${name} ${t('facts.title')}`, content, `/bot/${name}/facts`, t, lang))
+})
+
+app.post('/bot/:name/facts/add', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
+  const name = botName(c)
+  const body = await c.req.parseBody()
+  const content = String(body['content'] ?? '').trim()
+  const topic = String(body['tags'] ? body['topic'] : body['topic'] ?? '').trim() || 'general'
+  const sector = (['semantic', 'episodic', 'preference'].includes(String(body['sector'])) ? String(body['sector']) : 'semantic') as 'semantic' | 'episodic' | 'preference'
+  const tags = String(body['tags'] ?? '').trim()
+  if (!content) return c.html(alert('error', t('facts.contentRequired')))
+
+  // Get primary chatId
+  try {
+    const db = getBotDb(name)
+    const chatRow = db.prepare('SELECT chat_id FROM facts GROUP BY chat_id ORDER BY COUNT(*) DESC LIMIT 1').get() as { chat_id: string } | undefined
+    const chatId = chatRow?.chat_id || 'admin'
+    const factId = insertFactForBot(name, chatId, content, topic, sector, tags, 'admin-panel')
+    return c.html(alert('success', t('facts.added', { id: String(factId) }) ?? `Fact #${factId} added`))
+  } catch (err) {
+    logger.error({ err, bot: name }, 'Failed to add fact from admin')
+    return c.html(alert('error', err instanceof Error ? err.message : String(err)))
+  }
 })
 
 app.put('/bot/:name/facts/:id', validateBot, async (c) => {

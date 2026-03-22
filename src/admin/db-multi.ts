@@ -589,23 +589,30 @@ export function addGalleryImage(botName: string, type: 'generate' | 'edit', prom
     .run(botName, type, prompt, filename, imageBytes, now)
 }
 
-export function getGalleryImages(limit = 24, offset = 0, bot?: string): GalleryRow[] {
+export function getGalleryImages(limit = 24, offset = 0, bot?: string, q?: string, fromTs?: number, toTs?: number): GalleryRow[] {
   const db = getGalleryDb()
-  if (bot) {
-    return db.prepare('SELECT * FROM gallery WHERE bot_name = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
-      .all(bot, limit, offset) as unknown as GalleryRow[]
-  }
-  return db.prepare('SELECT * FROM gallery ORDER BY created_at DESC LIMIT ? OFFSET ?')
-    .all(limit, offset) as unknown as GalleryRow[]
+  const conditions: string[] = []
+  const params: (string | number)[] = []
+  if (bot) { conditions.push('bot_name = ?'); params.push(bot) }
+  if (q) { conditions.push('prompt LIKE ?'); params.push(`%${q}%`) }
+  if (fromTs) { conditions.push('created_at >= ?'); params.push(fromTs) }
+  if (toTs) { conditions.push('created_at <= ?'); params.push(toTs) }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  params.push(limit, offset)
+  return db.prepare(`SELECT * FROM gallery ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .all(...params) as unknown as GalleryRow[]
 }
 
-export function countGalleryImages(bot?: string): number {
+export function countGalleryImages(bot?: string, q?: string, fromTs?: number, toTs?: number): number {
   const db = getGalleryDb()
-  if (bot) {
-    const row = db.prepare('SELECT COUNT(*) as cnt FROM gallery WHERE bot_name = ?').get(bot) as unknown as { cnt: number }
-    return row.cnt
-  }
-  const row = db.prepare('SELECT COUNT(*) as cnt FROM gallery').get() as unknown as { cnt: number }
+  const conditions: string[] = []
+  const params: (string | number)[] = []
+  if (bot) { conditions.push('bot_name = ?'); params.push(bot) }
+  if (q) { conditions.push('prompt LIKE ?'); params.push(`%${q}%`) }
+  if (fromTs) { conditions.push('created_at >= ?'); params.push(fromTs) }
+  if (toTs) { conditions.push('created_at <= ?'); params.push(toTs) }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+  const row = db.prepare(`SELECT COUNT(*) as cnt FROM gallery ${where}`).get(...params) as unknown as { cnt: number }
   return row.cnt
 }
 

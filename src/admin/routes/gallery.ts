@@ -17,13 +17,23 @@ app.get('/gallery', (c) => {
   const lang: Lang = c.get('lang')
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10))
   const bot = c.req.query('bot') || undefined
-  const total = countGalleryImages(bot)
+  const q = c.req.query('q') || undefined
+  const from = c.req.query('from') || undefined
+  const to = c.req.query('to') || undefined
+  const fromTs = from ? Math.floor(new Date(from).getTime() / 1000) : undefined
+  const toTs = to ? Math.floor(new Date(to + 'T23:59:59').getTime() / 1000) : undefined
+  const total = countGalleryImages(bot, q, fromTs, toTs)
   const totalPages = Math.ceil(total / PER_PAGE)
   const offset = (page - 1) * PER_PAGE
-  const images = getGalleryImages(PER_PAGE, offset, bot)
+  const images = getGalleryImages(PER_PAGE, offset, bot, q, fromTs, toTs)
   const bots = getBotNames()
 
-  const baseUrl = bot ? `/gallery?bot=${bot}` : '/gallery'
+  const params = new URLSearchParams()
+  if (bot) params.set('bot', bot)
+  if (q) params.set('q', q)
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const baseUrl = `/gallery${params.toString() ? `?${params}` : ''}`
 
   const content = html`
     <h2>${icon('image')} ${t('gallery.title')}</h2>
@@ -61,16 +71,30 @@ app.get('/gallery', (c) => {
       </div>
     </div>
 
-    <div class="filter-bar">
+    <form method="GET" action="/gallery" class="filter-bar" style="flex-wrap:wrap;gap:0.5rem">
       <label>${t('gallery.bot')}
-        <select onchange="location.href='/gallery'+(this.value ? '?bot='+this.value : '')">
+        <select name="bot">
           <option value="">${t('gallery.allBots')}</option>
           ${bots.map(b => html`<option value="${b}" ${b === bot ? 'selected' : ''}>${b}</option>`)}
         </select>
       </label>
+      <label class="filter-search">
+        <small>Prompt</small>
+        <input type="search" name="q" value="${q ?? ''}" placeholder="${t('gallery.searchPrompt') ?? 'Search prompts...'}">
+      </label>
+      <label>
+        <small>From</small>
+        <input type="date" name="from" value="${from ?? ''}" style="font-size:0.8rem">
+      </label>
+      <label>
+        <small>To</small>
+        <input type="date" name="to" value="${to ?? ''}" style="font-size:0.8rem">
+      </label>
+      <button type="submit" class="btn-sm">${icon('search', 13)}</button>
+      ${(q || from || to) ? html`<a href="/gallery${bot ? `?bot=${bot}` : ''}" role="button" class="btn-sm outline" style="text-decoration:none">${icon('x', 13)}</a>` : ''}
       <div style="flex:1"></div>
       <small style="color:var(--mc-text-dim);align-self:center">${total} ${t('gallery.images')}</small>
-    </div>
+    </form>
 
     ${images.length === 0 ? html`
       <div class="empty-state">
