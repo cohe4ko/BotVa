@@ -1566,9 +1566,12 @@ export function createBot(): Bot {
           }
         )
 
+        const msgId = confirmMsg.message_id
         const timeout = setTimeout(() => {
+          const current = pendingVoiceConfirms.get(String(chatId))
+          if (current?.messageId !== msgId) return
           pendingVoiceConfirms.delete(String(chatId))
-          bot.api.editMessageText(chatId, confirmMsg.message_id, `<code>${transcript}</code>\n\n⏱ ${t('cb.voiceExpired')}`, { parse_mode: 'HTML' })
+          bot.api.editMessageText(chatId, msgId, `<code>${transcript}</code>\n\n⏱ ${t('cb.voiceExpired')}`, { parse_mode: 'HTML' })
             .catch(() => {})
         }, 120_000)
 
