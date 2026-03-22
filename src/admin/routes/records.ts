@@ -622,6 +622,12 @@ app.get('/records/:date', (c) => {
       url.hash = anchor || '';
       location.href = url.toString();
     }
+    function updateSaveButtons() {
+      const bot = getSelectedBot();
+      document.querySelectorAll('.save-btn').forEach(btn => {
+        btn.textContent = '✅ → ' + bot;
+      });
+    }
     // Restore bot from URL on load
     (function() {
       const p = new URLSearchParams(location.search).get('bot');
@@ -629,6 +635,8 @@ app.get('/records/:date', (c) => {
         const sel = document.getElementById('target-bot');
         if (sel) { for (const o of sel.options) { if (o.value === p) { sel.value = p; break; } } }
       }
+      updateSaveButtons();
+      document.getElementById('target-bot').addEventListener('change', updateSaveButtons);
     })();
 
     async function reviewFact(id, status) {
@@ -686,8 +694,8 @@ function renderFactItem(rawItem: string | AnalysisItem, typeIcon: string, timest
     ? html`<span class="badge badge-set" style="font-size:0.7rem">✅${savedTo ? ` ${savedTo}` : ''}</span>`
     : status === 'declined'
     ? html`<span class="badge badge-missing" style="font-size:0.7rem">❌</span>`
-    : html`<span style="display:inline-flex;gap:0.2rem">
-        <button class="btn-sm" style="height:24px;padding:0 0.5rem;font-size:0.7rem;cursor:pointer" onclick="reviewFact('${id}','approved')">✅ Save</button>
+    : html`<span style="display:inline-flex;gap:0.2rem;flex-shrink:0">
+        <button class="btn-sm save-btn" style="height:24px;padding:0 0.5rem;font-size:0.7rem;cursor:pointer;white-space:nowrap" onclick="reviewFact('${id}','approved')">✅ Save</button>
         <button class="btn-sm outline" style="height:24px;padding:0 0.5rem;font-size:0.7rem;cursor:pointer" onclick="reviewFact('${id}','declined')">❌</button>
       </span>`
 
