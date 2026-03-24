@@ -36,6 +36,17 @@
 - Не додавати `Co-Authored-By`
 - Формат: `тип: короткий опис` (feat, fix, refactor, add, docs)
 
+### Remotes та push
+
+Репозиторій має два remote:
+- `private` (github.com/cohe4ko/BotVaPrivate) -- приватний, дефолтний
+- `origin` (github.com/cohe4ko/BotVa) -- **ПУБЛІЧНИЙ, read-only для агента**
+
+**ЗАБОРОНЕНО:** агент НЕ має права пушити в `origin` (публічний repo). Ніколи не виконувати `git push origin`. Публікація в origin -- виключно ручна дія користувача.
+
+- `git push` -- йде в private (безпечно, агент може виконувати)
+- `git push origin ...` -- **ЗАБОРОНЕНО для агента**
+
 ### Перед push
 
 Завжди перевіряй `git diff --cached` на наявність:
