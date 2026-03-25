@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { html } from 'hono/html'
+import { html, raw } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { statusBadge, formatCost, formatTs, guideBlock } from '../views/components.js'
 import { getBotNames, getUsageSummary, getHealthMetrics, getProjectRoot, getTasks, getReminders, countFacts, getBotDir } from '../db-multi.js'
@@ -11,6 +11,7 @@ import { execSync } from 'child_process'
 import { getConsolidationHour } from '../../system-settings.js'
 import { AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from '../../config.js'
 import { readEnv } from '../env-parser.js'
+import { getAuthStatus } from '../../claude-auth.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
 function getNodeVersion(): string { return process.versions.node }
@@ -118,7 +119,10 @@ app.get('/', (c) => {
     }
   })
 
+  const claudeAuth = getAuthStatus()
+
   const content = html`
+    ${!claudeAuth.loggedIn ? html`<div class="alert alert-warning"><i data-lucide="alert-triangle" style="width:15px;height:15px;flex-shrink:0"></i> ${raw(t('dash.claudeAuthWarning'))}</div>` : ''}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem">
       <h2 style="margin:0">${icon('layout-dashboard')} ${t('dash.title')}</h2>
       <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">

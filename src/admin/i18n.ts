@@ -211,6 +211,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'dash.embeddingRequests': 'Requests',
     'dash.embeddingTexts': 'Texts embedded',
     'dash.usage': 'Usage',
+    'dash.claudeAuthWarning': 'Claude CLI requires login. <a href="/terminal">Open Terminal</a> and follow the login prompts.',
 
     // Status badges
     'status.running': 'running',
@@ -1006,6 +1007,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'dash.embeddingRequests': 'Запити',
     'dash.embeddingTexts': 'Текстів оброблено',
     'dash.usage': 'Використання',
+    'dash.claudeAuthWarning': 'Claude CLI потребує логіну. <a href="/terminal">Відкрийте Термінал</a> та пройдіть логін.',
 
     // Status badges
     'status.running': 'працює',

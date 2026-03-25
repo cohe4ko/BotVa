@@ -15,6 +15,7 @@ import { preventSleep, allowSleep } from './caffeinate.js'
 import { stopDeduplication } from './deduplication.js'
 import { initTelegraph } from './telegraph.js'
 import { runDailyConsolidation } from './consolidate.js'
+import { startTokenRefreshLoop, stopTokenRefreshLoop } from './claude-auth.js'
 
 const PID_FILE = join(STORE_DIR, 'botva.pid')
 const SOCK_PATH = join(STORE_DIR, 'colleague.sock')
@@ -226,6 +227,15 @@ async function main(): Promise<void> {
   // Init scheduler (pass bot.api for builtin MCP in scheduled tasks)
   initScheduler(sendMessage, bot.api)
 
+  // Start Claude token auto-refresh
+  startTokenRefreshLoop(async () => {
+    if (ALLOWED_CHAT_ID) {
+      const { chatT } = await import('./bot-i18n.js')
+      const t = chatT(ALLOWED_CHAT_ID)
+      sendMessage(ALLOWED_CHAT_ID, t('auth.tokenExpired')).catch(() => {})
+    }
+  })
+
   // Start relay listener for bot-to-bot communication in groups
   const stopRelay = startRelayListener(bot)
 
@@ -256,6 +266,7 @@ async function main(): Promise<void> {
     stopRelay()
     stopSocketListener()
     stopScheduler()
+    stopTokenRefreshLoop()
     stopDeduplication()
     allowSleep()
     runner.stop()
