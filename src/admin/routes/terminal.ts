@@ -393,7 +393,12 @@ app.get('/terminal', (c) => {
 
         // --- Auto-connect ---
         var params = new URLSearchParams(location.search);
-        connect(params.get('session'));
+        var startSession = params.get('session');
+        if (!startSession) {
+          var btns = document.querySelectorAll('.session-btn');
+          if (btns.length) startSession = btns[btns.length - 1].getAttribute('data-session');
+        }
+        connect(startSession);
       })();
     </script>
     ${guideBlock(t('guide.terminal.title'), [t('guide.terminal.1'), t('guide.terminal.2'), t('guide.terminal.3')])}
