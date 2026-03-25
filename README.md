@@ -72,7 +72,11 @@ npm run new-bot -- my-bot personal-assistant --emoji 🧑‍💼 --name "Мій 
 #    - TELEGRAM_BOT_TOKEN  (отримати у @BotFather в Telegram)
 #    - ALLOWED_CHAT_ID     (надіслати /chatid боту після запуску)
 
-# 5. Запустити
+# 5. Залогінитись в Claude CLI
+#    Запустити адмін-панель → Термінал (/terminal)
+#    та пройти логін через підписку (не API key)
+
+# 6. Запустити
 ./scripts/deploy.sh start
 ```
 

@@ -1317,6 +1317,22 @@ export function createBot(): Bot {
     const k = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
     const usd = (n: number) => `$${n.toFixed(4)}`
 
+    // Claude CLI auth info
+    const authLines: string[] = []
+    try {
+      const { getAuthStatus } = await import('./claude-auth.js')
+      const auth = getAuthStatus()
+      if (auth.loggedIn) {
+        const parts = [`✅ Claude: ${t('cmd.usage.authOk')}`]
+        if (auth.subscriptionType) parts[0] += ` (${auth.subscriptionType})`
+        if (auth.expiresInMin != null) parts[0] += ` · ${auth.expiresInMin} min`
+        if (auth.email) parts.push(`  ${auth.email}`)
+        authLines.push(...parts)
+      } else {
+        authLines.push(`⚠️ Claude: ${t('cmd.usage.authExpired')}`)
+      }
+    } catch {}
+
     const lines = [
       t('cmd.usage.title'),
       '',
@@ -1327,6 +1343,7 @@ export function createBot(): Bot {
       `${t('cmd.usage.details')}`,
       `  in: ${k(week.inputTokens)} | out: ${k(week.outputTokens)}`,
       `  cache read: ${k(week.cacheReadTokens)} | cache new: ${k(week.cacheCreationTokens)}`,
+      ...(authLines.length ? ['', ...authLines] : []),
     ]
     await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
   })

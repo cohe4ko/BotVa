@@ -40,6 +40,8 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.usage.day': '<b>Last day:</b> {requests} requests | {tokens} tokens | {cost}',
     'cmd.usage.week': '<b>Last week:</b> {requests} requests | {tokens} tokens | {cost}',
     'cmd.usage.details': 'Week details:',
+    'cmd.usage.authOk': 'authenticated',
+    'cmd.usage.authExpired': 'not authenticated',
 
     // Stats
     'cmd.stats.off': 'Stats footer under messages OFF.',
@@ -364,6 +366,8 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.usage.day': '<b>За добу:</b> {requests} запитів | {tokens} токенів | {cost}',
     'cmd.usage.week': '<b>За тиждень:</b> {requests} запитів | {tokens} токенів | {cost}',
     'cmd.usage.details': 'Деталі за тиждень:',
+    'cmd.usage.authOk': 'автентифікований',
+    'cmd.usage.authExpired': 'не автентифікований',
 
     // Stats
     'cmd.stats.off': 'Статистика під повідомленнями ВИМКНЕНА.',

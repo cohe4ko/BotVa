@@ -36,23 +36,33 @@ function readCredentials(): Credentials | null {
   }
 }
 
+export interface AuthStatus {
+  loggedIn: boolean
+  expiresInMin: number | null
+  email: string | null
+  subscriptionType: string | null
+}
+
 /** Check auth via `claude auth status` CLI command (source of truth) */
-export function getAuthStatus(): { loggedIn: boolean; expiresInMin: number | null } {
+export function getAuthStatus(): AuthStatus {
   try {
     const raw = execSync('claude auth status 2>&1', { encoding: 'utf-8', timeout: 5000 }).trim()
-    const data = JSON.parse(raw) as { loggedIn?: boolean }
-    if (!data.loggedIn) return { loggedIn: false, expiresInMin: null }
+    const data = JSON.parse(raw) as { loggedIn?: boolean; email?: string; subscriptionType?: string }
+    if (!data.loggedIn) return { loggedIn: false, expiresInMin: null, email: null, subscriptionType: null }
+
+    const email = data.email ?? null
+    const subscriptionType = data.subscriptionType ?? null
 
     // CLI confirms logged in; check credentials file for expiry details
     const creds = readCredentials()
     const expiresAt = creds?.claudeAiOauth?.expiresAt
     if (expiresAt) {
       const remaining = expiresAt - Date.now()
-      return { loggedIn: true, expiresInMin: Math.max(0, Math.round(remaining / 60_000)) }
+      return { loggedIn: true, expiresInMin: Math.max(0, Math.round(remaining / 60_000)), email, subscriptionType }
     }
-    return { loggedIn: true, expiresInMin: null }
+    return { loggedIn: true, expiresInMin: null, email, subscriptionType }
   } catch {
-    return { loggedIn: false, expiresInMin: null }
+    return { loggedIn: false, expiresInMin: null, email: null, subscriptionType: null }
   }
 }
 
