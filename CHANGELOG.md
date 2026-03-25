@@ -5,6 +5,15 @@
 Формат базується на [Keep a Changelog](https://keepachangelog.com/uk/1.1.0/),
 проєкт дотримується [Semantic Versioning](https://semver.org/lang/uk/).
 
+## [1.0.1] — 2026-03-26
+
+### Додано
+- Автоматичне оновлення OAuth токена Claude CLI з backoff стратегією (`src/claude-auth.ts`)
+- Warning-банер на дашборді адмінки при відсутній автентифікації
+- Telegram-нотифікація власнику бота при протуханні токена (i18n: uk/en)
+- `/usage` показує статус Claude CLI: email, тип підписки, час до протухання
+- Крок логіну в Claude CLI в інструкціях встановлення (README.md, DEPLOY.md)
+
 ## [1.0.0] — 2026-03-21
 
 Перший публічний реліз BotVa — мульти-бот Telegram-платформи на базі Claude AI.

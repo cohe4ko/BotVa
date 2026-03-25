@@ -1,6 +1,6 @@
 {
   "name": "botva",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Multi-bot Telegram platform powered by Claude AI with memory, voice, MCP integrations",
   "type": "module",
   "keywords": [
