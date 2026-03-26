@@ -119,7 +119,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Code
     { name: 'RunPython', icon: 'code', category: 'code', description: 'Execute Python code (calculations, data, charts)', available: true },
     // Reminders
-    { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a one-shot reminder', available: true },
+    { name: 'CreateReminder', icon: 'bell', category: 'reminders', description: 'Set a reminder or scheduled agent task', available: true },
     { name: 'ListReminders', icon: 'bell-ring', category: 'reminders', description: 'List pending reminders', available: true },
     { name: 'DeleteReminder', icon: 'bell-off', category: 'reminders', description: 'Cancel a reminder', available: true },
     // Screenshot
@@ -1008,10 +1008,12 @@ Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 �
   if (isOn('CreateReminder')) tools.push(
     tool(
       'CreateReminder',
-      'Set a one-shot reminder — bot will message the chat at the specified time. Use when user says "нагадай", "remind me", "через годину", "завтра о 9", "не забути". Also use PROACTIVELY when user mentions a deadline or event they should remember. Use GetCurrentTime first to calculate the correct ISO datetime. NOT for recurring events — use Google Calendar for those.',
+      'Set a reminder or scheduled task. By default sends text at specified time. Use runAgent=true to execute as agent prompt. Use schedule with cron for recurring.',
       {
-        text: z.string().describe('Reminder text (what to remind about)'),
-        remindAt: z.string().describe('When to remind, ISO 8601 datetime (e.g. "2025-03-15T15:00:00")'),
+        text: z.string().describe('Reminder text (what to remind about) or agent prompt if runAgent=true'),
+        remindAt: z.string().describe('When to remind, ISO 8601 datetime (e.g. "2025-03-15T15:00:00"). For recurring, this is the first run time.'),
+        runAgent: z.boolean().optional().default(false).describe('If true, runs AI agent with text as prompt'),
+        schedule: z.string().optional().describe('Cron expression for recurring (e.g. "0 9 * * *")'),
       },
       async (args) => {
         usedTools.add('CreateReminder')
@@ -1025,9 +1027,33 @@ Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 �
           if (remindAtTs <= now) {
             return { content: [{ type: 'text' as const, text: 'Reminder time must be in the future' }], isError: true }
           }
-          const id = insertReminder(chatIdStr, args.text, remindAtTs)
+          // Validate cron expression if provided
+          if (args.schedule) {
+            try {
+              const cronParser = await import('cron-parser')
+              cronParser.default.parseExpression(args.schedule)
+            } catch {
+              return { content: [{ type: 'text' as const, text: `Invalid cron: ${args.schedule}` }], isError: true }
+            }
+            // Rate limit for agent+cron: minimum 5 minutes between runs
+            if (args.runAgent) {
+              try {
+                const cronParser = await import('cron-parser')
+                const interval = cronParser.default.parseExpression(args.schedule)
+                const first = interval.next().getTime()
+                const second = interval.next().getTime()
+                if (second - first < 5 * 60 * 1000) {
+                  return { content: [{ type: 'text' as const, text: 'Agent cron schedule must have at least 5 minutes between runs' }], isError: true }
+                }
+              } catch { /* already validated above */ }
+            }
+          }
+          const id = insertReminder(chatIdStr, args.text, remindAtTs, args.runAgent, args.schedule ?? null)
           const dateStr = new Date(remindAtTs * 1000).toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' })
-          return { content: [{ type: 'text' as const, text: `Reminder #${id} set for ${dateStr}: "${args.text}"` }] }
+          const parts = [`Reminder #${id} set for ${dateStr}: "${args.text}"`]
+          if (args.runAgent) parts.push('[agent mode]')
+          if (args.schedule) parts.push(`[recurring: ${args.schedule}]`)
+          return { content: [{ type: 'text' as const, text: parts.join(' ') }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'CreateReminder tool failed')
@@ -1052,7 +1078,12 @@ Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 �
           }
           const lines = reminders.map(r => {
             const date = new Date(r.remind_at * 1000).toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' })
-            return `#${r.id} | ${date} | ${r.text}`
+            const flags = [
+              r.run_agent ? 'agent' : null,
+              r.schedule ? `cron: ${r.schedule}` : null,
+            ].filter(Boolean).join(', ')
+            const suffix = flags ? ` [${flags}]` : ''
+            return `#${r.id} | ${date} | ${r.text}${suffix}`
           })
           return { content: [{ type: 'text' as const, text: `${reminders.length} pending reminders:\n${lines.join('\n')}` }] }
         } catch (err) {

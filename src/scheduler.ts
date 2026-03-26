@@ -1,5 +1,5 @@
 import cronParser from 'cron-parser'
-import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent, markReminderFailed, deleteReminder } from './db.js'
+import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent, markReminderFailed, deleteReminder, advanceReminderNextRun } from './db.js'
 import { runAgent } from './agent.js'
 import { logger } from './logger.js'
 import { chatT } from './bot-i18n.js'
@@ -11,6 +11,7 @@ let sender: Sender | null = null
 let botApi: Api | null = null
 let intervalId: ReturnType<typeof setInterval> | null = null
 const runningTasks = new Set<string>()
+const runningAgentReminders = new Set<number>()
 
 /** Create a minimal Context-like object for createBuiltinMcpServer */
 function createSchedulerCtx(api: Api, chatId: number): any {
@@ -40,13 +41,64 @@ export function computeNextRun(cronExpression: string): number {
 
 const REMINDER_MAX_ATTEMPTS = 3
 
+async function executeReminderAgent(r: { id: number; chat_id: string; text: string }): Promise<void> {
+  if (runningAgentReminders.has(r.id)) {
+    logger.info({ reminderId: r.id }, 'Agent reminder already running, skipping')
+    return
+  }
+  runningAgentReminders.add(r.id)
+  try {
+    let builtinServer: any = undefined
+    if (botApi) {
+      try {
+        const { createBuiltinMcpServer } = await import('./builtin-tools.js')
+        const ctx = createSchedulerCtx(botApi, Number(r.chat_id))
+        const SCHEDULER_TOOLS = [
+          'SearchMemory', 'SaveFact', 'GetCurrentTime',
+          'SendMedia', 'TextToSpeech', 'PublishTelegraph',
+          'GenerateImage', 'CurrencyRates', 'RunPython',
+          'ReadWorkspaceFile',
+        ]
+        const builtin = await createBuiltinMcpServer(ctx, Number(r.chat_id), undefined, SCHEDULER_TOOLS)
+        builtinServer = builtin?.server
+      } catch (err) {
+        logger.warn({ err, reminderId: r.id }, 'Failed to create builtin MCP for reminder agent')
+      }
+    }
+    const { text: result } = await runAgent(
+      r.text, undefined, undefined, r.chat_id,
+      undefined, undefined, builtinServer, undefined, undefined, []
+    )
+    const output = result ?? '(no response)'
+    if (sender && !output.includes('{{agent.crash}}')) {
+      await sender(r.chat_id, output)
+    }
+    logger.info({ reminderId: r.id }, 'Agent reminder executed')
+  } finally {
+    runningAgentReminders.delete(r.id)
+  }
+}
+
 async function sendDueReminders(): Promise<void> {
   const reminders = getDueReminders()
   for (const r of reminders) {
     try {
-      if (sender) await sender(r.chat_id, `🔔 ${r.text}`)
-      markReminderSent(r.id)
-      logger.info({ reminderId: r.id }, 'Reminder sent')
+      if (r.run_agent) {
+        await executeReminderAgent(r)
+      } else {
+        if (sender) await sender(r.chat_id, `🔔 ${r.text}`)
+      }
+
+      if (r.schedule) {
+        // Recurring: advance to next run
+        const nextRun = computeNextRun(r.schedule)
+        advanceReminderNextRun(r.id, nextRun)
+        logger.info({ reminderId: r.id, nextRun }, 'Recurring reminder advanced')
+      } else {
+        // One-shot: mark as sent
+        markReminderSent(r.id)
+        logger.info({ reminderId: r.id }, 'Reminder sent')
+      }
     } catch (err) {
       const failCount = markReminderFailed(r.id)
       if (failCount >= REMINDER_MAX_ATTEMPTS) {

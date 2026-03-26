@@ -223,6 +223,9 @@ export function initDatabase(): void {
   `)
   // Migration: add fail_count to reminders
   try { d.exec('ALTER TABLE reminders ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
+  // Migration: add run_agent and schedule columns for agent tasks and recurring reminders
+  try { d.exec('ALTER TABLE reminders ADD COLUMN run_agent INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
+  try { d.exec('ALTER TABLE reminders ADD COLUMN schedule TEXT') } catch { /* already exists */ }
 
   // Saved sessions — multiple sessions per chat for switching
   d.exec(`
@@ -787,13 +790,15 @@ export interface Reminder {
   remind_at: number
   created_at: number
   status: 'pending' | 'sent'
+  run_agent: number    // 0 = send text, 1 = run agent
+  schedule: string | null  // cron expression for recurring, null for one-shot
 }
 
-export function insertReminder(chatId: string, text: string, remindAt: number): number {
+export function insertReminder(chatId: string, text: string, remindAt: number, runAgent = false, schedule: string | null = null): number {
   const now = Math.floor(Date.now() / 1000)
   const result = getDb().prepare(
-    'INSERT INTO reminders (chat_id, text, remind_at, created_at) VALUES (?, ?, ?, ?)'
-  ).run(chatId, text, remindAt, now)
+    'INSERT INTO reminders (chat_id, text, remind_at, created_at, run_agent, schedule) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(chatId, text, remindAt, now, runAgent ? 1 : 0, schedule)
   return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
 }
 
@@ -814,6 +819,12 @@ export function markReminderFailed(id: number): number {
   d.prepare('UPDATE reminders SET fail_count = fail_count + 1 WHERE id = ?').run(id)
   const row = d.prepare('SELECT fail_count FROM reminders WHERE id = ?').get(id) as { fail_count: number } | undefined
   return row?.fail_count ?? 0
+}
+
+export function advanceReminderNextRun(id: number, nextRemindAt: number): void {
+  getDb().prepare(
+    "UPDATE reminders SET remind_at = ?, status = 'pending', fail_count = 0 WHERE id = ?"
+  ).run(nextRemindAt, id)
 }
 
 export function listReminders(chatId: string): Reminder[] {

@@ -198,6 +198,8 @@ export interface AdminReminder {
   remind_at: number
   created_at: number
   status: 'pending' | 'sent'
+  run_agent: number
+  schedule: string | null
 }
 
 export function getReminders(bot: BotName, status?: 'pending' | 'sent'): AdminReminder[] {
@@ -212,11 +214,11 @@ export function getReminders(bot: BotName, status?: 'pending' | 'sent'): AdminRe
   } catch { return [] }
 }
 
-export function createReminder(bot: BotName, chatId: string, text: string, remindAt: number): number {
+export function createReminder(bot: BotName, chatId: string, text: string, remindAt: number, runAgent = false, schedule: string | null = null): number {
   const now = Math.floor(Date.now() / 1000)
   const result = getBotDb(bot).prepare(
-    'INSERT INTO reminders (chat_id, text, remind_at, created_at) VALUES (?, ?, ?, ?)'
-  ).run(chatId, text, remindAt, now)
+    'INSERT INTO reminders (chat_id, text, remind_at, created_at, run_agent, schedule) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(chatId, text, remindAt, now, runAgent ? 1 : 0, schedule)
   return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
 }
 
