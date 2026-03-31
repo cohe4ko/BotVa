@@ -31,6 +31,8 @@ import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './g
 import { appendGroupContext, readGroupContext, clearGroupContext } from './group-context.js'
 import { escapeHtml, formatForTelegram, splitMessage, formatUsageStats, sendChunked } from './message-format.js'
 import { handleSettingsCallback, handleModelCallback, handleSessionCallback, registerSettingsCommands } from './bot-settings.js'
+import { loadCatalog, buildAgentDefinitions } from './agent-catalog.js'
+import { matchAgents } from './agent-matcher.js'
 
 // --- AskUser pending responses ---
 const pendingQuestions = new Map<string, {
@@ -781,7 +783,14 @@ async function handleMessage(
           } catch { /* ignore */ }
         }
 
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest)
+        // Match specialist agents from catalog
+        const catalog = loadCatalog()
+        const matched = matchAgents(currentMessage, catalog)
+        const agentDefs = matched.length > 0
+          ? buildAgentDefinitions(matched, getChatLang(chatIdStr))
+          : undefined
+
+        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage

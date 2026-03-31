@@ -1,4 +1,4 @@
-import { query, type SDKMessage, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
+import { query, type SDKMessage, type McpSdkServerConfigWithInstance, type AgentDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
 import { parseModelConfig } from './model.js'
 import { buildMcpServers } from './mcp-config.js'
@@ -57,7 +57,8 @@ async function runAgentOnce(
   builtinMcpServer?: McpSdkServerConfigWithInstance,
   permissionMode?: string,
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
-  mcpAllowList?: string[]
+  mcpAllowList?: string[],
+  agents?: Record<string, AgentDefinition>
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -212,6 +213,7 @@ async function runAgentOnce(
         ...permissionHooks,
         ...(baseModel ? { model: baseModel } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
+        ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),
       },
     })
 
@@ -372,7 +374,8 @@ export async function runAgent(
   builtinMcpServer?: McpSdkServerConfigWithInstance,
   permissionMode?: string,
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
-  mcpAllowList?: string[]
+  mcpAllowList?: string[],
+  agents?: Record<string, AgentDefinition>
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
@@ -388,7 +391,7 @@ export async function runAgent(
     }
   }
 
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -396,7 +399,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }
