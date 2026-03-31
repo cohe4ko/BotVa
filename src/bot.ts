@@ -573,7 +573,7 @@ async function handleMessage(
     while (true) {
       // Build memory context (in debate mode: keep diaries but skip short-term episodic memories)
       const isDebateMode = inGroup && !!getDebateState(chatIdStr)
-      const memoryCtx = await buildMemoryContext(chatIdStr, currentMessage, { skipShortTermMemories: isDebateMode })
+      const { text: memoryCtx, injectedFactIds } = await buildMemoryContext(chatIdStr, currentMessage, { skipShortTermMemories: isDebateMode })
       let fullMessage = memoryCtx
         ? `[Short-term context — fades over time. Use SaveFact for permanent storage.]\n${memoryCtx}\n\n${currentMessage}`
         : currentMessage
@@ -808,6 +808,14 @@ async function handleMessage(
               .catch(err => logger.warn({ err, oldSessionId }, 'Session consolidation failed'))
           )
         }
+      }
+
+      // Auto-bump usefulness for injected facts (claude-mem pattern)
+      if (injectedFactIds.length > 0) {
+        import('./db.js').then(({ touchFactAccess, bumpFactUsefulness }) => {
+          touchFactAccess(injectedFactIds)
+          bumpFactUsefulness(injectedFactIds)
+        }).catch(() => {})
       }
 
       // Proactive fact extraction when context is filling up (>70%)

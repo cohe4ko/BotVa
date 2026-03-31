@@ -26,6 +26,8 @@ vi.mock('./pricing.js', () => ({
 import {
   initDatabase,
   insertFact,
+  insertFactsBatch,
+  computeFactHash,
   searchFacts,
   deleteFact,
   getChatSetting,
@@ -34,6 +36,8 @@ import {
   getApprovedGroups,
   addApprovedGroup,
   removeApprovedGroup,
+  bumpFactUsefulness,
+  getDb,
 } from './db.js'
 
 const CHAT = 'test-chat-1'
@@ -141,6 +145,73 @@ describe('approved groups', () => {
   it('removeApprovedGroup is safe for non-existent group', () => {
     removeApprovedGroup('-999')
     expect(getApprovedGroups()).toEqual([])
+  })
+})
+
+describe('content hash dedup', () => {
+  it('computeFactHash is deterministic', () => {
+    const h1 = computeFactHash('Hello world', 'test', 'semantic')
+    const h2 = computeFactHash('Hello world', 'test', 'semantic')
+    expect(h1).toBe(h2)
+    expect(h1).toHaveLength(16)
+  })
+
+  it('computeFactHash normalizes whitespace and case', () => {
+    const h1 = computeFactHash('Hello  World', 'test', 'semantic')
+    const h2 = computeFactHash('hello world', 'test', 'semantic')
+    expect(h1).toBe(h2)
+  })
+
+  it('computeFactHash differs by topic', () => {
+    const h1 = computeFactHash('Same content', 'health', 'semantic')
+    const h2 = computeFactHash('Same content', 'work', 'semantic')
+    expect(h1).not.toBe(h2)
+  })
+
+  it('insertFact returns -1 for exact duplicate', () => {
+    const chat = 'dedup-chat'
+    const id1 = insertFact(chat, 'Unique fact for dedup test', 'test', 'semantic')
+    expect(id1).toBeGreaterThan(0)
+    const id2 = insertFact(chat, 'Unique fact for dedup test', 'test', 'semantic')
+    expect(id2).toBe(-1)
+  })
+
+  it('insertFactsBatch skips duplicates with -1', () => {
+    const chat = 'dedup-batch-chat'
+    const facts = [
+      { content: 'Batch fact A', topic: 'test', tags: '', sector: 'semantic' as const, importance: 0.5 },
+      { content: 'Batch fact B', topic: 'test', tags: '', sector: 'semantic' as const, importance: 0.5 },
+      { content: 'Batch fact A', topic: 'test', tags: '', sector: 'semantic' as const, importance: 0.5 }, // dup
+    ]
+    const ids = insertFactsBatch(chat, facts)
+    expect(ids[0]).toBeGreaterThan(0)
+    expect(ids[1]).toBeGreaterThan(0)
+    expect(ids[2]).toBe(-1) // duplicate
+  })
+})
+
+describe('bumpFactUsefulness', () => {
+  it('increments usefulness for given ids', () => {
+    const chat = 'usefulness-chat'
+    const id = insertFact(chat, 'Useful fact test', 'test', 'semantic')
+    expect(id).toBeGreaterThan(0)
+    bumpFactUsefulness([id], 0.1)
+    const row = getDb().prepare('SELECT usefulness FROM facts WHERE id = ?').get(id) as { usefulness: number }
+    expect(row.usefulness).toBeCloseTo(0.1, 2)
+  })
+
+  it('caps usefulness at 2.0', () => {
+    const chat = 'usefulness-cap-chat'
+    const id = insertFact(chat, 'Cap test fact', 'test', 'semantic')
+    expect(id).toBeGreaterThan(0)
+    bumpFactUsefulness([id], 1.5)
+    bumpFactUsefulness([id], 1.5)
+    const row = getDb().prepare('SELECT usefulness FROM facts WHERE id = ?').get(id) as { usefulness: number }
+    expect(row.usefulness).toBe(2.0)
+  })
+
+  it('handles empty ids gracefully', () => {
+    expect(() => bumpFactUsefulness([])).not.toThrow()
   })
 })
 

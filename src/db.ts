@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import { mkdirSync } from 'fs'
 import { STORE_DIR } from './config.js'
 import { logger } from './logger.js'
@@ -14,6 +15,45 @@ export function getDb(): DatabaseSync {
     db.exec('PRAGMA trusted_schema = ON')
   }
   return db
+}
+
+function backfillContentHashes(d: DatabaseSync): void {
+  const rows = d.prepare('SELECT id, chat_id, content, topic, sector FROM facts WHERE content_hash IS NULL').all() as Array<{ id: number; chat_id: string; content: string; topic: string; sector: string }>
+  if (rows.length === 0) return
+  logger.info({ count: rows.length }, 'Backfilling content_hash for existing facts')
+  const stmt = d.prepare('UPDATE facts SET content_hash = ? WHERE id = ?')
+  const dupeIds: number[] = []
+  const seen = new Map<string, number>() // key: chat_id|hash -> first id
+  for (const row of rows) {
+    const hash = computeFactHash(row.content, row.topic, row.sector)
+    const key = `${row.chat_id}|${hash}`
+    const existing = seen.get(key)
+    if (existing) {
+      dupeIds.push(row.id < existing ? row.id : existing)
+      if (row.id > existing) seen.set(key, row.id) // keep newer
+    } else {
+      seen.set(key, row.id)
+    }
+  }
+  d.exec('BEGIN')
+  try {
+    // Delete older duplicates first
+    if (dupeIds.length > 0) {
+      const placeholders = dupeIds.map(() => '?').join(',')
+      d.prepare(`DELETE FROM facts WHERE id IN (${placeholders})`).run(...dupeIds)
+      logger.info({ count: dupeIds.length }, 'Removed duplicate facts during backfill')
+    }
+    // Set hashes for remaining
+    for (const row of rows) {
+      if (dupeIds.includes(row.id)) continue
+      const hash = computeFactHash(row.content, row.topic, row.sector)
+      stmt.run(hash, row.id)
+    }
+    d.exec('COMMIT')
+  } catch (err) {
+    d.exec('ROLLBACK')
+    logger.error({ err }, 'Content hash backfill failed')
+  }
 }
 
 export function initDatabase(): void {
@@ -169,6 +209,12 @@ export function initDatabase(): void {
   try { d.exec('ALTER TABLE facts ADD COLUMN importance REAL NOT NULL DEFAULT 0.5') } catch { /* already exists */ }
   try { d.exec('ALTER TABLE facts ADD COLUMN usefulness REAL NOT NULL DEFAULT 0.0') } catch { /* already exists */ }
   try { d.exec('ALTER TABLE facts ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0') } catch { /* already exists */ }
+
+  // Migration: add content_hash for deduplication (claude-mem pattern)
+  try { d.exec('ALTER TABLE facts ADD COLUMN content_hash TEXT') } catch { /* already exists */ }
+  d.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_content_hash ON facts(chat_id, content_hash)')
+  // Backfill content_hash for existing facts
+  backfillContentHashes(d)
 
   d.exec(`
     CREATE INDEX IF NOT EXISTS idx_facts_chat_topic ON facts(chat_id, topic)
@@ -385,26 +431,46 @@ export interface FactInput {
   importance?: number
 }
 
+export function computeFactHash(content: string, topic: string, sector: string): string {
+  const normalized = `${content.toLowerCase().trim().replace(/\s+/g, ' ')}|${topic}|${sector}`
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 16)
+}
+
 export function insertFact(chatId: string, content: string, topic: string, sector: FactSector, tags = '', source = 'conversation', importance = 0.5): number {
   const now = Math.floor(Date.now() / 1000)
-  const result = getDb().prepare(
-    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, importance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(chatId, topic, content, tags, source, sector, importance, now, now)
-  return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+  const hash = computeFactHash(content, topic, sector)
+  try {
+    const result = getDb().prepare(
+      'INSERT INTO facts (chat_id, topic, content, tags, source, sector, importance, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(chatId, topic, content, tags, source, sector, importance, hash, now, now)
+    return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) return -1
+    throw err
+  }
 }
 
 export function insertFactsBatch(chatId: string, facts: FactInput[], source = 'conversation'): number[] {
   const now = Math.floor(Date.now() / 1000)
   const d = getDb()
   const stmt = d.prepare(
-    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, importance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO facts (chat_id, topic, content, tags, source, sector, importance, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   )
   const ids: number[] = []
   d.exec('BEGIN')
   try {
     for (const f of facts) {
-      const result = stmt.run(chatId, f.topic, f.content, f.tags, source, f.sector, f.importance ?? 0.5, now, now)
-      ids.push(Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid))
+      const hash = computeFactHash(f.content, f.topic, f.sector)
+      try {
+        const result = stmt.run(chatId, f.topic, f.content, f.tags, source, f.sector, f.importance ?? 0.5, hash, now, now)
+        ids.push(Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid))
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
+          ids.push(-1) // duplicate
+        } else {
+          throw err
+        }
+      }
     }
     d.exec('COMMIT')
   } catch (err) {
@@ -424,9 +490,12 @@ export function updateFact(id: number, chatId: string, content: string): boolean
       d.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, old.content, old.tags)
     }
   } catch { /* FTS may be out of sync */ }
-  const result = d.prepare(
-    'UPDATE facts SET content = ?, updated_at = ? WHERE id = ? AND chat_id = ?'
-  ).run(content, now, id, chatId)
+  // Recompute content_hash for deduplication
+  const existing = d.prepare('SELECT topic, sector FROM facts WHERE id = ?').get(id) as { topic: string; sector: string } | undefined
+  const hash = existing ? computeFactHash(content, existing.topic, existing.sector) : null
+  const result = hash
+    ? d.prepare('UPDATE facts SET content = ?, content_hash = ?, updated_at = ? WHERE id = ? AND chat_id = ?').run(content, hash, now, id, chatId)
+    : d.prepare('UPDATE facts SET content = ?, updated_at = ? WHERE id = ? AND chat_id = ?').run(content, now, id, chatId)
   if ((result as unknown as { changes: number }).changes > 0) {
     try {
       const updated = d.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string }
@@ -527,6 +596,14 @@ export function touchFactAccess(ids: number[]): void {
   getDb().prepare(
     `UPDATE facts SET access_count = access_count + 1 WHERE id IN (${placeholders})`
   ).run(...ids)
+}
+
+export function bumpFactUsefulness(ids: number[], delta = 0.05): void {
+  if (ids.length === 0) return
+  const placeholders = ids.map(() => '?').join(',')
+  getDb().prepare(
+    `UPDATE facts SET usefulness = MIN(usefulness + ?, 2.0) WHERE id IN (${placeholders})`
+  ).run(delta, ...ids)
 }
 
 // --- Fact-to-fact links (associative graph) ---

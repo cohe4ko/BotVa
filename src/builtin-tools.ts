@@ -1732,49 +1732,57 @@ function makeSaveFactTool(chatIdStr: string, usedTools: Set<string>): SdkMcpTool
       try {
         const { insertFactsBatch } = await import('./db.js')
         const ids = insertFactsBatch(chatIdStr, args.facts)
+        const savedFacts = args.facts.filter((_, i) => ids[i] !== -1)
+        const savedIds = ids.filter(id => id !== -1)
+        const dupCount = ids.length - savedIds.length
         // Fire-and-forget: generate embeddings + auto-link to related facts
-        Promise.all([import('./embeddings.js'), import('./db.js')]).then(async ([{ embedBatch, cosineSim }, { updateFactEmbedding, getFactsWithEmbeddings, insertFactLink }]) => {
-          const vecs = await embedBatch(args.facts.map(f => f.content), 'passage')
-          for (let i = 0; i < ids.length; i++) {
-            if (vecs[i]) {
-              updateFactEmbedding(ids[i], vecs[i]!)
-              // Auto-link: find top-3 similar existing facts and create links
-              try {
-                const existing = getFactsWithEmbeddings(chatIdStr)
-                const links: { id: number; score: number }[] = []
-                for (const ef of existing) {
-                  if (ef.id === ids[i] || !ef.embedding) continue
-                  const efVec = new Float32Array(ef.embedding.buffer, ef.embedding.byteOffset, ef.embedding.byteLength / 4)
-                  const score = cosineSim(vecs[i]!, efVec)
-                  if (score > 0.5) links.push({ id: ef.id, score })
-                }
-                links.sort((a, b) => b.score - a.score)
-                for (const link of links.slice(0, 3)) {
-                  insertFactLink(ids[i], link.id, link.score)
-                }
-                if (links.length > 0) logger.info({ factId: ids[i], links: links.slice(0, 3) }, 'Auto-linked fact')
-              } catch (err) { logger.warn({ err }, 'Auto-link failed') }
+        if (savedIds.length > 0) {
+          Promise.all([import('./embeddings.js'), import('./db.js')]).then(async ([{ embedBatch, cosineSim }, { updateFactEmbedding, getFactsWithEmbeddings, insertFactLink }]) => {
+            const vecs = await embedBatch(savedFacts.map(f => f.content), 'passage')
+            for (let i = 0; i < savedIds.length; i++) {
+              if (vecs[i]) {
+                updateFactEmbedding(savedIds[i], vecs[i]!)
+                // Auto-link: find top-3 similar existing facts and create links
+                try {
+                  const existing = getFactsWithEmbeddings(chatIdStr)
+                  const links: { id: number; score: number }[] = []
+                  for (const ef of existing) {
+                    if (ef.id === savedIds[i] || !ef.embedding) continue
+                    const efVec = new Float32Array(ef.embedding.buffer, ef.embedding.byteOffset, ef.embedding.byteLength / 4)
+                    const score = cosineSim(vecs[i]!, efVec)
+                    if (score > 0.5) links.push({ id: ef.id, score })
+                  }
+                  links.sort((a, b) => b.score - a.score)
+                  for (const link of links.slice(0, 3)) {
+                    insertFactLink(savedIds[i], link.id, link.score)
+                  }
+                  if (links.length > 0) logger.info({ factId: savedIds[i], links: links.slice(0, 3) }, 'Auto-linked fact')
+                } catch (err) { logger.warn({ err }, 'Auto-link failed') }
+              }
             }
-          }
-        }).catch(err => logger.warn({ err }, 'Embedding generation failed'))
-        const summary = args.facts.map((f, i) => `#${ids[i]} [${f.topic}]: ${f.content}`).join('\n')
+          }).catch(err => logger.warn({ err }, 'Embedding generation failed'))
+        }
+        const summary = savedFacts.map((f, i) => `#${savedIds[i]} [${f.topic}]: ${f.content}`).join('\n')
+        const dupNote = dupCount > 0 ? ` (${dupCount} duplicate${dupCount > 1 ? 's' : ''} skipped)` : ''
         // Fire-and-forget: notify owner about saved facts via Telegram (raw HTML, bypass formatForTelegram)
-        Promise.resolve().then(async () => {
-          const { ALLOWED_CHAT_ID, TELEGRAM_BOT_TOKEN } = await import('./config.js')
-          if (!ALLOWED_CHAT_ID || !TELEGRAM_BOT_TOKEN) return
-          // Check if fact notifications are enabled (ON by default)
-          const { getChatSetting } = await import('./db.js')
-          if (getChatSetting(chatIdStr, 'fact_notify') === '0') return
-          const ownerChatId = ALLOWED_CHAT_ID.split(',')[0].trim()
-          const lines = args.facts.map((f, i) =>
-            `<b>#${ids[i]}</b> [${f.sector}] <b>${f.topic}</b>\n${f.content}\n<i>${f.tags}</i>`
-          )
-          const text = `🧠 Saved ${ids.length} fact${ids.length > 1 ? 's' : ''}:\n\n${lines.join('\n\n')}`
-          const { Bot } = await import('grammy')
-          const notifyBot = new Bot(TELEGRAM_BOT_TOKEN)
-          await notifyBot.api.sendMessage(Number(ownerChatId), text, { parse_mode: 'HTML' })
-        }).catch(() => {})
-        return { content: [{ type: 'text' as const, text: `Saved ${ids.length} facts:\n${summary}` }] }
+        if (savedIds.length > 0) {
+          Promise.resolve().then(async () => {
+            const { ALLOWED_CHAT_ID, TELEGRAM_BOT_TOKEN } = await import('./config.js')
+            if (!ALLOWED_CHAT_ID || !TELEGRAM_BOT_TOKEN) return
+            // Check if fact notifications are enabled (ON by default)
+            const { getChatSetting } = await import('./db.js')
+            if (getChatSetting(chatIdStr, 'fact_notify') === '0') return
+            const ownerChatId = ALLOWED_CHAT_ID.split(',')[0].trim()
+            const lines = savedFacts.map((f, i) =>
+              `<b>#${savedIds[i]}</b> [${f.sector}] <b>${f.topic}</b>\n${f.content}\n<i>${f.tags}</i>`
+            )
+            const text = `🧠 Saved ${savedIds.length} fact${savedIds.length > 1 ? 's' : ''}${dupNote}:\n\n${lines.join('\n\n')}`
+            const { Bot } = await import('grammy')
+            const notifyBot = new Bot(TELEGRAM_BOT_TOKEN)
+            await notifyBot.api.sendMessage(Number(ownerChatId), text, { parse_mode: 'HTML' })
+          }).catch(() => {})
+        }
+        return { content: [{ type: 'text' as const, text: savedIds.length > 0 ? `Saved ${savedIds.length} facts${dupNote}:\n${summary}` : `All ${dupCount} facts were duplicates, nothing saved.` }] }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error({ err }, 'SaveFact tool failed')

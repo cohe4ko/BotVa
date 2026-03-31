@@ -79,8 +79,14 @@ export function appendToDailyLog(userMsg: string, assistantMsg: string): void {
   }
 }
 
-export async function buildMemoryContext(chatId: string, userMessage: string, opts?: { skipShortTermMemories?: boolean }): Promise<string> {
+export interface MemoryContext {
+  text: string
+  injectedFactIds: number[]
+}
+
+export async function buildMemoryContext(chatId: string, userMessage: string, opts?: { skipShortTermMemories?: boolean }): Promise<MemoryContext> {
   const parts: string[] = []
+  const injectedFactIds: number[] = []
 
   // Inject daily diary files
   const today = memoryDate()
@@ -108,39 +114,63 @@ export async function buildMemoryContext(chatId: string, userMessage: string, op
       ? searchResult.facts.filter(f => f.sector !== 'preference').slice(0, 7)
       : [] // skip regular facts for short messages
 
+    // Build score map: fact index in searchResult -> score
+    const scoreMap = new Map<number, number>()
+    for (let i = 0; i < searchResult.facts.length; i++) {
+      scoreMap.set(searchResult.facts[i].id, searchResult.scores[i])
+    }
+
     // Preferences — separate block with higher priority, injected FIRST
     if (preferences.length > 0) {
       const lines = preferences.map(f => `- ${f.content}`)
       parts.unshift(`[⚠️ IMPORTANT — User preferences. Follow these instructions.]\n${lines.join('\n')}`)
+      for (const f of preferences) injectedFactIds.push(f.id)
     }
 
-    // Regular facts — as context with token budget (~1500 chars)
+    // Regular facts — two-tier progressive disclosure (claude-mem pattern)
     if (regularFacts.length > 0) {
-      const TOKEN_BUDGET = 1500
-      let budget = TOKEN_BUDGET
-      const lines: string[] = []
-      for (const f of regularFacts) {
-        const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
-        const sectorLabel = f.sector === 'semantic' ? 'fact' : 'event'
-        const imp = f.importance !== undefined && f.importance !== 0.5 ? ` ⚡${f.importance.toFixed(1)}` : ''
-        const line = `- #${f.id} [${f.topic}] [${date}] (${sectorLabel})${imp} ${f.content}`
-        if (budget - line.length < 0 && lines.length > 0) break
-        lines.push(line)
-        budget -= line.length
+      const SCORE_THRESHOLD = 0.5
+      const tier1 = regularFacts.filter(f => (scoreMap.get(f.id) ?? 0) >= SCORE_THRESHOLD)
+      const tier2 = regularFacts.filter(f => (scoreMap.get(f.id) ?? 0) < SCORE_THRESHOLD)
+
+      // Tier 1: full content (high confidence)
+      if (tier1.length > 0) {
+        const TOKEN_BUDGET = 1500
+        let budget = TOKEN_BUDGET
+        const lines: string[] = []
+        for (const f of tier1) {
+          const date = new Date(f.created_at * 1000).toISOString().slice(0, 10)
+          const sectorLabel = f.sector === 'semantic' ? 'fact' : 'event'
+          const imp = f.importance !== undefined && f.importance !== 0.5 ? ` ⚡${f.importance.toFixed(1)}` : ''
+          const line = `- #${f.id} [${f.topic}] [${date}] (${sectorLabel})${imp} ${f.content}`
+          if (budget - line.length < 0 && lines.length > 0) break
+          lines.push(line)
+          budget -= line.length
+          injectedFactIds.push(f.id)
+        }
+        parts.push(`[Potentially relevant facts from memory — auto-search.]\n${lines.join('\n')}`)
       }
-      let factsBlock = `[Potentially relevant facts from memory — auto-search. No need to call SearchMemory for these.]\n${lines.join('\n')}`
+
+      // Tier 2: compact one-liners (low confidence) — SearchMemory #ID for details
+      if (tier2.length > 0) {
+        const lines = tier2.map(f => {
+          const preview = f.content.length > 50 ? f.content.slice(0, 50) + '...' : f.content
+          injectedFactIds.push(f.id)
+          return `- #${f.id} [${f.topic}] "${preview}"`
+        })
+        parts.push(`[Also possibly relevant — use SearchMemory #ID for full details:]\n${lines.join('\n')}`)
+      }
 
       // Hint: there are more relevant facts available
       if (searchResult.hasMore) {
-        factsBlock += '\n\n[💡 На цю тему є ще факти в пам\'яті. Використай SearchMemory для детальнішого пошуку.]'
+        parts.push('[💡 На цю тему є ще факти в пам\'яті. Використай SearchMemory для детальнішого пошуку.]')
       }
-      parts.push(factsBlock)
     }
   } catch (err) {
     logger.warn({ err }, 'Proactive facts search failed')
   }
 
-  return parts.join('\n\n')
+  return { text: parts.join('\n\n'), injectedFactIds }
 }
 
 export async function saveConversationTurn(
