@@ -1350,6 +1350,16 @@ export function createBot(): Bot {
       }
     } catch {}
 
+    // Claude account usage (5h/7d limits)
+    const claudeUsageLines: string[] = []
+    try {
+      const { fetchClaudeUsage, formatClaudeUsage } = await import('./claude-usage.js')
+      const claudeData = await fetchClaudeUsage()
+      if (claudeData) {
+        claudeUsageLines.push(...formatClaudeUsage(claudeData))
+      }
+    } catch {}
+
     const lines = [
       t('cmd.usage.title'),
       '',
@@ -1361,6 +1371,7 @@ export function createBot(): Bot {
       `  in: ${k(week.inputTokens)} | out: ${k(week.outputTokens)}`,
       `  cache read: ${k(week.cacheReadTokens)} | cache new: ${k(week.cacheCreationTokens)}`,
       ...(authLines.length ? ['', ...authLines] : []),
+      ...(claudeUsageLines.length ? ['', ...claudeUsageLines] : []),
     ]
     await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
   })
