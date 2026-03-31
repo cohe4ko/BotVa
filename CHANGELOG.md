@@ -5,6 +5,22 @@
 Формат базується на [Keep a Changelog](https://keepachangelog.com/uk/1.1.0/),
 проєкт дотримується [Semantic Versioning](https://semver.org/lang/uk/).
 
+## [1.0.2] — 2026-03-31
+
+### Додано
+- Content hash дедуплікація фактів з автоматичним backfill існуючих записів
+- Двохрівнева progressive disclosure для memory context (high/low confidence tiers)
+- Auto-usefulness tracking: факти які реально використовуються отримують більшу вагу
+- Agent catalog: завантаження спеціалістів з `~/.claude/agents/` з keyword matcher для делегування
+- Інструкції для бота щодо Agent Specialists у `_tools.md`
+- `/usage` показує ліміти Claude акаунту (5h/7d usage)
+- CreateReminder підтримує `runAgent` та `schedule` (cron) для повторюваних нагадувань
+- Автономна роль бота (`autonomous.md`, `_soul_autonomous.md`)
+
+### Змінено
+- Консолідація: DRY правила збереження фактів з GOOD/BAD прикладами (єдина `buildConsolidationRules()`)
+- SaveFact gracefully пропускає дублікати (повертає -1) замість помилки
+
 ## [1.0.1] — 2026-03-26
 
 ### Додано
