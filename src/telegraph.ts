@@ -127,7 +127,7 @@ function parseInline(text: string): TelegraphNode[] {
   return nodes
 }
 
-function markdownToNodes(markdown: string): TelegraphNode[] {
+export function markdownToNodes(markdown: string): TelegraphNode[] {
   const nodes: TelegraphNode[] = []
   const lines = markdown.split('\n')
   let inCodeBlock = false
@@ -135,7 +135,6 @@ function markdownToNodes(markdown: string): TelegraphNode[] {
   let inList: 'ul' | 'ol' | null = null
   let listItems: TelegraphNode[] = []
   let pendingParagraphLines: string[] = []
-  let tableHeaders: string[] = []
 
   const flushParagraph = () => {
     if (pendingParagraphLines.length === 0) return
@@ -201,32 +200,60 @@ function markdownToNodes(markdown: string): TelegraphNode[] {
 
     if (line.startsWith('> ')) { flushAll(); nodes.push({ tag: 'blockquote', children: parseInline(line.slice(2)) }); continue }
 
-    // Table handling
+    // Table handling — render as bold header + key-value data rows
     if (line.includes('|') && line.trim().startsWith('|')) {
       flushAll()
-      const cells = line.split('|').filter(c => c.trim()).map(c => c.trim())
-      if (cells.length > 0 && cells.every(c => /^[-:]+$/.test(c))) continue
-
-      const nextLine = i + 1 < lines.length ? lines[i + 1] : ''
-      const nextCells = nextLine.split('|').filter(c => c.trim()).map(c => c.trim())
-      const isHeader = nextCells.length > 0 && nextCells.every(c => /^[-:]+$/.test(c))
-
-      if (isHeader && cells.length > 0) {
-        tableHeaders = cells
-        nodes.push({ tag: 'p', children: [{ tag: 'b', children: [cells.join('  ·  ')] }] })
-        continue
+      // Collect all consecutive table lines
+      const tableLines: string[] = [line]
+      while (i + 1 < lines.length) {
+        const next = lines[i + 1]
+        if (next.includes('|') && next.trim().startsWith('|')) {
+          tableLines.push(next)
+          i++
+        } else {
+          break
+        }
       }
 
-      if (tableHeaders.length > 0 && cells.length > 0) {
-        const parts: TelegraphNode[] = []
-        cells.forEach((cell, idx) => {
-          if (idx > 0) parts.push('  |  ')
-          if (tableHeaders[idx]) parts.push({ tag: 'b', children: [tableHeaders[idx] + ': '] })
-          parts.push(cell)
-        })
-        nodes.push({ tag: 'p', children: parts })
-      } else if (cells.length > 0) {
-        nodes.push({ tag: 'p', children: [cells.join('  |  ')] })
+      // Parse cells preserving empty cells for correct column alignment
+      const parseCells = (l: string): string[] => {
+        const trimmed = l.trim()
+        const inner = trimmed.replace(/^\|/, '').replace(/\|$/, '')
+        return inner.split('|').map(c => c.trim())
+      }
+      const isSeparator = (cells: string[]) =>
+        cells.length > 0 && cells.every(c => /^[-:]+$/.test(c))
+
+      const parsed = tableLines.map(parseCells)
+
+      // Detect header: if second row is a separator, first row is the header
+      let headers: string[] = []
+      let dataStart = 0
+      if (parsed.length >= 2 && isSeparator(parsed[1])) {
+        headers = parsed[0]
+        dataStart = 2
+      }
+
+      // Render header as bold
+      if (headers.length > 0) {
+        nodes.push({ tag: 'p', children: [{ tag: 'b', children: [headers.join('  ·  ')] }] })
+      }
+
+      // Render data rows
+      for (let r = dataStart; r < parsed.length; r++) {
+        const row = parsed[r]
+        if (isSeparator(row)) continue
+        if (headers.length > 0) {
+          const parts: TelegraphNode[] = []
+          row.forEach((cell, idx) => {
+            if (idx > 0) parts.push('  |  ')
+            if (headers[idx]) parts.push({ tag: 'b', children: [headers[idx] + ': '] })
+            parts.push(cell || '—')
+          })
+          nodes.push({ tag: 'p', children: parts })
+        } else {
+          nodes.push({ tag: 'p', children: [row.join('  |  ')] })
+        }
       }
       continue
     }
