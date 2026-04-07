@@ -992,13 +992,24 @@ export function createBot(): Bot {
       } catch {}
       return
     }
-    // Stop button callback
+    // Stop button callback (soft — asks agent to wrap up, keeps partial)
     if (ctx.callbackQuery?.data?.startsWith('stop:')) {
       const targetChatId = ctx.callbackQuery.data.split(':')[1]
       if (String(ctx.chat?.id) === targetChatId) {
         const interrupted = await interruptRequest(targetChatId)
         const _t = chatT(targetChatId)
         await ctx.answerCallbackQuery({ text: interrupted ? _t('cb.stopping') : _t('cb.nothingToStop') })
+      }
+      return // don't pass to next middleware
+    }
+    // Interrupt button callback (hard — aborts the agent process immediately)
+    if (ctx.callbackQuery?.data?.startsWith('intr:')) {
+      const targetChatId = ctx.callbackQuery.data.split(':')[1]
+      if (String(ctx.chat?.id) === targetChatId) {
+        const cancelled = await cancelRequest(targetChatId)
+        clearQueue(targetChatId)
+        const _t = chatT(targetChatId)
+        await ctx.answerCallbackQuery({ text: cancelled ? _t('cb.interrupting') : _t('cb.nothingToStop') })
       }
       return // don't pass to next middleware
     }

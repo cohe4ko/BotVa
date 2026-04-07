@@ -727,7 +727,11 @@ export class ProgressReporter {
 
     const text = this.buildDisplayText()
     const stopLabel = this.cuteMode ? this.t('progress.cute.stop') : this.t('progress.stop')
-    const keyboard = new InlineKeyboard().text(stopLabel, `stop:${this.chatId}`)
+    const interruptLabel = this.cuteMode ? this.t('progress.cute.interrupt') : this.t('progress.interrupt')
+    // Two buttons side-by-side: soft Stop (ESC — keeps partial) + hard Interrupt (kills process)
+    const keyboard = new InlineKeyboard()
+      .text(stopLabel, `stop:${this.chatId}`)
+      .text(interruptLabel, `intr:${this.chatId}`)
 
     try {
       if (this.stopped) return

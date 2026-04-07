@@ -109,6 +109,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Callbacks
     'cb.questionExpired': 'Question no longer relevant',
     'cb.stopping': 'Stopping...',
+    'cb.interrupting': 'Force-stopping...',
     'cb.nothingToStop': 'Nothing to stop',
     'cb.unknownModel': 'Unknown model',
     'cb.askSkip': '✏️ Other (skip)',
@@ -125,6 +126,8 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Progress reporter
     'progress.stop': '⏹ Stop',
     'progress.stopCute': '🛑 Stop!',
+    'progress.interrupt': '⛔ Interrupt',
+    'progress.interruptCute': '💥 Kill it!',
     'progress.rateLimit': '⏳ Rate limit, waiting...',
     'progress.billing': '💳 Billing error',
     'progress.authError': '🔑 Auth error',
@@ -185,6 +188,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'progress.cute.working': '⏳ working',
     'progress.cute.done': '✅ done!',
     'progress.cute.stop': '🛑 Stop!',
+    'progress.cute.interrupt': '💥 Kill it!',
     'progress.cute.bitrix24': '📋 checking CRM',
     'progress.cute.homeassistant': '🏠 controlling home',
     'progress.cute.stagehand': '🎭 controlling browser',
@@ -435,6 +439,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Callbacks
     'cb.questionExpired': 'Питання вже не актуальне',
     'cb.stopping': 'Зупиняю...',
+    'cb.interrupting': 'Вбиваю процес...',
     'cb.nothingToStop': 'Нічого зупиняти',
     'cb.unknownModel': 'Невідома модель',
     'cb.askSkip': '✏️ Інше (пропустити)',
@@ -451,6 +456,8 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Progress reporter
     'progress.stop': '⏹ Стоп',
     'progress.stopCute': '🛑 Стапе!',
+    'progress.interrupt': '⛔ Перервати',
+    'progress.interruptCute': '💥 Ну стапе!',
     'progress.rateLimit': '⏳ Rate limit, чекаю...',
     'progress.billing': '💳 Billing помилка',
     'progress.authError': '🔑 Auth помилка',
@@ -511,6 +518,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'progress.cute.working': '⏳ працюємо',
     'progress.cute.done': '✅ зробили!',
     'progress.cute.stop': '🛑 Стапе!',
+    'progress.cute.interrupt': '💥 Ну стапе!',
     'progress.cute.bitrix24': '📋 дивимось CRM',
     'progress.cute.homeassistant': '🏠 керуємо будинком',
     'progress.cute.stagehand': '🎭 керуємо браузером',
