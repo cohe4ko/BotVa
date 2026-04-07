@@ -1008,12 +1008,12 @@ Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 �
   if (isOn('CreateReminder')) tools.push(
     tool(
       'CreateReminder',
-      'Set a reminder or scheduled task. By default sends text at specified time. Use runAgent=true to execute as agent prompt. Use schedule with cron for recurring.',
+      'Schedule a reminder or recurring task. Two modes: (1) MEMO — default, just sends "🔔 {text}" to the chat when fired (use for notes like "call mom at 6pm"); (2) AGENT — set runAgent=true, the bot runs the text as its own prompt and executes tools when fired (use for instructions to the bot like "check weather at 8am", "send news digest every morning"). If the text is an INSTRUCTION TO THE BOT ("check X", "send Y", "generate Z", "run X"), ALWAYS set runAgent=true — otherwise the bot will just echo the instruction back as plain text and do nothing. Add schedule (cron) for recurring; remindAt is still required as the first run time.',
       {
-        text: z.string().describe('Reminder text (what to remind about) or agent prompt if runAgent=true'),
-        remindAt: z.string().describe('When to remind, ISO 8601 datetime (e.g. "2025-03-15T15:00:00"). For recurring, this is the first run time.'),
-        runAgent: z.boolean().optional().default(false).describe('If true, runs AI agent with text as prompt'),
-        schedule: z.string().optional().describe('Cron expression for recurring (e.g. "0 9 * * *")'),
+        text: z.string().describe('MEMO mode: reminder text shown to user. AGENT mode: the prompt the bot will execute as if the user sent it.'),
+        remindAt: z.string().describe('First run time, ISO 8601 datetime (e.g. "2026-03-15T15:00:00"). Required even for recurring (schedule).'),
+        runAgent: z.boolean().optional().default(false).describe('true = run agent with text as prompt (for action instructions). false = send text as plain chat message (for memo notes).'),
+        schedule: z.string().optional().describe('Cron expression for recurring (5 fields: "min hour day month dow"). Examples: "0 9 * * *" (9am daily), "*/15 * * * *" (every 15min), "0 10 * * 1" (Mondays 10am).'),
       },
       async (args) => {
         usedTools.add('CreateReminder')
