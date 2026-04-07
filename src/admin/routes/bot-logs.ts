@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
 import { formatTs, pagination } from '../views/components.js'
-import { getAuditLogs, countAuditLogs, getAuditEventTypes, getBotDir } from '../db-multi.js'
+import { getAuditLogs, countAuditLogs, getAuditEventTypes, getBotDir, getProjectRoot } from '../db-multi.js'
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { validateBot, botName } from '../bot-middleware.js'
@@ -35,8 +35,15 @@ function tailFile(path: string, lines = 100): string {
 
 function findLogFile(botDir: string, botNameStr?: string): string | null {
   if (botNameStr) {
-    const tmpLog = `/tmp/botva-${botNameStr}.log`
-    if (existsSync(tmpLog)) return tmpLog
+    const candidates = [
+      join(getProjectRoot(), 'workspace', 'logs', `botva-${botNameStr}.log`),
+      `/tmp/botva-${botNameStr}.log`,
+    ]
+    const existing = candidates
+      .filter(p => existsSync(p))
+      .map(p => ({ p, m: statSync(p).mtimeMs }))
+      .sort((a, b) => b.m - a.m)
+    if (existing.length > 0) return existing[0].p
   }
   for (const c of [join(botDir, 'store', 'bot.log'), join(botDir, 'bot.log'), join(botDir, 'store', 'botva.log')]) {
     if (existsSync(c)) return c

@@ -30,6 +30,7 @@ function getDiskUsage(dir: string): string {
 
 function tailErrors(botName: string, lines = 50): string {
   const paths = [
+    join(getProjectRoot(), 'workspace', 'logs', `botva-${botName}.log`),
     `/tmp/botva-${botName}.log`,
     join(getBotDir(botName), 'store', 'bot.log'),
     join(getBotDir(botName), 'bot.log'),
@@ -610,7 +611,7 @@ TUNING:
 
 ## Bot Lifecycle
 - Started via \`scripts/deploy.sh start <bot>\` or admin panel
-- Logs to /tmp/botva-<bot>.log
+- Logs to workspace/logs/botva-<bot>.log (deploy.sh) or /tmp/botva-<bot>.log (admin panel start)
 - PID stored in bots/<bot>/store/botva.pid
 - On start: acquires lock, inits DB, creates Telegram bot, starts scheduler, opens colleague socket
 - Healthy bot: running, has recent activity (<1h), low error count, reasonable response times (<30s avg)
