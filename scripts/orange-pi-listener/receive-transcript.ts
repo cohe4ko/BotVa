@@ -60,7 +60,43 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const STT_PROVIDER = process.env.STT_PROVIDER || "groq";
 
 // Runtime-configurable STT language (empty = auto-detect)
-let sttLanguage = process.env.STT_LANGUAGE || "";
+// Persisted to DATA_DIR/settings.json so a listener restart (launchctl reload,
+// reboot, crash) does not drop the language the user picked in /system.
+const SETTINGS_FILE = join(DATA_DIR, "settings.json");
+
+function loadPersistedSettings(): { stt_language?: string } {
+  try {
+    if (existsSync(SETTINGS_FILE)) {
+      const raw = readFileSync(SETTINGS_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed;
+    }
+  } catch (err) {
+    console.error(
+      `[${timestamp()}] Failed to load settings.json:`,
+      (err as Error).message,
+    );
+  }
+  return {};
+}
+
+function savePersistedSettings(patch: { stt_language?: string }): void {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    const current = loadPersistedSettings();
+    const next = { ...current, ...patch };
+    writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), "utf-8");
+  } catch (err) {
+    console.error(
+      `[${timestamp()}] Failed to save settings.json:`,
+      (err as Error).message,
+    );
+  }
+}
+
+// Resolve initial language: persisted > env > auto-detect
+let sttLanguage =
+  loadPersistedSettings().stt_language ?? process.env.STT_LANGUAGE ?? "";
 
 // ── Device Status ───────────────────────────────────────────────────
 
@@ -630,6 +666,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       const body = await readJsonBody(req);
       if (body.stt_language !== undefined) {
         sttLanguage = body.stt_language === "auto" ? "" : String(body.stt_language);
+        savePersistedSettings({ stt_language: sttLanguage });
         console.log(`[${timestamp()}] STT language changed to: ${sttLanguage || "auto-detect"}`);
       }
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -917,6 +954,7 @@ server.listen(PORT, () => {
   console.log(`Port: ${PORT}`);
   console.log(`Data: ${DATA_DIR}`);
   console.log(`STT: ${STT_PROVIDER}`);
+  console.log(`STT language: ${sttLanguage || "auto-detect"}`);
   console.log(`Groq keys: ${GROQ_API_KEYS.length}`);
   console.log(`Auth: ${AUTH_TOKEN ? "enabled" : "disabled"}`);
   console.log(`LLM: ${ANTHROPIC_API_KEY ? "enabled" : "disabled"}`);
