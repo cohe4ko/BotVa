@@ -356,6 +356,13 @@ export function clearSession(chatId: string): void {
   getDb().prepare('DELETE FROM sessions WHERE chat_id = ?').run(chatId)
 }
 
+export function listAllSessions(): Array<{ chatId: string; sessionId: string }> {
+  const rows = getDb()
+    .prepare('SELECT chat_id, session_id FROM sessions')
+    .all() as Array<{ chat_id: string; session_id: string }>
+  return rows.map((r) => ({ chatId: r.chat_id, sessionId: r.session_id }))
+}
+
 // --- Session Consolidation Tracking ---
 
 export function isSessionConsolidated(sessionId: string, currentSize: number): boolean {

@@ -6,6 +6,7 @@ import { createConsolidationMcpServer } from './builtin-tools.js'
 import { logger } from './logger.js'
 import { memoryDate } from './memory.js'
 import { enqueue, dequeueAll, markDone, markFailed } from './consolidation-queue.js'
+import { compactSessionJsonl, compactJsonlContent } from './session-compactor.js'
 
 const KNOWLEDGE_DIR = 'knowledge'
 const MEMORIES_DIR = join(BOT_DIR, KNOWLEDGE_DIR, 'memories')
@@ -117,7 +118,66 @@ export async function runDailyConsolidation(
   // Process queue
   await processQueue(sendMessage)
 
+  // Sweep all known active sessions — guarantees that every session gets
+  // consolidated at least once a day even if it never rotates (no /new,
+  // no context overflow). Idempotent via `consolidated_sessions.file_size`.
+  try {
+    await runActiveSessionSweep()
+  } catch (err) {
+    logger.error({ err }, 'Active session sweep failed')
+  }
+
   logger.info('Daily consolidation cycle complete')
+}
+
+/**
+ * Daily sweep: call consolidateSession on every active chat session.
+ *
+ * Relies on existing idempotency: `isSessionConsolidated(sessionId, fileSize)`
+ * skips sessions whose file size hasn't changed by ≥200 bytes since last run.
+ * A still-growing session will be re-consolidated each day on the grown file.
+ */
+export interface ActiveSessionSweepStats {
+  total: number
+  processed: number
+  skipped: number
+  failed: number
+}
+
+export async function runActiveSessionSweep(): Promise<ActiveSessionSweepStats> {
+  const { listAllSessions } = await import('./db.js')
+  const sessions = listAllSessions()
+  const stats: ActiveSessionSweepStats = {
+    total: sessions.length,
+    processed: 0,
+    skipped: 0,
+    failed: 0,
+  }
+  if (sessions.length === 0) {
+    logger.info('Active session sweep: no sessions to process')
+    return stats
+  }
+
+  logger.info({ count: sessions.length }, 'Starting active session sweep')
+
+  for (const { chatId, sessionId } of sessions) {
+    try {
+      const before = Date.now()
+      await consolidateSession(sessionId, chatId, BOT_DIR)
+      if (Date.now() - before < 50) {
+        // Fast-path return (skipped by MIN_SIZE / idempotency / trivial)
+        stats.skipped++
+      } else {
+        stats.processed++
+      }
+    } catch (err) {
+      stats.failed++
+      logger.warn({ err, sessionId, chatId }, 'Session sweep item failed')
+    }
+  }
+
+  logger.info(stats, 'Active session sweep done')
+  return stats
 }
 
 async function processQueue(
@@ -321,58 +381,69 @@ export async function consolidateSession(
 
   logger.info({ oldSessionId, fileSize }, 'Starting session consolidation')
 
-  // Read and extract conversation
-  const content = readFileSync(jsonlPath, 'utf-8')
-  const lines = content.split('\n')
-  const turns: string[] = []
-
-  for (const line of lines) {
-    if (!line.trim()) continue
-    try {
-      const entry = JSON.parse(line)
-      if (entry.type === 'user' && entry.message?.content) {
-        let text = extractMessageText(entry.message.content)
-        // Strip injected memory context
-        text = text.replace(/^\[.*?context.*?\][\s\S]*?\n\n/im, '').trim()
-        if (text) turns.push(`**User:** ${text.slice(0, 500)}`)
-      }
-      if (entry.type === 'assistant' && entry.message?.content) {
-        const text = extractMessageText(entry.message.content)
-        if (text) turns.push(`**Assistant:** ${text.slice(0, 500)}`)
-      }
-    } catch { /* skip malformed lines */ }
-  }
-
-  if (turns.length < 4) { // at least 2 full turns
+  // Deterministic compaction: strip meta overhead, summarize tool_use/tool_result,
+  // keep thinking (truncated), and detect trivial sessions. Typical ratio 7–10×.
+  const compacted = compactSessionJsonl(jsonlPath)
+  if (!compacted || compacted.stats.totalTurns < 2) {
     markSessionConsolidated(oldSessionId, fileSize)
     return
   }
 
-  // Take last ~4000 chars of conversation
-  let transcript = turns.join('\n\n')
-  if (transcript.length > 4000) {
-    transcript = '...\n\n' + transcript.slice(-4000)
+  // Skip trivial sessions (no mutating tools, no substantial user input) —
+  // nothing decision-worthy to extract, don't burn tokens.
+  if (compacted.stats.trivial) {
+    logger.info(
+      { oldSessionId, totalTurns: compacted.stats.totalTurns, toolCalls: compacted.stats.toolCalls },
+      'Session consolidation skipped (trivial)'
+    )
+    markSessionConsolidated(oldSessionId, fileSize)
+    return
   }
+
+  const sessionJson = JSON.stringify(compacted.turns, null, 2)
+  logger.info(
+    {
+      oldSessionId,
+      rawBytes: compacted.stats.rawBytes,
+      compactedBytes: compacted.stats.compactedBytes,
+      ratio: compacted.stats.rawBytes && compacted.stats.compactedBytes
+        ? +(compacted.stats.rawBytes / compacted.stats.compactedBytes).toFixed(2)
+        : null,
+      toolCalls: compacted.stats.toolCalls,
+    },
+    'Session compacted'
+  )
 
   const today = memoryDate()
   const prompt = `Ти — система консолідації пам'яті ${BOT_NAME}.
 
 ## Завдання: обробка завершеної сесії
 
-### Розмова:
-${transcript}
+Нижче — структурована сесія у JSON. Кожен turn має role, text, thinking (внутрішнє міркування, якщо є) і tools (виклики інструментів з input/result). Твоя задача — витягнути РІШЕННЯ і важливі факти, аналізуючи САМЕ tool calls і їхні результати, а не лише текст.
 
-### 1. Запиши підсумок сесії в щоденник
+### Сесія (JSON):
+\`\`\`json
+${sessionJson}
+\`\`\`
+
+### 1. Витягни рішення і важливі факти (головна задача)
+
+Проаналізуй tools у кожному turn. Рішення видно саме там: які файли редагувались (Write/Edit/WriteWorkspaceFile), які нагадування створювались (CreateReminder), які зовнішні дії виконувались (SendEmail, GenerateImage, git commit у Bash).
+
+**ВАЖЛИВО:** Якщо бачиш у сесії виклики **SaveFact/DeleteFact/BoostFact** — це **вже збережені** рішення (бот їх зафіксував по ходу розмови). НЕ дублюй їх і не перезаписуй. Вони показані тобі щоб ти знав що вже у памʼяті. Твоя задача — додати ТІЛЬКИ те, що ще не збережено: наслідки інших tool calls (редагування файлів, надсилання, створення таймерів тощо).
+
+Для кожного нового рішення виклич **SaveFact** у форматі: суть рішення + чому + який результат/які файли торкнулись. Не зберігай тривіальних навігаційних дій (Read, Grep, SearchMemory, WebSearch без подальшої дії).
+
+${buildConsolidationRules()}
+
+### 2. Запиши короткий підсумок сесії в щоденник
+
 Додай (append) у файл ${KNOWLEDGE_DIR}/memories/${today}.md:
 
 ## Сесія [час]
 **Запит:** Що користувач хотів (1 речення)
-**Зроблено:** Що зроблено/змінено (1-3 пункти)
-**Відкрите:** Що залишилось (якщо є)
-
-### 2. Збережи важливі факти (якщо є нові)
-
-${buildConsolidationRules()}`
+**Зроблено:** Що зроблено/змінено (1-3 пункти, з конкретними файлами/діями)
+**Відкрите:** Що залишилось (якщо є)`
 
   const { server } = createConsolidationMcpServer(Number(chatId))
   const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
@@ -410,46 +481,41 @@ export async function extractFactsMidSession(
 
   logger.info({ sessionId, fileSize, lastOffset }, 'Starting mid-session fact extraction')
 
-  // Read full file but extract turns only from new content
+  // Read full file, compact only the NEW slice (since last offset).
+  // Byte-slicing a JSONL may cut the first line mid-way — compactor skips
+  // malformed JSON, so this is safe.
   const content = readFileSync(jsonlPath, 'utf-8')
   const newContent = lastOffset > 0 ? content.slice(lastOffset) : content
-  const lines = newContent.split('\n')
-  const turns: string[] = []
+  const compacted = compactJsonlContent(newContent, fileSize - lastOffset)
 
-  for (const line of lines) {
-    if (!line.trim()) continue
-    try {
-      const entry = JSON.parse(line)
-      if (entry.type === 'user' && entry.message?.content) {
-        let text = extractMessageText(entry.message.content)
-        text = text.replace(/^\[.*?context.*?\][\s\S]*?\n\n/im, '').trim()
-        if (text) turns.push(`**User:** ${text.slice(0, 500)}`)
-      }
-      if (entry.type === 'assistant' && entry.message?.content) {
-        const text = extractMessageText(entry.message.content)
-        if (text) turns.push(`**Assistant:** ${text.slice(0, 500)}`)
-      }
-    } catch { /* skip malformed lines */ }
-  }
-
-  if (turns.length < 4) {
+  if (compacted.stats.totalTurns < 2) {
     setMidSessionOffset(sessionId, fileSize)
     return
   }
 
-  let transcript = turns.join('\n\n')
-  if (transcript.length > 4000) {
-    transcript = '...\n\n' + transcript.slice(-4000)
+  if (compacted.stats.trivial) {
+    logger.info(
+      { sessionId, totalTurns: compacted.stats.totalTurns },
+      'Mid-session extraction skipped (trivial delta)'
+    )
+    setMidSessionOffset(sessionId, fileSize)
+    return
   }
+
+  const deltaJson = JSON.stringify(compacted.turns, null, 2)
 
   const prompt = `Ти — система консолідації пам'яті ${BOT_NAME}.
 
 ## Завдання: витягни факти з АКТИВНОЇ сесії (контекст заповнюється)
 
-Нижче — нещодавня частина розмови. Збережи ТІЛЬКИ важливі факти, які можуть бути втрачені при стисненні контексту.
+Нижче — НОВА частина сесії (з моменту минулої екстракції) у структурованому JSON. Кожен turn має text, thinking і tools (виклики інструментів з input/result). Твоя задача — знайти РІШЕННЯ і факти, які варто зберегти **до того** як контекст буде стиснутий. Аналізуй саме tool calls (Write/Edit/CreateReminder/SendEmail/Bash) — там живуть рішення.
 
-### Розмова:
-${transcript}
+**ВАЖЛИВО:** Виклики **SaveFact/DeleteFact/BoostFact** у tools — це **вже збережені** факти (бот зафіксував їх по ходу). Не дублюй і не перезаписуй. Додавай лише те, чого ще нема у памʼяті.
+
+### Нові turns (JSON):
+\`\`\`json
+${deltaJson}
+\`\`\`
 
 ${buildConsolidationRules()}`
 
