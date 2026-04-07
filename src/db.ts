@@ -241,16 +241,29 @@ export function initDatabase(): void {
     )
   `)
 
-  // FTS insert trigger works fine; delete/update triggers crash in Node.js SQLite
-  // so we handle FTS sync manually in deleteFact/updateFact functions
+  // FTS sync: insert via trigger, delete/update handled manually in deleteFact/updateFact
+  // (explicit control lets us log errors; delete/update triggers used to crash on the
+  // wrong "external content" syntax, which is why manual sync was introduced)
   d.exec(`
     CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
       INSERT INTO facts_fts(rowid, content, tags) VALUES (new.id, new.content, new.tags);
     END
   `)
-  // Remove broken triggers if they exist from previous versions
+  // Remove buggy triggers from older versions (they used external-content DELETE syntax)
   d.exec('DROP TRIGGER IF EXISTS facts_ad')
   d.exec('DROP TRIGGER IF EXISTS facts_au')
+
+  // Migration v1: repair FTS index after fts-sync bug (pre-2026-04-07)
+  //   Before the fix, deleteFact always threw "SQL logic error" (wrong syntax for a
+  //   regular FTS5 table) and fell back to a no-op rebuild, leaving orphan rows.
+  //   updateFact silently swallowed the same error, so new content was never indexed.
+  //   Rebuild the index once from the facts table to guarantee consistency.
+  const uv = d.prepare('PRAGMA user_version').get() as { user_version: number }
+  if (uv.user_version < 1) {
+    d.exec('DELETE FROM facts_fts')
+    d.exec('INSERT INTO facts_fts(rowid, content, tags) SELECT id, content, tags FROM facts')
+    d.exec('PRAGMA user_version = 1')
+  }
 
   // Reminders (one-shot notifications)
   d.exec(`
@@ -483,12 +496,9 @@ export function insertFactsBatch(chatId: string, facts: FactInput[], source = 'c
 export function updateFact(id: number, chatId: string, content: string): boolean {
   const d = getDb()
   const now = Math.floor(Date.now() / 1000)
-  // Manual FTS sync (no update trigger in Node.js SQLite)
+  // Manual FTS sync: drop old row so the reindex below can insert fresh content
   try {
-    const old = d.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string } | undefined
-    if (old) {
-      d.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, old.content, old.tags)
-    }
+    d.prepare('DELETE FROM facts_fts WHERE rowid = ?').run(id)
   } catch { /* FTS may be out of sync */ }
   // Recompute content_hash for deduplication
   const existing = d.prepare('SELECT topic, sector FROM facts WHERE id = ?').get(id) as { topic: string; sector: string } | undefined
@@ -507,19 +517,11 @@ export function updateFact(id: number, chatId: string, content: string): boolean
 
 export function deleteFact(id: number, chatId: string): boolean {
   const d = getDb()
-  // FTS delete must be done manually (Node.js SQLite doesn't support FTS5 delete triggers)
+  // Manual FTS sync: plain DELETE works because facts_fts is a regular FTS5 table
   try {
-    const row = d.prepare('SELECT content, tags FROM facts WHERE id = ?').get(id) as { content: string; tags: string } | undefined
-    if (row) {
-      d.prepare("INSERT INTO facts_fts(facts_fts, rowid, content, tags) VALUES('delete', ?, ?, ?)").run(id, row.content, row.tags)
-    }
+    d.prepare('DELETE FROM facts_fts WHERE rowid = ?').run(id)
   } catch (err) {
-    logger.error({ err, factId: id }, 'FTS delete failed, attempting rebuild')
-    try {
-      d.prepare("INSERT INTO facts_fts(facts_fts) VALUES('rebuild')").run()
-    } catch (rebuildErr) {
-      logger.error({ err: rebuildErr, factId: id }, 'CRITICAL: FTS rebuild also failed')
-    }
+    logger.error({ err, factId: id }, 'FTS delete failed')
   }
   const result = d.prepare("DELETE FROM facts WHERE id = ? AND chat_id IN (?, 'admin')").run(id, chatId)
   return (result as unknown as { changes: number }).changes > 0

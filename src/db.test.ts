@@ -30,6 +30,7 @@ import {
   computeFactHash,
   searchFacts,
   deleteFact,
+  updateFact,
   getChatSetting,
   setChatSetting,
   deleteChatSetting,
@@ -39,6 +40,8 @@ import {
   bumpFactUsefulness,
   getDb,
 } from './db.js'
+
+import { logger } from './logger.js'
 
 const CHAT = 'test-chat-1'
 
@@ -85,6 +88,61 @@ describe('facts CRUD', () => {
 
   it('deleteFact returns false for non-existent', () => {
     expect(deleteFact(999999, CHAT)).toBe(false)
+  })
+
+  // Regression: before 2026-04-07 deleteFact used the external-content
+  // FTS5 delete syntax, which throws "SQL logic error" on a regular FTS5
+  // table. The operation logged an error and left an orphan FTS row that
+  // accumulated over time. Ensures the proper DELETE is now used.
+  it('deleteFact does not log FTS errors and cleans up FTS row', () => {
+    const errorSpy = vi.mocked(logger.error)
+    errorSpy.mockClear()
+    const id = insertFact(CHAT, 'orphan check text', 'regression', 'semantic')
+    // Row present in FTS before delete
+    const beforeRows = getDb()
+      .prepare('SELECT rowid FROM facts_fts WHERE rowid = ?')
+      .all(id) as unknown as { rowid: number }[]
+    expect(beforeRows.length).toBe(1)
+    expect(deleteFact(id, CHAT)).toBe(true)
+    // No orphan row in facts_fts after delete
+    const afterRows = getDb()
+      .prepare('SELECT rowid FROM facts_fts WHERE rowid = ?')
+      .all(id) as unknown as { rowid: number }[]
+    expect(afterRows.length).toBe(0)
+    // No error logged
+    const ftsErrors = errorSpy.mock.calls.filter(
+      (call) =>
+        typeof call[1] === 'string' && call[1].toLowerCase().includes('fts')
+    )
+    expect(ftsErrors).toEqual([])
+  })
+
+  // Regression: updateFact used to silently fail FTS sync, leaving the
+  // stale content searchable and the new content invisible to searchFacts.
+  it('updateFact reindexes FTS so new content is searchable', () => {
+    const id = insertFact(CHAT, 'original banana content', 'fruit', 'semantic')
+    // Old content is searchable
+    expect(searchFacts(CHAT, 'banana').some(f => f.id === id)).toBe(true)
+
+    expect(updateFact(id, CHAT, 'updated mango content')).toBe(true)
+
+    // Old term is no longer searchable
+    expect(searchFacts(CHAT, 'banana').some(f => f.id === id)).toBe(false)
+    // New term IS searchable
+    expect(searchFacts(CHAT, 'mango').some(f => f.id === id)).toBe(true)
+  })
+
+  // Sanity: searchFacts must not return orphaned rows even if the FTS
+  // is momentarily out of sync. The INNER JOIN in searchFacts already
+  // guards against this — this test locks that invariant in.
+  it('searchFacts ignores orphan FTS rows', () => {
+    const id = insertFact(CHAT, 'orphan phantom term', 'test', 'episodic')
+    // Delete only from facts, simulate stale FTS
+    getDb().prepare('DELETE FROM facts WHERE id = ?').run(id)
+    const results = searchFacts(CHAT, 'phantom')
+    expect(results.find(f => f.id === id)).toBeUndefined()
+    // Cleanup orphan for other tests
+    try { getDb().prepare('DELETE FROM facts_fts WHERE rowid = ?').run(id) } catch { /* ok */ }
   })
 })
 
