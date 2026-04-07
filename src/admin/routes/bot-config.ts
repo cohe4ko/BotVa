@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, botNav, icon } from '../views/layout.js'
 import { alert } from '../views/components.js'
-import { readEnvRaw, writeEnvRaw, readClaudeMd, writeClaudeMd, readRoleMd, writeRoleMd, readEnv } from '../env-parser.js'
+import { readEnvRaw, writeEnvRaw, writeRoleMd, readEnv } from '../env-parser.js'
 import { getBotStatus, stopBot } from '../bot-control.js'
 import { validateBot, botName } from '../bot-middleware.js'
 import { getSettings, upsertSetting, getBotDir, getProjectRoot } from '../db-multi.js'
@@ -11,8 +11,48 @@ import { execSync } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
-import { deleteBot, removeFromTeamJson, getAvailableRoles, buildClaudeMd, buildRoleMd, assembleClaudeMd } from '../../bot-manager.js'
-import { hasWorkspaceFiles, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, isWritableFile, buildWorkspaceFilesFromRole, splitRoleIntoWorkspaceFiles, createWorkspaceFiles, type WorkspaceFileName } from '../../workspace-files.js'
+import { deleteBot, removeFromTeamJson, getAvailableRoles, buildRoleMd } from '../../bot-manager.js'
+import { hasWorkspaceFiles, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, isWritableFile, isGlobalFile, buildWorkspaceFilesFromRole, splitRoleIntoWorkspaceFiles, createWorkspaceFiles, assembleFromWorkspaceFiles, refreshClaudeMd, type WorkspaceFileName } from '../../workspace-files.js'
+
+import { countTokens as anthropicCountTokens } from '@anthropic-ai/tokenizer'
+
+/**
+ * Count tokens using Anthropic's tokenizer. Uses Claude 2 BPE — Claude 3+/4+
+ * tokenizer is slightly different but close enough for UI previews (±5-8%).
+ * For exact counts on modern Claude, use API messages.countTokens.
+ */
+function estimateTokens(s: string): number {
+  if (!s) return 0
+  try {
+    return anthropicCountTokens(s)
+  } catch {
+    // Fallback heuristic if tokenizer fails: UA+markdown ~1.8 chars/token
+    return Math.round(s.length / 1.8)
+  }
+}
+
+/**
+ * Compute Jaccard similarity (0..1) between two strings using line-based 4-grams.
+ * Used to detect when a per-bot overlay file is mostly a copy of its global.
+ */
+function overlapRatio(a: string, b: string): number {
+  if (!a || !b) return 0
+  const grams = (s: string): Set<string> => {
+    const lines = s.split('\n').map(l => l.trim()).filter(Boolean)
+    const out = new Set<string>()
+    for (let i = 0; i + 3 < lines.length; i++) {
+      out.add(lines.slice(i, i + 4).join('\n'))
+    }
+    return out
+  }
+  const A = grams(a)
+  const B = grams(b)
+  if (A.size === 0 || B.size === 0) return 0
+  let intersect = 0
+  for (const g of A) if (B.has(g)) intersect++
+  const union = A.size + B.size - intersect
+  return union === 0 ? 0 : intersect / union
+}
 import { getRolesDir } from '../../bot-manager.js'
 
 function getModelLabels(t: TFunc) {
@@ -49,8 +89,6 @@ app.get('/bot/:name/config', validateBot, (c) => {
   const lang: Lang = c.get('lang')
   const name = botName(c)
   const envContent = readEnvRaw(name)
-  const roleMd = readRoleMd(name)
-  const claudeContent = roleMd ?? readClaudeMd(name)
   const status = getBotStatus(name)
   const MODELS = getModelLabels(t)
 
@@ -120,11 +158,6 @@ app.get('/bot/:name/config', validateBot, (c) => {
         </details>
       `
     })()}
-    <form class="form-section" hx-post="/bot/${name}/config/claude" hx-target="#config-alerts" hx-swap="innerHTML">
-      <textarea name="claude" class="code" rows="20">${claudeContent}</textarea>
-      <button type="submit">${icon('save', 13)} ${t('config.saveClaude')}</button>
-    </form>
-
     <h3 class="section-title">${icon('files')} Workspace Files</h3>
     ${(() => {
       const dir = getBotDir(name)
@@ -142,27 +175,111 @@ app.get('/bot/:name/config', validateBot, (c) => {
       const files = listWorkspaceFiles(dir)
       return html`
         <div class="form-section">
+          <p style="margin:0 0 0.75rem;color:var(--mc-muted);font-size:0.8rem;line-height:1.5">
+            🌐 <b>Global</b> файли (SOUL.md, TOOLS.md) спільні для всіх ботів — редагуються лише через
+            <code>roles/_soul.md</code> / <code>roles/_tools.md</code> у git.
+            <br>
+            💡 Щоб per-bot файл (<code>BOT_SOUL.md</code> або <code>BOT_TOOLS.md</code>)
+            <b>повністю замінив</b> відповідний global, додай у його перший рядок маркер:
+            <code>&lt;!-- REPLACES_GLOBAL --&gt;</code>. Без маркера per-bot файл просто
+            <b>доповнює</b> global.
+          </p>
           ${files.filter(f => f.exists).map(f => {
             const content = readWorkspaceFile(dir, f.name) ?? ''
             const rows = Math.min(Math.max(content.split('\n').length + 2, 6), 20)
+            const sourceFile = f.name === 'SOUL.md' ? '_soul.md' : f.name === 'TOOLS.md' ? '_tools.md' : ''
+            const fileHints: Record<string, string> = {
+              'IDENTITY.md': 'Ім\'я, emoji і 1-2 речення хто це. Без правил та інструкцій.',
+              'SOUL.md': 'Характер, цінності, етика, межі, meta-правила взаємодії. Спільне для всіх ботів.',
+              'BOT_SOUL.md': 'Тільки відмінності цього бота від глобального характеру. Або повна заміна з маркером REPLACES_GLOBAL.',
+              'ROLE.md': 'Спеціалізація бота та доменні робочі сценарії. Без tool routing і без generic character.',
+              'TOOLS.md': 'Master tool routing table + канонічні drilldown секції з прикладами. Спільне для всіх ботів.',
+              'BOT_TOOLS.md': 'Лише role-specific tool routing, якого нема в глобальному TOOLS (наприклад, Home Assistant для асистента).',
+              'USER.md': 'Сталий профіль користувача: ім\'я, мова, timezone, контекст, top-level вподобання. Динамічні дані — у SaveFact / MEMORY.',
+              'MEMORY.md': 'Курована мета-пам\'ять: правила-уроки, патерни, прийняті рішення з "тому що". Не сирі факти (це SaveFact).',
+            }
+            const hint = fileHints[f.name] ?? ''
+            // Compute overlap with global counterpart for BOT_SOUL/BOT_TOOLS
+            let overlapWarning: ReturnType<typeof html> | string = ''
+            if (f.name === 'BOT_SOUL.md' || f.name === 'BOT_TOOLS.md') {
+              const globalName = f.name === 'BOT_SOUL.md' ? 'SOUL.md' : 'TOOLS.md'
+              const globalContent = readWorkspaceFile(dir, globalName as WorkspaceFileName) ?? ''
+              const hasReplacesMarker = content.trimStart().startsWith('<!-- REPLACES_GLOBAL -->')
+              if (!hasReplacesMarker && globalContent && content.trim()) {
+                const ratio = overlapRatio(content, globalContent)
+                const pct = Math.round(ratio * 100)
+                if (ratio >= 0.95) {
+                  overlapWarning = html`
+                    <p style="margin:0.25rem 0;padding:0.5rem;background:#5a1a1a;color:#fee;border-radius:var(--radius-sm);font-size:0.82rem">
+                      🛑 <b>${pct}% дублює global</b> (${globalName === 'SOUL.md' ? 'roles/_soul.md' : 'roles/_tools.md'}).
+                      Майже повна копія — вилучи дублі або додай маркер
+                      <code>&lt;!-- REPLACES_GLOBAL --&gt;</code> на перший рядок для повної заміни.
+                    </p>
+                  `
+                } else if (ratio >= 0.80) {
+                  overlapWarning = html`
+                    <p style="margin:0.25rem 0;padding:0.5rem;background:#5a4a1a;color:#ffe;border-radius:var(--radius-sm);font-size:0.82rem">
+                      ⚠️ <b>${pct}% дублює global</b>. Залиш у цьому файлі лише різницю — генерик контент іде з
+                      <code>roles/${globalName === 'SOUL.md' ? '_soul.md' : '_tools.md'}</code>.
+                    </p>
+                  `
+                }
+              }
+            }
             return html`
               <details ${f.writable ? 'open' : ''} style="margin-bottom:0.75rem">
                 <summary style="display:flex;align-items:center;gap:0.5rem">
-                  ${icon(f.writable ? 'file-edit' : 'file-text', 14)}
+                  ${icon(f.global ? 'globe' : f.writable ? 'file-edit' : 'file-text', 14)}
                   <b>${f.name}</b>
-                  ${f.writable
-                    ? html`<span class="badge badge-running" style="font-size:0.7rem">bot-writable</span>`
-                    : html`<span class="badge badge-stopped" style="font-size:0.7rem">bot-readonly</span>`}
-                  <small style="color:var(--mc-muted)">${(f.size / 1024).toFixed(1)} KB</small>
+                  ${f.global
+                    ? html`<span class="badge" style="font-size:0.7rem;background:#3a5fcd;color:#fff">global</span>`
+                    : f.writable
+                      ? html`<span class="badge badge-running" style="font-size:0.7rem">bot-writable</span>`
+                      : html`<span class="badge badge-stopped" style="font-size:0.7rem">bot-readonly</span>`}
+                  <small style="color:var(--mc-muted)">${(f.size / 1024).toFixed(1)} KB · ${estimateTokens(content).toLocaleString('uk-UA')} токенів</small>
                 </summary>
-                <form hx-post="/bot/${name}/config/workspace-file" hx-target="#config-alerts" hx-swap="innerHTML" style="margin-top:0.5rem">
-                  <input type="hidden" name="filename" value="${f.name}">
-                  <textarea name="content" class="code" rows="${rows}">${content}</textarea>
-                  <button type="submit" style="margin-top:0.25rem">${icon('save', 13)} Save ${f.name}</button>
-                </form>
+                ${hint
+                  ? html`<p style="margin:0.5rem 0 0.25rem;color:var(--mc-muted);font-size:0.78rem;font-style:italic">${hint}</p>`
+                  : ''}
+                ${f.global
+                  ? html`
+                      <p style="margin:0.25rem 0;color:var(--mc-muted);font-size:0.85rem">
+                        🌐 Спільний для всіх ботів. Редагується через
+                        <code>roles/${sourceFile}</code> у git.
+                      </p>
+                      <textarea class="code" rows="${rows}" readonly>${content}</textarea>
+                    `
+                  : html`
+                      ${overlapWarning}
+                      <form hx-post="/bot/${name}/config/workspace-file" hx-target="#config-alerts" hx-swap="innerHTML" style="margin-top:0.5rem">
+                        <input type="hidden" name="filename" value="${f.name}">
+                        <textarea name="content" class="code" rows="${rows}">${content}</textarea>
+                        <button type="submit" style="margin-top:0.25rem">${icon('save', 13)} Save ${f.name}</button>
+                      </form>
+                    `}
               </details>
             `
           })}
+          ${(() => {
+            const assembled = assembleFromWorkspaceFiles(dir)
+            const rows = Math.min(Math.max(assembled.split('\n').length + 2, 8), 30)
+            const tokens = estimateTokens(assembled)
+            return html`
+              <details style="margin-top:1rem">
+                <summary style="display:flex;align-items:center;gap:0.5rem">
+                  ${icon('eye', 14)}
+                  <b>Assembled CLAUDE.md (preview)</b>
+                  <span class="badge" style="font-size:0.7rem;background:#555;color:#fff">read-only</span>
+                  <small style="color:var(--mc-muted)">${(assembled.length / 1024).toFixed(1)} KB · ${tokens.toLocaleString('uk-UA')} токенів</small>
+                </summary>
+                <p style="margin:0.5rem 0;color:var(--mc-muted);font-size:0.8rem">
+                  Це фінальний CLAUDE.md, який бачить агент. Збирається на льоту з 8 шарів вище
+                  перед кожним запитом. Прямо редагувати не можна — змінюй окремі шари.
+                </p>
+                <textarea class="code" rows="${rows}" readonly>${assembled}</textarea>
+              </details>
+            `
+          })()}
         </div>
       `
     })()}
@@ -292,18 +409,19 @@ app.post('/bot/:name/config/apply-template', validateBot, async (c) => {
       // New format: build workspace files directly, preserve USER.md and MEMORY.md
       const wsFiles = buildWorkspaceFilesFromRole(slug, name, '🤖', rolesDir)
 
-      // Preserve existing user data
+      // Preserve existing user-owned data and bot-soul overlay
       const existingUser = readWorkspaceFile(dir, 'USER.md')
       const existingMemory = readWorkspaceFile(dir, 'MEMORY.md')
+      const existingBotSoul = readWorkspaceFile(dir, 'BOT_SOUL.md')
       if (existingUser) wsFiles['USER.md'] = existingUser
       if (existingMemory) wsFiles['MEMORY.md'] = existingMemory
+      if (existingBotSoul && existingBotSoul.trim()) wsFiles['BOT_SOUL.md'] = existingBotSoul
 
       createWorkspaceFiles(dir, wsFiles as Record<WorkspaceFileName, string>)
     }
 
-    // Always regenerate CLAUDE.md
-    const claudeMd = buildClaudeMd(slug, name, '🤖')
-    writeClaudeMd(name, claudeMd)
+    // Refresh CLAUDE.md from new workspace files (assembled with global injection)
+    refreshClaudeMd(dir)
 
     return c.html(html`
       ${alert('success', t('config.templateApplied', { slug }))}
@@ -312,23 +430,6 @@ app.post('/bot/:name/config/apply-template', validateBot, async (c) => {
   } catch {
     return c.html(alert('error', t('config.templateNotFound')))
   }
-})
-
-app.post('/bot/:name/config/claude', validateBot, async (c) => {
-  const t: TFunc = c.get('t')
-  const name = botName(c)
-  const body = await c.req.parseBody()
-  const content = String(body['claude'] ?? '')
-  const hasRoleMd = readRoleMd(name) !== null
-  if (hasRoleMd) {
-    writeRoleMd(name, content)
-    // Regenerate CLAUDE.md with current _base.md
-    const assembled = assembleClaudeMd(name)
-    if (assembled) writeClaudeMd(name, assembled)
-  } else {
-    writeClaudeMd(name, content)
-  }
-  return c.html(alert('success', t('config.claudeSaved')))
 })
 
 // --- Workspace files endpoints ---
@@ -340,8 +441,12 @@ app.post('/bot/:name/config/workspace-file', validateBot, async (c) => {
   const content = String(body['content'] ?? '')
   const dir = getBotDir(name)
 
+  if (isGlobalFile(filename)) {
+    return c.html(alert('error', `${filename} — глобальний файл, редагується через roles/ у git, не через адмінку.`))
+  }
+
   try {
-    // Admin can write any workspace file (no writable check)
+    // Admin can write any per-bot workspace file (no writable check beyond global guard)
     const wsDir = resolve(dir, 'workspace-files')
     writeFileSync(resolve(wsDir, filename), content, 'utf-8')
     return c.html(alert('success', `${filename} saved`))

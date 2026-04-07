@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { getBotNames, getBotDir, getProjectRoot, type BotName } from './admin/db-multi.js'
 import { getBotStatus, getBotUptime, stopBot } from './admin/bot-control.js'
 import { createBackup } from './backup/engine.js'
-import { hasWorkspaceFiles, assembleFromWorkspaceFiles, buildWorkspaceFilesFromRole, splitRoleIntoWorkspaceFiles, splitDefaultIntoWorkspaceFiles, createWorkspaceFiles } from './workspace-files.js'
+import { hasWorkspaceFiles, assembleFromWorkspaceFiles, assembleFromMap, buildWorkspaceFilesFromRole, splitRoleIntoWorkspaceFiles, splitDefaultIntoWorkspaceFiles, createWorkspaceFiles, type WorkspaceFileName } from './workspace-files.js'
 
 // --- Roles ---
 
@@ -44,15 +44,9 @@ export function buildClaudeMd(role: string, botName: string, emoji: string): str
   const roleContent = readFileSync(rolePath, 'utf-8')
 
   if (roleContent.includes('--- IDENTITY ---')) {
-    // New format: assemble via workspace files
+    // New format: build per-bot files in-memory and assemble with global injection.
     const wsFiles = buildWorkspaceFilesFromRole(role, botName, emoji, rolesDir)
-    const parts = [
-      wsFiles['IDENTITY.md'],
-      wsFiles['SOUL.md'],
-      wsFiles['ROLE.md'],
-      wsFiles['TOOLS.md'],
-    ].filter(Boolean)
-    return parts.join('\n\n')
+    return assembleFromMap(wsFiles)
   }
 
   // Legacy format: inline _base.md

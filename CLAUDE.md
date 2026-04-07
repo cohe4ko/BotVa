@@ -240,7 +240,43 @@ describe('myFunction', () => {
 
 **ДАНІ (gitignored):**
 - `bots/`, `knowledge/`, `store/` — персональні дані, БД
-- `bots/<name>/workspace-files/` — workspace файли бота (SOUL.md, USER.md, MEMORY.md тощо)
+- `bots/<name>/workspace-files/` — per-bot workspace файли (див. нижче)
 - `.env`, `.mcp.json`, `mcp-servers.json` — токени, ключі, шляхи
 - `workspace/` — runtime дані ботів
 - `agents/` — agent configs з персональними даними
+
+### Workspace files (8 шарів CLAUDE.md)
+
+CLAUDE.md бота збирається на льоту з 8 шарів. Два з них — **глобальні** (живуть у `roles/`, спільні для всіх ботів), решта — **per-bot** (на диску в `bots/<name>/workspace-files/`).
+
+| Файл | Тип | Джерело | Editable |
+|---|---|---|---|
+| `IDENTITY.md` | per-bot | seed з role-шаблону | адмінка |
+| `SOUL.md` | **global** | `roles/_soul.md` (runtime) | тільки git |
+| `BOT_SOUL.md` | per-bot | overlay характеру конкретного бота | адмінка |
+| `ROLE.md` | per-bot | seed з role-шаблону | адмінка |
+| `TOOLS.md` | **global** | `roles/_tools.md` (runtime) | тільки git |
+| `BOT_TOOLS.md` | per-bot | role-specific tool routing з role-шаблону | адмінка |
+| `USER.md` | per-bot | бот-writable (`WriteWorkspaceFile`) | бот + адмінка |
+| `MEMORY.md` | per-bot | бот-writable (`WriteWorkspaceFile`) | бот + адмінка |
+
+**Assembly order:** `IDENTITY → SOUL → BOT_SOUL → ROLE → TOOLS → BOT_TOOLS → USER → MEMORY`
+
+Глобальні `SOUL.md`/`TOOLS.md` НЕ зберігаються на диску у ботів — `assembleFromWorkspaceFiles()` читає їх з `roles/_soul.md` / `roles/_tools.md` при кожному виклику. Це означає: правка `roles/_*.md` миттєво долітає до всіх ботів. Editable per-bot файли — IDENTITY/BOT_SOUL/ROLE/BOT_TOOLS — редагуються тільки через адмінку чи вручну. USER.md/MEMORY.md пише сам бот через `WriteWorkspaceFile`.
+
+**Replace-marker (`<!-- REPLACES_GLOBAL -->`)**: за замовчуванням `BOT_SOUL.md`/`BOT_TOOLS.md` *доповнюють* глобальний шар (інжектяться після). Якщо потрібен авторський бот з повністю своїм характером (як `ai`/Sol), додай у перший рядок `BOT_SOUL.md` маркер `<!-- REPLACES_GLOBAL -->` — глобальний `SOUL.md` буде пропущений під час асемблювання. Аналогічно для `BOT_TOOLS.md` ↔ `TOOLS.md`. Маркер вирізається з виводу.
+
+**Conditional sections (feature flags)**: блоки `<!-- IF FEATURE -->...<!-- END -->` у `_soul.md` (та інших шарах) інжектяться лише якщо відповідний прапорець у `bots/<name>/.env` має значення `1`/`true`. Підтримувані прапорці:
+- `GROUP_CHAT_ENABLED` — групові Telegram-чати (multi-bot dialogue)
+- `DEV_MODE_ENABLED` — режим планування коду (AskUser перед змінами)
+- `GIT_ACCESS_ENABLED` — git workflow (commit conventions, ask before push)
+
+Дефолт у новостворених ботів — все `0`. Прапорці додаються в `.env` бота вручну. Список — у `src/workspace-files.ts → FEATURE_FLAGS`.
+
+**Контракт шарів**: повний контракт "що в якому шарі живе" — у `roles/SHARDS.md`. Це джерело істини для будь-яких правок workspace-files. Без нього шари неминуче дрейфують у дублі. Перед правкою `_soul.md`, `_tools.md`, role template або BOT_SOUL/BOT_TOOLS — звірся з SHARDS.md → "Канонічна мапа топіків".
+
+**Hierarchy markers (emoji legend)**: у `_soul.md` визначений набір emoji-маркерів обов'язковості: 🔒 інваріант, 💡 рекомендація, 🎯 приклад, ✅ правильний патерн, ❌ анти-патерн, 📌 фонова інформація. Використовуються в усіх shards без слів-тегів. Розшифровка — один раз у `_soul.md` (або в `BOT_SOUL.md` для REPLACES_GLOBAL ботів).
+
+**Lint правила**: `src/workspace-files-contract.test.ts` перевіряє інваріанти на кожен запуск `npm test`: відсутність дублів h2, відсутність over-mention tools, наявність behavioral anchors (≥10 ❌/✅ пар), наявність 🔒 markers, очищення IF/REPLACES_GLOBAL маркерів, розмір ≤30 KB. Падіння тесту = структурна регресія, треба фіксити shard, а не послаблювати правило.
+
+**Admin lint**: при відкритті редактора `BOT_SOUL.md`/`BOT_TOOLS.md` адмінка обчислює jaccard similarity з відповідним global шаром (4-грами рядків) і показує warning якщо ≥80% (жовтий) або ≥95% (червоний) — підказує усунути дубль або додати `<!-- REPLACES_GLOBAL -->`.

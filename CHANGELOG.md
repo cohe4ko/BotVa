@@ -5,6 +5,41 @@
 Формат базується на [Keep a Changelog](https://keepachangelog.com/uk/1.1.0/),
 проєкт дотримується [Semantic Versioning](https://semver.org/lang/uk/).
 
+## [1.1.0] — 2026-04-07
+
+### Додано
+- **Workspace-files рефакторинг**: розділення на global (`roles/_soul.md`, `roles/_tools.md`) та per-bot шари. Глобальні файли читаються з `roles/` на льоту — правка миттєво долітає до всіх ботів, жодних snapshot'ів на диску.
+- **`<!-- REPLACES_GLOBAL -->` marker**: per-bot `BOT_SOUL.md`/`BOT_TOOLS.md` може повністю замінити відповідний global шар (для авторських ботів з власним характером).
+- **Feature flags у `.env`**: `GROUP_CHAT_ENABLED`, `DEV_MODE_ENABLED`, `GIT_ACCESS_ENABLED` — вмикають conditional inline блоки `<!-- IF FEATURE -->...<!-- END -->` в `_soul.md`. Контент є, але інжектиться лише тим ботам, які його реально використовують.
+- **`roles/SHARDS.md`**: формальний контракт шарів — що в якому живе, канонічна мапа топіків, 5 категорій контенту, emoji legend.
+- **Emoji hierarchy markers**: 🔒 інваріант / 💡 рекомендація / 🎯 приклад / ✅ правильно / ❌ анти-патерн / 📌 контекст. Legend один раз у `_soul.md`, далі лише emoji.
+- **Master tool routing table** у `_tools.md`: одна канонічна таблиця "user intent → tool" заміняє 8 розкиданих bullet-секцій.
+- **Drilldown секції з прикладами** для `CreateReminder`, `SaveFact`, `AskUser`, `Команда`, `Workspace`: кожна з 3-7 few-shot прикладів + anti-приклади.
+- **CreateReminder MEMO/AGENT режими**: явне розрізнення одноразових нагадок і cron-завдань боту. Decision tree для вибору між `runAgent=false/true` та `schedule`.
+- **Admin lint**: при редагуванні `BOT_SOUL.md`/`BOT_TOOLS.md` адмінка рахує jaccard similarity з global шаром і показує warning ≥80% (жовтий) або ≥95% (червоний).
+- **Admin preview**: блок "Assembled CLAUDE.md" у `/bot/<name>/config` показує фінальний результат збірки з точною кількістю токенів через `@anthropic-ai/tokenizer`.
+- **Опис кожного workspace-файлу** у адмінці: курсивна 1-2-реченна підказка що має бути в IDENTITY / SOUL / BOT_SOUL / ROLE / TOOLS / BOT_TOOLS / USER / MEMORY.
+- **Contract test suite** (`src/workspace-files-contract.test.ts`): 8 інваріантів × боти — відсутність дублів h2, tool over-mention, behavioral anchors count, 🔒 markers, очищення IF/REPLACES_GLOBAL маркерів, розмір ≤30 KB.
+- **Migration script** `scripts/migrate-workspace-split.ts`: розбиває старі per-bot TOOLS на global + BOT_TOOLS через anchor-based prefix extraction, з бекапом.
+- **FTS5 delete/update fix** для фактів: виправлено "SQL logic error" при видаленні фактів з FTS індексом + регресійні тести.
+- **Admin log viewer** знаходить логи в централізованій `workspace/logs/` директорії.
+- **Two-button progress keyboard**: Stop (soft) + Interrupt (hard) замість одної кнопки.
+- **Listener STT language** тепер зберігається між рестартами.
+
+### Змінено
+- **Консолідація `_soul.md`**: 13 KB → 9 KB. Лишилось лише character + values + boundaries + meta-rules + emoji legend. Викинуто markdown tutorial, workspace-files mechanics, group chat protocol (в IF блок), команда (в `_tools.md`).
+- **Консолідація `_tools.md`**: усунено дублі longform секцій (`## Web Search`, `## Image Generation`, `## Публікація файлів`, `## Браузер`, `## Презентації`, `## Available Skills`). Щільність few-shot прикладів зросла.
+- **`roles/personal-assistant.md` TOOLS секція**: скорочено до 4 справді role-specific рядків (Home Assistant, Calendar, Bitrix24, stagehand).
+- **Адмін-панель `/bot/<name>/config`**: видалено textarea + кнопку "Save CLAUDE.md" (CLAUDE.md тепер динамічний). `apply-template` використовує `refreshClaudeMd` замість ручного склеювання.
+- **Heading convention**: перейменовано близькі h2 щоб уникнути клешів (`## Пам'ять` → `## Три системи пам'яті`; `## Формат відповідей` → `## Стиль відповідей`; `## Правила` у ROLE → `## Робочий стиль`).
+- **Telegraph table rendering** виправлено — правильне збереження column alignment і ізоляція state між таблицями.
+
+### Виправлено
+- Cron-задачі тепер створюються коректно — агент розуміє `schedule` параметр через consolidated CreateReminder секцію з прикладами. Раніше `_tools.md` згадував лише одноразові нагадки, що призводило до `CreateReminder(remindAt=...)` замість `schedule="0 9 * * *"`.
+- Усунуто дублі SOUL секції в зібраному CLAUDE.md (міграційний скрипт раніше копіював цілком при будь-якій розбіжності).
+- Усунуто стале правило `context/memories/YYYY-MM-DD.md` у role template що суперечило новій CreateReminder секції.
+- Усунуто структурний дрейф: правка `roles/_tools.md` тепер миттєво долітає до всіх ботів, немає snapshot'ів на диску.
+
 ## [1.0.2] — 2026-03-31
 
 ### Додано

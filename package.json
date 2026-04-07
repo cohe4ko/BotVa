@@ -1,6 +1,6 @@
 {
   "name": "botva",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Multi-bot Telegram platform powered by Claude AI with memory, voice, MCP integrations",
   "type": "module",
   "keywords": [
@@ -40,6 +40,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/tokenizer": "^0.0.4",
     "@google/genai": "^1.44.0",
     "@grammyjs/runner": "^2.0.3",
     "@hono/node-server": "^1.19.11",

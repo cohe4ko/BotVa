@@ -93,10 +93,10 @@ Some text
     const nodes = markdownToNodes(md)
     // Find second table's data row — should use X/Y headers, not H1/H2
     const secondDataRow = nodes.find(
-      (n): n is { tag: string; children: unknown[] } =>
-        typeof n === 'object' && 'children' in n &&
-        Array.isArray(n.children) &&
-        n.children.some((c: unknown) =>
+      (n): n is Extract<typeof n, { tag: string; children?: unknown }> =>
+        typeof n === 'object' && n !== null && 'children' in n &&
+        Array.isArray((n as { children: unknown[] }).children) &&
+        (n as { children: unknown[] }).children.some((c: unknown) =>
           typeof c === 'object' && c !== null && 'children' in c &&
           Array.isArray((c as { children: unknown[] }).children) &&
           (c as { children: unknown[] }).children[0] === 'X: '

@@ -1925,12 +1925,12 @@ function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>, ctx: Con
 
 // --- Workspace file tool factories ---
 
-const WORKSPACE_FILE_NAMES = ['SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'ROLE.md', 'MEMORY.md'] as const
+const WORKSPACE_FILE_NAMES = ['IDENTITY.md', 'SOUL.md', 'BOT_SOUL.md', 'ROLE.md', 'TOOLS.md', 'BOT_TOOLS.md', 'USER.md', 'MEMORY.md'] as const
 
 function makeReadWorkspaceFileTool(usedTools: Set<string>): SdkMcpToolDefinition<any> {
   return tool(
     'ReadWorkspaceFile',
-    'Read one of your workspace configuration files. Available: SOUL.md (personality), IDENTITY.md (name/emoji), USER.md (user profile), TOOLS.md (tool guide), ROLE.md (specialization), MEMORY.md (curated long-term memory).',
+    'Read one of your workspace configuration files. IDENTITY.md (your name/emoji), SOUL.md (global personality, shared by all bots), BOT_SOUL.md (your personal soul overlay), ROLE.md (your specialization), TOOLS.md (global tool guide, shared by all bots), BOT_TOOLS.md (your role-specific tool guide), USER.md (user profile), MEMORY.md (curated long-term memory).',
     { filename: z.enum(WORKSPACE_FILE_NAMES).describe('Which workspace file to read') },
     async (args) => {
       usedTools.add('ReadWorkspaceFile')
