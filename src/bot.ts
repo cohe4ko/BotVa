@@ -19,7 +19,7 @@ import { isStaleMessage } from './stale-filter.js'
 import { isDuplicate, markProcessed } from './deduplication.js'
 import { shouldUseTelegraph, createTelegraphPage } from './telegraph.js'
 import { editImage } from './imagen.js'
-import { getModel } from './model.js'
+import { getModel, getEffort } from './model.js'
 import { chatT, getChatLang, createBotT, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
 import { hasSessionTitle } from './session-titles.js'
@@ -72,6 +72,9 @@ const pendingGroupApprovals = new Map<string, {
   chatTitle: string
   timeout: ReturnType<typeof setTimeout>
 }>()
+
+// --- /review "later" skip set (in-memory, per chat, cleared on new /review) ---
+const reviewSkipped = new Map<string, Set<string>>()
 
 // --- Auth ---
 
@@ -746,13 +749,14 @@ async function handleMessage(
           }
         }
         const currentModel = getModel(chatIdStr)
+        const currentEffort = getEffort(chatIdStr)
         const agentModeForRun = getChatSetting(chatIdStr, 'agent_mode') ?? 'full'
         const planPhase = agentModeForRun === 'plan' ? (getPlanPhase(chatIdStr) ?? 'planning') : null
         const permissionMode = planPhase === 'planning' ? 'plan'
           : planPhase === 'executing' ? undefined  // full access after approval
           : isDebateMode ? 'debate'
           : undefined
-        logger.info({ chatId: chatIdStr, model: currentModel, agentMode: agentModeForRun, planPhase, hasSession: !!sessionId }, 'Running agent')
+        logger.info({ chatId: chatIdStr, model: currentModel, effort: currentEffort, agentMode: agentModeForRun, planPhase, hasSession: !!sessionId }, 'Running agent')
 
         // Permission callback for ask mode
         const onPermissionRequest = agentModeForRun === 'ask' ? async (toolName: string, summary: string) => {
@@ -790,7 +794,7 @@ async function handleMessage(
           ? buildAgentDefinitions(matched, getChatLang(chatIdStr))
           : undefined
 
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs)
+        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs, currentEffort)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage
@@ -1143,15 +1147,21 @@ export function createBot(): Bot {
           }
         } catch {}
       } else if (action === 'skip') {
-        await ctx.answerCallbackQuery()
+        if (factId) {
+          let set = reviewSkipped.get(chatIdStr)
+          if (!set) { set = new Set(); reviewSkipped.set(chatIdStr, set) }
+          set.add(factId)
+        }
+        await ctx.answerCallbackQuery({ text: '⏭' })
       }
 
       // Send next pending fact
       collectPendingFacts()
-      const next = getNextPendingFact()
+      const next = getNextPendingFact(undefined, reviewSkipped.get(chatIdStr))
       if (next) {
         await sendListenerFactForReview(ctx, next)
       } else {
+        reviewSkipped.delete(chatIdStr)
         const stats = getReviewStats()
         if (stats.approved > 0 || stats.declined > 0) {
           await ctx.api.sendMessage(ctx.chat!.id, chatT(String(ctx.chat!.id))('review.allDone', { approved: stats.approved, declined: stats.declined }))
@@ -1275,7 +1285,7 @@ export function createBot(): Bot {
         inline_keyboard: [[
           { text: t('review.btn.save'), callback_data: `lr:approve:${item.id}` },
           { text: t('review.btn.skip'), callback_data: `lr:decline:${item.id}` },
-          { text: t('review.btn.later'), callback_data: 'lr:skip' },
+          { text: t('review.btn.later'), callback_data: `lr:skip:${item.id}` },
         ]],
       },
     })
@@ -1284,6 +1294,7 @@ export function createBot(): Bot {
   // /review — Tinder-style fact review from room listener
   bot.command('review', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
+    reviewSkipped.delete(String(ctx.chat.id))
     const { collectPendingFacts, getNextPendingFact, getReviewStats } = await import('./listener-facts.js')
     const added = collectPendingFacts()
     const stats = getReviewStats()
@@ -1441,13 +1452,15 @@ export function createBot(): Bot {
     setTimeout(() => process.exit(42), 5000)
   })
 
-  // /update — git pull, rebuild, restart
+  // /update — git pull, rebuild via deploy.sh build, restart
   bot.command('update', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const { exec } = await import('child_process')
     const run = (cmd: string): Promise<string> =>
       new Promise((resolve, reject) => {
-        exec(cmd, { cwd: process.cwd(), timeout: 120000 }, (err, stdout, stderr) => {
+        // 5 min timeout: cold tsc builds after a large pull can take longer
+        // than the previous 2-min cap.
+        exec(cmd, { cwd: process.cwd(), timeout: 300000 }, (err, stdout, stderr) => {
           if (err) reject(new Error(stderr || err.message))
           else resolve(stdout.trim())
         })
@@ -1456,18 +1469,29 @@ export function createBot(): Bot {
     const t = chatT(String(ctx.chat.id))
     const msg = await ctx.reply(t('cmd.update.start'), { parse_mode: 'Markdown' })
     try {
-      const pullResult = await run('git pull')
+      // --ff-only: refuse to create surprise merge commits if local main
+      // has drifted from remote (e.g. uncommitted build artefacts, stray
+      // commits). Fail loud instead of silently merging.
+      const pullResult = await run('git pull --ff-only')
       if (pullResult.includes('Already up to date')) {
         await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.upToDate'))
         return
       }
 
       await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.building'), { parse_mode: 'Markdown' })
-      await run('npm run build')
+      // Build via deploy.sh (NOT raw `npm run build`) — see CLAUDE.md →
+      // "Збірка і застосування змін". do_build gives us dist.prev/ backup,
+      // .deploy-timestamp for start-bot-safe.sh probation window, and
+      // automatic rollback on tsc failure.
+      await run('bash scripts/deploy.sh build')
 
       await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.done', { result: pullResult }), { parse_mode: 'Markdown' })
       setTimeout(() => process.exit(42), 1000)
     } catch (err: any) {
+      // If `deploy.sh build` failed, do_build already rolled dist/ back to
+      // dist.prev/, so the running process keeps using its (old but
+      // consistent) in-memory modules. Do NOT exit here — the user should
+      // see the error and intervene manually.
       await ctx.api.editMessageText(ctx.chat.id, msg.message_id, t('cmd.update.failed', { error: err.message }), { parse_mode: 'Markdown' })
     }
   })

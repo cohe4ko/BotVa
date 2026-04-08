@@ -148,9 +148,12 @@ export function collectPendingFacts(projectRoot?: string): number {
 }
 
 /** Get next pending fact for review */
-export function getNextPendingFact(projectRoot?: string): FactReviewItem | null {
+export function getNextPendingFact(
+  projectRoot?: string,
+  skipIds?: ReadonlySet<string>,
+): FactReviewItem | null {
   const store = loadStore(projectRoot)
-  return store.items.find(i => i.status === 'pending') ?? null
+  return store.items.find(i => i.status === 'pending' && !(skipIds?.has(i.id))) ?? null
 }
 
 /** Update fact status */
