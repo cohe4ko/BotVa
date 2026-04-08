@@ -1466,6 +1466,25 @@ export function createBot(): Bot {
       }
     } catch {}
 
+    // Groq STT key usage (shared across all bots + listener)
+    try {
+      const { listKeysRedacted } = await import('./groq-keys.js')
+      const groqKeys = listKeysRedacted()
+      if (groqKeys.length > 0) {
+        if (ttsLines.length > 0) ttsLines.push('')
+        ttsLines.push('🎧 Groq STT:')
+        const now = Date.now()
+        const fmt = (s: number) => s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s/60)}m` : `${Math.floor(s/3600)}h${Math.floor((s%3600)/60)}m`
+        for (const gk of groqKeys) {
+          const rl = gk.rate_limited_until && gk.rate_limited_until > now
+          const marker = !gk.enabled ? '○' : rl ? '⏸' : '●'
+          const pct = gk.limit_seconds > 0 ? Math.round((gk.used_seconds / gk.limit_seconds) * 100) : 0
+          const errMark = gk.last_error && !rl ? ' ⚠' : ''
+          ttsLines.push(`  ${marker} ${gk.label}: ${fmt(gk.used_seconds)}/${fmt(gk.limit_seconds)} (${pct}%), ${gk.total_requests} req${errMark}`)
+        }
+      }
+    } catch {}
+
     const lines = [
       t('cmd.usage.title'),
       '',

@@ -7,6 +7,11 @@ import {
   adminListKeys, adminAddKey, adminDeleteKey, adminSetActive,
   adminListVoices, adminReconcile, hasActiveKey,
 } from '../../tts-providers/elevenlabs.js'
+import {
+  listKeysRedacted as groqListKeys, addKey as groqAddKey, deleteKey as groqDeleteKey,
+  setEnabled as groqSetEnabled, resetKey as groqResetKey, validateKey as groqValidateKey,
+  type RedactedGroqKey,
+} from '../../groq-keys.js'
 import { logger } from '../../logger.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
@@ -82,6 +87,25 @@ app.get('/audio', async (c) => {
       <small style="color:var(--mc-text-dim)">${t('audio.sharedNote')}</small>
     </div>
     <div id="audio-alerts"></div>
+
+    <!-- A0. Groq STT keys -->
+    <details open style="margin-bottom:1rem;border:1px solid var(--mc-border);border-radius:6px;padding:0.75rem">
+      <summary style="cursor:pointer;font-weight:600">🎧 Groq STT ${t('audio.groqKeys')}</summary>
+      <div style="margin-top:0.75rem">
+        <p style="color:var(--mc-text-dim);font-size:0.85rem;margin:0 0 0.5rem">${t('audio.groqHint')}</p>
+        <div id="groq-keys-table" hx-get="/audio/groq-keys" hx-trigger="load" hx-swap="innerHTML">${t('audio.loading')}</div>
+        <form hx-post="/audio/groq-keys" hx-target="#groq-keys-table" hx-swap="innerHTML" style="margin-top:0.75rem"
+              hx-on::after-request="if(event.detail.xhr.status<400){this.reset();}">
+          <div class="grid">
+            <label>${t('audio.keyLabel')}<input type="text" name="label" placeholder="primary" autocomplete="off"></label>
+            <label>${t('audio.keyValue')}<input type="password" name="key" required autocomplete="off"></label>
+          </div>
+          <div style="margin-top:0.5rem;display:flex;gap:0.5rem">
+            <button type="submit">${t('audio.addKey')}</button>
+          </div>
+        </form>
+      </div>
+    </details>
 
     <!-- A. ElevenLabs Keys -->
     <details open style="margin-bottom:1rem;border:1px solid var(--mc-border);border-radius:6px;padding:0.75rem">
@@ -236,7 +260,132 @@ function renderKeysTable(t: TFunc, keys: ReturnType<typeof adminListKeys>) {
   `
 }
 
-// --- Keys endpoints ---
+// --- Groq keys table ---
+
+function fmtSeconds(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  return `${h}h ${m}m`
+}
+
+function fmtCountdown(untilMs: number): string {
+  const diff = Math.max(0, untilMs - Date.now())
+  const sec = Math.floor(diff / 1000)
+  return fmtSeconds(sec)
+}
+
+function renderGroqKeysTable(t: TFunc, keys: RedactedGroqKey[]) {
+  if (keys.length === 0) {
+    return html`<p style="color:var(--mc-text-dim)">${t('audio.noKeys')}</p>`
+  }
+  const now = Date.now()
+  const usableLimit = keys.filter(k => k.enabled).reduce((s, k) => s + k.limit_seconds, 0)
+  const usableUsed  = keys.filter(k => k.enabled).reduce((s, k) => s + k.used_seconds, 0)
+  return html`
+    <div style="font-size:0.8rem;color:var(--mc-text-dim);margin-bottom:0.5rem">
+      ${t('audio.groqUsedHour')}: ${fmtSeconds(usableUsed)} / ${fmtSeconds(usableLimit)}
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="width:1%"></th>
+        <th>${t('audio.keyLabel')}</th>
+        <th>${t('audio.groqWindow')}</th>
+        <th>${t('audio.groqLifetime')}</th>
+        <th>${t('audio.status')}</th>
+        <th style="width:1%"></th>
+      </tr></thead>
+      <tbody>
+        ${keys.map(k => {
+          const pct = k.limit_seconds > 0 ? Math.round((k.used_seconds / k.limit_seconds) * 100) : 0
+          const rl = k.rate_limited_until && k.rate_limited_until > now
+          const status = !k.enabled
+            ? html`<span style="color:#888" title="disabled">○</span>`
+            : rl
+              ? html`<span style="color:#c33" title="${k.last_error ?? ''}">⏸ ${fmtCountdown(k.rate_limited_until!)}</span>`
+              : k.last_error
+                ? html`<span style="color:#c80" title="${k.last_error}">⚠</span>`
+                : html`<span style="color:#0a0">●</span>`
+          return html`
+            <tr>
+              <td style="text-align:center;padding-right:0">
+                <input type="checkbox" ${k.enabled ? 'checked' : ''}
+                  hx-post="/audio/groq-keys/${k.id}/toggle" hx-target="#groq-keys-table" hx-swap="innerHTML"
+                  title="${t('audio.groqToggle')}" style="margin:0;width:auto">
+              </td>
+              <td>${k.label}<br><small style="color:var(--mc-text-dim)">${k.key_preview}</small></td>
+              <td>${fmtSeconds(k.used_seconds)} / ${fmtSeconds(k.limit_seconds)} (${pct}%)</td>
+              <td>${fmtSeconds(k.total_seconds)} · ${k.total_requests} req</td>
+              <td>${status}</td>
+              <td style="white-space:nowrap">
+                ${rl || k.last_error ? html`<button class="btn-sm" hx-post="/audio/groq-keys/${k.id}/reset" hx-target="#groq-keys-table" hx-swap="innerHTML" title="${t('audio.groqReset')}">↻</button>` : ''}
+                <button class="danger btn-sm" hx-delete="/audio/groq-keys/${k.id}" hx-target="#groq-keys-table" hx-swap="innerHTML" hx-confirm="Delete key ${k.label}?">✕</button>
+              </td>
+            </tr>
+          `
+        })}
+      </tbody>
+    </table></div>
+  `
+}
+
+// --- Groq keys endpoints ---
+
+app.get('/audio/groq-keys', (c) => {
+  const t: TFunc = c.get('t')
+  try {
+    return c.html(renderGroqKeysTable(t, groqListKeys()))
+  } catch (err) {
+    return c.html(html`<p style="color:#c33">${(err as Error).message}</p>`)
+  }
+})
+
+app.post('/audio/groq-keys', async (c) => {
+  const t: TFunc = c.get('t')
+  const body = await c.req.parseBody()
+  const key = String(body['key'] ?? '').trim()
+  const label = String(body['label'] ?? '').trim() || 'key'
+  try {
+    // Validate by hitting Groq's /models — confirms the key exists and auth works.
+    await groqValidateKey(key)
+    groqAddKey(key, label)
+    return c.html(renderGroqKeysTable(t, groqListKeys()))
+  } catch (err) {
+    return c.html(html`<p style="color:#c33">${(err as Error).message}</p>`)
+  }
+})
+
+app.delete('/audio/groq-keys/:id', (c) => {
+  const t: TFunc = c.get('t')
+  try {
+    groqDeleteKey(c.req.param('id')!)
+    return c.html(renderGroqKeysTable(t, groqListKeys()))
+  } catch (err) {
+    return c.html(html`<p style="color:#c33">${(err as Error).message}</p>`)
+  }
+})
+
+app.post('/audio/groq-keys/:id/reset', (c) => {
+  const t: TFunc = c.get('t')
+  try {
+    groqResetKey(c.req.param('id')!)
+    return c.html(renderGroqKeysTable(t, groqListKeys()))
+  } catch (err) {
+    return c.html(html`<p style="color:#c33">${(err as Error).message}</p>`)
+  }
+})
+
+app.post('/audio/groq-keys/:id/toggle', (c) => {
+  const t: TFunc = c.get('t')
+  const id = c.req.param('id')!
+  const list = groqListKeys()
+  const cur = list.find(k => k.id === id)
+  if (cur) groqSetEnabled(id, !cur.enabled)
+  return c.html(renderGroqKeysTable(t, groqListKeys()))
+})
+
+// --- ElevenLabs keys endpoints ---
 
 app.get('/audio/keys', (c) => {
   const t: TFunc = c.get('t')

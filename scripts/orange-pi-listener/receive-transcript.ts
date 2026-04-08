@@ -40,21 +40,34 @@ const PORT = parseInt(process.env.LISTENER_PORT || "3847");
 const AUTH_TOKEN = process.env.LISTENER_AUTH_TOKEN || "";
 const DATA_DIR =
   process.env.LISTENER_DATA_DIR || join(process.cwd(), "workspace/listener");
-const GROQ_API_KEYS: string[] = (() => {
-  const multi = process.env.GROQ_API_KEYS;
-  if (multi) return multi.split(",").map((k) => k.trim()).filter(Boolean);
-  const single = process.env.GROQ_API_KEY;
-  if (single) return [single];
-  return [];
-})();
-let groqKeyIndex = 0;
+// Groq keys are managed via the shared key store (store/groq-keys.json).
+// Any GROQ_API_KEY / GROQ_API_KEYS from the environment are migrated on first
+// run via ensureMigrated(); after that, rotation is handled entirely by the
+// store (persistent round-robin, per-key ASPH window, 429 cooldowns).
+import {
+  pickKey as groqPickKey, markUsed as groqMarkUsed,
+  markRateLimited as groqMarkRateLimited, markError as groqMarkError,
+  parseRetryAfter as groqParseRetryAfter, ensureMigrated as groqEnsureMigrated,
+  hasUsableKey as groqHasUsableKey, hasAnyKey as groqHasAnyKey,
+  loadStore as groqLoadStore,
+} from "../../src/groq-keys.js";
 
-function nextGroqKey(): string | null {
-  if (GROQ_API_KEYS.length === 0) return null;
-  const key = GROQ_API_KEYS[groqKeyIndex % GROQ_API_KEYS.length];
-  groqKeyIndex++;
-  return key;
-}
+(function migrateGroqKeysFromEnv() {
+  if (groqHasAnyKey()) return;
+  const candidates: Array<{ key: string; label?: string }> = [];
+  const multi = process.env.GROQ_API_KEYS;
+  if (multi) {
+    multi.split(",").map((k) => k.trim()).filter(Boolean).forEach((k, i) => {
+      candidates.push({ key: k, label: `env-${i + 1}` });
+    });
+  }
+  const single = process.env.GROQ_API_KEY;
+  if (single) candidates.push({ key: single, label: "env-primary" });
+  if (candidates.length > 0) {
+    groqEnsureMigrated(candidates);
+    console.log(`[${timestamp()}] Migrated ${candidates.length} Groq keys from env to store`);
+  }
+})();
 
 const XAI_API_KEY = process.env.XAI_API_KEY || "";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -184,27 +197,30 @@ async function parseMultipart(req: IncomingMessage): Promise<ParsedUpload> {
 // ── Transcription ──────────────────────────────────────────────────
 
 async function transcribeGroq(wavPath: string, langOverride?: string): Promise<string | null> {
-  if (GROQ_API_KEYS.length === 0) {
-    console.error("No GROQ API keys configured");
+  if (!groqHasAnyKey()) {
+    console.error("No Groq API keys configured — add one in admin /audio or set GROQ_API_KEY");
     return null;
+  }
+  if (!groqHasUsableKey()) {
+    console.error(`[${timestamp()}] All Groq keys rate-limited, waiting 60s before retry...`);
+    await new Promise((r) => setTimeout(r, 60_000));
+    if (!groqHasUsableKey()) {
+      console.error("All Groq keys still rate-limited after retry");
+      return null;
+    }
   }
 
   const fileData = readFileSync(wavPath);
-  const totalKeys = GROQ_API_KEYS.length;
-  let keysExhausted = false;
+  const totalKeys = groqLoadStore().keys.length;
 
-  for (let attempt = 0; attempt <= totalKeys; attempt++) {
-    // If we've tried all keys and got 429 on each, wait 60s and retry once
-    if (attempt === totalKeys) {
-      if (!keysExhausted) break;
-      console.log(`[${timestamp()}] All ${totalKeys} keys rate-limited, waiting 60s...`);
-      await new Promise((r) => setTimeout(r, 60_000));
-      keysExhausted = false;
-    }
+  // Each key gets one shot. Any 429 puts the key on cooldown via markRateLimited,
+  // so subsequent pickKey() calls automatically skip it.
+  for (let attempt = 0; attempt < totalKeys; attempt++) {
+    const picked = groqPickKey();
+    if (!picked) break;
 
-    const apiKey = nextGroqKey()!;
-    const keyHint = apiKey.slice(-4);
-    console.log(`[${timestamp()}] Groq transcription [key ...${keyHint}]`);
+    const keyHint = picked.key.slice(-4);
+    console.log(`[${timestamp()}] Groq transcription [key ${picked.label} ...${keyHint}]`);
 
     const blob = new Blob([fileData], { type: "audio/wav" });
     const form = new FormData();
@@ -221,29 +237,36 @@ async function transcribeGroq(wavPath: string, langOverride?: string): Promise<s
         "https://api.groq.com/openai/v1/audio/transcriptions",
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { Authorization: `Bearer ${picked.key}` },
           body: form,
         }
       );
 
       if (response.status === 429) {
         const text = await response.text();
-        console.error(`Groq 429 [key ...${keyHint}]: ${text.slice(0, 200)}`);
-        keysExhausted = true;
+        const retryAfter = groqParseRetryAfter(response.headers.get("retry-after")) ?? undefined;
+        console.error(`Groq 429 [key ${picked.label} ...${keyHint}]: ${text.slice(0, 200)}`);
+        groqMarkRateLimited(picked.id, retryAfter);
         continue;
       }
 
       if (!response.ok) {
         const text = await response.text();
-        console.error(`Groq error ${response.status} [key ...${keyHint}]: ${text.slice(0, 200)}`);
-        return null;
+        const msg = `${response.status}: ${text.slice(0, 200)}`;
+        console.error(`Groq error [key ${picked.label} ...${keyHint}]: ${msg}`);
+        groqMarkError(picked.id, msg);
+        continue;
       }
 
-      const result = (await response.json()) as any;
+      const result = (await response.json()) as { text?: string; duration?: number };
+      const durationSec = Math.max(0, Math.round(Number(result.duration ?? 0)));
+      groqMarkUsed(picked.id, durationSec);
       return result.text?.trim() || null;
     } catch (e) {
-      console.error(`Groq transcription error [key ...${keyHint}]:`, e);
-      return null;
+      const msg = (e as Error).message || String(e);
+      console.error(`Groq transcription error [key ${picked.label} ...${keyHint}]:`, msg);
+      groqMarkError(picked.id, `network: ${msg}`);
+      continue;
     }
   }
 
