@@ -8,6 +8,7 @@ import botConfig from './routes/bot-config.js'
 import botKnowledge from './routes/bot-knowledge.js'
 import botTasks from './routes/bot-tasks.js'
 import botSettings from './routes/bot-settings.js'
+import botAudio from './routes/bot-audio.js'
 import botSession from './routes/bot-session.js'
 import botSessions from './routes/bot-sessions.js'
 import botFacts from './routes/bot-facts.js'
@@ -61,6 +62,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', botKnowledge)
   app.route('/', botTasks)
   app.route('/', botSettings)
+  app.route('/', botAudio)
   app.route('/', botSession)
   app.route('/', botSessions)
   app.route('/', botFacts)

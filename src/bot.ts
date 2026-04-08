@@ -11,6 +11,8 @@ import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatS
 import { runAgent, type UsageStats } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, voiceCapabilities, synthesizeSpeech } from './voice.js'
+import { getProvider as getTtsProvider } from './tts-providers/index.js'
+import { isLongText } from './tts-providers/chunking.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
 import { logger } from './logger.js'
 import { queueRequest, cancelRequest, interruptRequest, clearQueue, isProcessing, addFollowup, getAndClearFollowup, clearCancelled } from './request-queue.js'
@@ -63,6 +65,14 @@ const pendingPermissions = new Map<string, {
 const pendingVoiceConfirms = new Map<string, {
   transcript: string
   messageId: number
+  timeout: ReturnType<typeof setTimeout>
+}>()
+
+// --- Pending TTS provider prompts (for long texts in auto mode) ---
+let ttsPromptCounter = 0
+const pendingTtsPrompts = new Map<string, {
+  text: string
+  chatId: number
   timeout: ReturnType<typeof setTimeout>
 }>()
 
@@ -908,9 +918,36 @@ async function handleMessage(
       const shouldVoice = (forceVoiceReply || getChatSetting(chatIdStr, 'voice') === '1')
         && !builtin?.usedTools.has('TextToSpeech')
       if (shouldVoice) {
-        synthesizeSpeech(text)
-          .then(audioPath => ctx.replyWithVoice(new InputFile(audioPath)))
-          .catch(err => logger.error({ err }, 'TTS failed'))
+        const ttsProvider = getTtsProvider('reply')
+        // In auto mode, long texts require explicit user choice (ElevenLabs = silver bullet)
+        if (ttsProvider === 'auto' && isLongText(text)) {
+          const id = String(++ttsPromptCounter)
+          const chatIdNum = ctx.chat!.id
+          const timeout = setTimeout(() => pendingTtsPrompts.delete(id), 10 * 60 * 1000)
+          pendingTtsPrompts.set(id, { text, chatId: chatIdNum, timeout })
+          const _t = chatT(chatIdStr)
+          ctx.reply(
+            _t('tts.longPrompt', { chars: String(text.length) }),
+            {
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '🎙 ElevenLabs', callback_data: `tts:el:${id}` },
+                  { text: '🤖 Edge', callback_data: `tts:edge:${id}` },
+                  { text: '❌', callback_data: `tts:skip:${id}` },
+                ]],
+              },
+            },
+          ).catch(err => logger.error({ err }, 'tts prompt failed'))
+        } else {
+          synthesizeSpeech(text, { useCase: 'reply' })
+            .then(async (paths) => {
+              for (const p of paths) {
+                await ctx.replyWithVoice(new InputFile(p))
+                if (paths.length > 1) await new Promise(res => setTimeout(res, 400))
+              }
+            })
+            .catch(err => logger.error({ err }, 'TTS failed'))
+        }
       }
 
       break // done — no more follow-ups
@@ -1007,6 +1044,36 @@ export function createBot(): Bot {
       return // don't pass to next middleware
     }
     // Interrupt button callback (hard — aborts the agent process immediately)
+    // TTS provider choice for long texts (auto mode)
+    if (ctx.callbackQuery?.data?.startsWith('tts:')) {
+      const chatIdStr = String(ctx.chat?.id)
+      if (!isAuthorised(ctx.chat!.id)) return
+      const [, choice, id] = ctx.callbackQuery.data.split(':')
+      const pending = pendingTtsPrompts.get(id)
+      const _t = chatT(chatIdStr)
+      if (!pending || pending.chatId !== ctx.chat!.id) {
+        await ctx.answerCallbackQuery({ text: _t('cb.voiceExpired') })
+        return
+      }
+      clearTimeout(pending.timeout)
+      pendingTtsPrompts.delete(id)
+      await ctx.answerCallbackQuery()
+      try {
+        const msg = ctx.callbackQuery.message
+        if (msg) await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {})
+      } catch { /* ignore */ }
+      if (choice === 'skip') return
+      const forceProvider = choice === 'el' ? 'elevenlabs' : 'edge'
+      synthesizeSpeech(pending.text, { forceProvider })
+        .then(async (paths) => {
+          for (const p of paths) {
+            await ctx.replyWithVoice(new InputFile(p))
+            if (paths.length > 1) await new Promise(res => setTimeout(res, 400))
+          }
+        })
+        .catch(err => logger.error({ err }, 'TTS (user-chosen) failed'))
+      return
+    }
     if (ctx.callbackQuery?.data?.startsWith('intr:')) {
       const targetChatId = ctx.callbackQuery.data.split(':')[1]
       if (String(ctx.chat?.id) === targetChatId) {
@@ -1382,6 +1449,23 @@ export function createBot(): Bot {
       }
     } catch {}
 
+    // ElevenLabs key usage (shared across all bots)
+    const ttsLines: string[] = []
+    try {
+      const { adminListKeys } = await import('./tts-providers/elevenlabs.js')
+      const ttsKeys = adminListKeys()
+      if (ttsKeys.length > 0) {
+        ttsLines.push('🎙 ElevenLabs:')
+        for (const tk of ttsKeys) {
+          const remaining = Math.max(0, (tk.limit || 0) - (tk.used || 0))
+          const pct = tk.limit > 0 ? Math.round((tk.used / tk.limit) * 100) : 0
+          const marker = tk.active ? '●' : '○'
+          const errMark = tk.last_error ? ' ⚠' : ''
+          ttsLines.push(`  ${marker} ${tk.label}: ${k(tk.used)}/${k(tk.limit)} (${pct}%, ${k(remaining)} left)${errMark}`)
+        }
+      }
+    } catch {}
+
     const lines = [
       t('cmd.usage.title'),
       '',
@@ -1394,6 +1478,7 @@ export function createBot(): Bot {
       `  cache read: ${k(week.cacheReadTokens)} | cache new: ${k(week.cacheCreationTokens)}`,
       ...(authLines.length ? ['', ...authLines] : []),
       ...(claudeUsageLines.length ? ['', ...claudeUsageLines] : []),
+      ...(ttsLines.length ? ['', ...ttsLines] : []),
     ]
     await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
   })

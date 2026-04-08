@@ -1,37 +1,8 @@
-import { readFileSync, writeFileSync, renameSync, existsSync, unlinkSync } from 'fs'
-import { basename, join } from 'path'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { readFileSync, renameSync } from 'fs'
+import { basename } from 'path'
 import { logger } from './logger.js'
 import { readEnvFile } from './env.js'
-import { UPLOADS_DIR } from './media.js'
-
-const execFileAsync = promisify(execFile)
-
-const VOICE_MAP: Record<string, string> = {
-  uk: 'uk-UA-OstapNeural',
-  ru: 'ru-RU-DmitryNeural',
-  en: 'en-US-AndrewNeural',
-}
-
-function detectLanguage(text: string): 'uk' | 'ru' | 'en' {
-  // Count character ranges
-  const cyrillic = text.match(/[\u0400-\u04FF]/g)?.length ?? 0
-  const latin = text.match(/[a-zA-Z]/g)?.length ?? 0
-
-  if (latin > cyrillic) return 'en'
-
-  // Ukrainian-specific letters: ії єє ґґ
-  const ukSpecific = text.match(/[іїєґІЇЄҐ]/g)?.length ?? 0
-  // Russian-specific letters: ыэёъ
-  const ruSpecific = text.match(/[ыэёъЫЭЁЪ]/g)?.length ?? 0
-
-  if (ukSpecific > ruSpecific) return 'uk'
-  if (ruSpecific > ukSpecific) return 'ru'
-
-  // Default to Ukrainian
-  return 'uk'
-}
+import { synthesize, type SynthesizeOptions } from './tts-providers/index.js'
 
 export function voiceCapabilities(): { stt: boolean; tts: boolean } {
   const env = readEnvFile()
@@ -111,52 +82,16 @@ export async function transcribeAudio(filePath: string): Promise<string> {
   return data.text
 }
 
-export async function synthesizeSpeech(text: string): Promise<string> {
-  const env = readEnvFile()
-  const lang = detectLanguage(text)
-  const voice = env[`TTS_VOICE_${lang.toUpperCase()}`] ?? VOICE_MAP[lang]
-  const outPath = join(UPLOADS_DIR, `tts_${Date.now()}.mp3`)
-
-  // Strip markdown/HTML for cleaner speech
-  const cleanText = text
-    .replace(/```[\s\S]*?```/g, '') // remove code blocks
-    .replace(/`[^`]+`/g, '')        // remove inline code
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links -> text
-    .replace(/<[^>]+>/g, '')        // strip HTML
-    .replace(/[#*_~]+/g, '')        // strip markdown formatting
-    .replace(/\n{2,}/g, '. ')       // paragraph breaks -> pause
-    .replace(/\n/g, ' ')
-    .trim()
-
-  if (!cleanText || cleanText.length < 2) throw new Error('Nothing to synthesize')
-
-  // Limit to ~4000 chars (edge-tts handles long text but let's be safe)
-  const truncated = cleanText.length > 4000 ? cleanText.slice(0, 4000) + '...' : cleanText
-
-  // Write text to temp file to avoid shell escaping issues
-  const textFile = join(UPLOADS_DIR, `tts_text_${Date.now()}.txt`)
-
+/**
+ * Synthesize text to one or more mp3 files. Long texts are split on sentence
+ * boundaries across multiple files — the caller is expected to send each as
+ * a separate voice message.
+ */
+export async function synthesizeSpeech(text: string, opts: SynthesizeOptions = {}): Promise<string[]> {
   try {
-    writeFileSync(textFile, truncated, 'utf-8')
-
-    const rate = env['TTS_RATE'] ?? '+30%'
-    await execFileAsync('edge-tts', [
-      '--voice', voice,
-      '--rate', rate,
-      '-f', textFile,
-      '--write-media', outPath,
-    ], { timeout: 30_000 })
-
-    if (!existsSync(outPath)) {
-      throw new Error('edge-tts produced no output')
-    }
-
-    logger.info({ voice, chars: truncated.length, outPath }, 'Speech synthesized')
-    return outPath
+    return await synthesize(text, opts)
   } catch (err) {
-    logger.error({ err }, 'edge-tts failed')
+    logger.error({ err }, 'TTS failed')
     throw new Error(`TTS failed: ${err instanceof Error ? err.message : String(err)}`)
-  } finally {
-    try { unlinkSync(textFile) } catch { /* ignore */ }
   }
 }

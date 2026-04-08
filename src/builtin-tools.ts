@@ -317,9 +317,12 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
         try {
           await ctx.replyWithChatAction('upload_voice')
           const { synthesizeSpeech } = await import('./voice.js')
-          const audioPath = await synthesizeSpeech(args.text)
-          await ctx.replyWithVoice(new InputFile(audioPath))
-          return { content: [{ type: 'text' as const, text: 'Voice message sent' }] }
+          const audioPaths = await synthesizeSpeech(args.text, { useCase: 'tool' })
+          for (const p of audioPaths) {
+            await ctx.replyWithVoice(new InputFile(p))
+            if (audioPaths.length > 1) await new Promise(res => setTimeout(res, 400))
+          }
+          return { content: [{ type: 'text' as const, text: `Voice message sent (${audioPaths.length} part${audioPaths.length > 1 ? 's' : ''})` }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'TextToSpeech tool failed')
