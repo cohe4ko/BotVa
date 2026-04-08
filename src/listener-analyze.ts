@@ -4,6 +4,8 @@
  */
 
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import { getBackgroundModel, parseModelConfig } from './model.js'
+import { ALLOWED_CHAT_ID } from './config.js'
 
 export interface AnalysisItem {
   text: string
@@ -170,13 +172,17 @@ export async function analyzeTranscript(text: string): Promise<AnalysisResult> {
   if (!cleanedText || cleanedText.length < 5) return { ...EMPTY, summary: '' }
   const prompt = ANALYSIS_PROMPT.replace('{TEXT}', cleanedText)
 
+  // Use the bot's configured background model (admin-set), with -1m suffix handling.
+  const chatId = ALLOWED_CHAT_ID || '0'
+  const { model: sdkModel } = parseModelConfig(getBackgroundModel(chatId))
+
   try {
     let resultText = ''
 
     for await (const event of query({
       prompt: prompt,
       options: {
-        model: 'claude-sonnet-4-20250514',
+        model: sdkModel,
         maxTurns: 1,
       },
     })) {

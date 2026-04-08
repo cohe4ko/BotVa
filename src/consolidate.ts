@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, renameSync, mkdirSync, statSync 
 import { join } from 'path'
 import { BOT_DIR, BOT_NAME, ALLOWED_CHAT_ID } from './config.js'
 import { runAgent } from './agent.js'
+import { getBackgroundModel } from './model.js'
 import { createConsolidationMcpServer } from './builtin-tools.js'
 import { logger } from './logger.js'
 import { memoryDate } from './memory.js'
@@ -249,7 +250,7 @@ ${buildConsolidationRules()}`
   const chatId = ALLOWED_CHAT_ID || '0'
   const { server } = createConsolidationMcpServer(Number(chatId))
 
-  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, getBackgroundModel(chatId), server)
   logger.info({ targetDate, result: result.text?.slice(0, 100) }, 'Daily consolidation done')
 }
 
@@ -309,7 +310,7 @@ ${buildConsolidationRules()}`
   const chatId = ALLOWED_CHAT_ID || '0'
   const { server } = createConsolidationMcpServer(Number(chatId))
 
-  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, getBackgroundModel(chatId), server)
   logger.info({ weekId, result: result.text?.slice(0, 100) }, 'Weekly consolidation done')
 }
 
@@ -336,7 +337,7 @@ async function migrateKeyEvents(): Promise<void> {
 ${buildConsolidationRules()}`
 
   try {
-    await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
+    await runAgent(prompt, undefined, undefined, chatId, undefined, getBackgroundModel(chatId), server)
     renameSync(KEY_EVENTS_PATH, migratedPath)
     logger.info('KEY_EVENTS.md migrated and renamed to .migrated')
   } catch (err) {
@@ -446,7 +447,7 @@ ${buildConsolidationRules()}
 **Відкрите:** Що залишилось (якщо є)`
 
   const { server } = createConsolidationMcpServer(Number(chatId))
-  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, getBackgroundModel(chatId), server)
 
   markSessionConsolidated(oldSessionId, fileSize)
   logger.info({ oldSessionId, result: result.text?.slice(0, 100) }, 'Session consolidation done')
@@ -520,7 +521,7 @@ ${deltaJson}
 ${buildConsolidationRules()}`
 
   const { server } = createConsolidationMcpServer(Number(chatId))
-  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, undefined, server)
+  const result = await runAgent(prompt, undefined, undefined, chatId, undefined, getBackgroundModel(chatId), server)
 
   setMidSessionOffset(sessionId, fileSize)
   logger.info({ sessionId, result: result.text?.slice(0, 100) }, 'Mid-session fact extraction done')

@@ -3,6 +3,7 @@ import { join } from 'path'
 import { createServer as createNetServer, type Server as NetServer } from 'net'
 import { STORE_DIR, TELEGRAM_BOT_TOKEN, TELEGRAPH_ENABLED, BOT_NAME, PROJECT_ROOT, ALLOWED_CHAT_ID } from './config.js'
 import { runAgent } from './agent.js'
+import { getModel, getEffort } from './model.js'
 import { getManagerName } from './team.js'
 import { initDatabase, getChatSetting } from './db.js'
 import { cleanupOldUploads, ensureUploadsDir } from './media.js'
@@ -78,7 +79,25 @@ function startSocketListener(): void {
         }
       }
 
-      runAgent(req.question + antiRecursionNote, sessionId, undefined, 'colleague-' + req.from, onEvent)
+      // Colleague calls use the target bot's CHAT model + effort (same as direct user conversations)
+      const colleagueChatId = ALLOWED_CHAT_ID || '0'
+      const colleagueModel = getModel(colleagueChatId)
+      const colleagueEffort = getEffort(colleagueChatId)
+
+      runAgent(
+        req.question + antiRecursionNote,
+        sessionId,
+        undefined,
+        'colleague-' + req.from,
+        onEvent,
+        colleagueModel,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        colleagueEffort,
+      )
         .then(({ text, newSessionId }) => {
           if (showWork === 'all' || showWork === 'result') {
             const preview = (text ?? '').slice(0, 500)

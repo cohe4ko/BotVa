@@ -1,6 +1,7 @@
 import cronParser from 'cron-parser'
 import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent, markReminderFailed, deleteReminder, advanceReminderNextRun } from './db.js'
 import { runAgent } from './agent.js'
+import { getBackgroundModel } from './model.js'
 import { logger } from './logger.js'
 import { chatT } from './bot-i18n.js'
 import type { Api } from 'grammy'
@@ -67,7 +68,7 @@ async function executeReminderAgent(r: { id: number; chat_id: string; text: stri
     }
     const { text: result } = await runAgent(
       r.text, undefined, undefined, r.chat_id,
-      undefined, undefined, builtinServer, undefined, undefined, []
+      undefined, getBackgroundModel(r.chat_id), builtinServer, undefined, undefined, []
     )
     const output = result ?? '(no response)'
     if (sender && !output.includes('{{agent.crash}}')) {
@@ -159,7 +160,7 @@ export async function runDueTasks(): Promise<void> {
       // Run agent with no external MCP servers (allowList=[]) to save context window
       const { text } = await runAgent(
         task.prompt, undefined, undefined, task.chat_id,
-        undefined, undefined, builtinServer, undefined, undefined, []
+        undefined, getBackgroundModel(task.chat_id), builtinServer, undefined, undefined, []
       )
       let result = text ?? '(no response)'
 
@@ -171,7 +172,7 @@ export async function runDueTasks(): Promise<void> {
         }
         const retry = await runAgent(
           task.prompt, undefined, undefined, task.chat_id,
-          undefined, undefined, builtinServer, undefined, undefined, []
+          undefined, getBackgroundModel(task.chat_id), builtinServer, undefined, undefined, []
         )
         result = retry.text ?? '(no response on retry)'
       }

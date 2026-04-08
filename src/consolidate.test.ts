@@ -21,6 +21,10 @@ vi.mock('./agent.js', () => ({
   runAgent: vi.fn(async () => ({ text: 'ok' })),
 }))
 
+vi.mock('./model.js', () => ({
+  getBackgroundModel: vi.fn(() => 'sonnet'),
+}))
+
 vi.mock('./builtin-tools.js', () => ({
   createConsolidationMcpServer: vi.fn(() => ({ server: {} })),
 }))
