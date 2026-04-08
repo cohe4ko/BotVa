@@ -33,7 +33,7 @@ app.get('/bot/:name/sessions', validateBot, (c) => {
   const diskSessions = listDiskSessions(botDir)
 
   // Disk sessions pagination
-  const diskPage = Math.max(1, parseInt(String(c.req.query('dp') || '1'), 10))
+  const diskPage = Math.max(1, parseInt(String(c.req.query('page') || '1'), 10))
   const totalDiskPages = Math.max(1, Math.ceil(diskSessions.length / DISK_PAGE_SIZE))
   const curDiskPage = Math.min(diskPage, totalDiskPages)
   const diskStart = (curDiskPage - 1) * DISK_PAGE_SIZE
