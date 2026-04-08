@@ -12,6 +12,33 @@ import { getClaudeProjectDir } from './disk-sessions.js'
 import { existsSync, openSync, readSync, closeSync } from 'fs'
 import { join } from 'path'
 
+/**
+ * Strip lone UTF-16 surrogates from a string. Anthropic API rejects bodies
+ * containing unpaired surrogates with "invalid high surrogate in string".
+ * Replaces unpaired code units with U+FFFD.
+ */
+function stripLoneSurrogates(s: string): string {
+  if (!s) return s
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = s.charCodeAt(i + 1)
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += s[i] + s[i + 1]
+        i++
+      } else {
+        out += '\ufffd'
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      out += '\ufffd'
+    } else {
+      out += s[i]
+    }
+  }
+  return out
+}
+
 /** Check session .jsonl file exists and has valid JSON on first line */
 function validateSessionFile(sessionId: string): boolean {
   try {
@@ -199,7 +226,7 @@ async function runAgentOnce(
     const { model: baseModel } = model ? parseModelConfig(model) : { model: undefined as string | undefined }
 
     const conversation = query({
-      prompt: message,
+      prompt: stripLoneSurrogates(message),
       options: {
         cwd: BOT_DIR,
         permissionMode: 'bypassPermissions' as any,
