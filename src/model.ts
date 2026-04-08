@@ -14,10 +14,16 @@ export const MODELS: ModelInfo[] = [
   { id: 'haiku', label: 'Haiku', description: 'Fast & light' },
 ]
 
-const DEFAULT_MODEL = 'sonnet'
+export const EFFORTS = ['low', 'medium', 'high', 'max'] as const
+export type Effort = typeof EFFORTS[number]
 
-// In-memory cache for fast access during agent calls
+const DEFAULT_MODEL = 'sonnet'
+const DEFAULT_BACKGROUND_MODEL = 'sonnet'
+
+// In-memory caches for fast access during agent calls
 const chatModels = new Map<string, string>()
+const chatBackgroundModels = new Map<string, string>()
+const chatEfforts = new Map<string, string>()
 
 export function getModel(chatId: string): string {
   let model = chatModels.get(chatId)
@@ -33,6 +39,42 @@ export function setModel(chatId: string, model: string): void {
   setChatSetting(chatId, 'model', model)
 }
 
+/**
+ * Background model — used by memory consolidation, scheduler, listener analysis,
+ * and other non-interactive service calls. Set only via admin UI (no /model command).
+ */
+export function getBackgroundModel(chatId: string): string {
+  let model = chatBackgroundModels.get(chatId)
+  if (!model) {
+    model = getChatSetting(chatId, 'background_model') ?? DEFAULT_BACKGROUND_MODEL
+    chatBackgroundModels.set(chatId, model)
+  }
+  return model
+}
+
+export function setBackgroundModel(chatId: string, model: string): void {
+  chatBackgroundModels.set(chatId, model)
+  setChatSetting(chatId, 'background_model', model)
+}
+
+/**
+ * Reasoning effort — only for main user chat, not background tasks.
+ * Returns undefined when unset, letting SDK apply its adaptive default.
+ */
+export function getEffort(chatId: string): Effort | undefined {
+  let cached = chatEfforts.get(chatId)
+  if (cached === undefined) {
+    cached = getChatSetting(chatId, 'effort') ?? ''
+    chatEfforts.set(chatId, cached)
+  }
+  return (EFFORTS as readonly string[]).includes(cached) ? (cached as Effort) : undefined
+}
+
+export function setEffort(chatId: string, effort: Effort | ''): void {
+  chatEfforts.set(chatId, effort)
+  setChatSetting(chatId, 'effort', effort)
+}
+
 export function getModelLabel(modelId: string): string {
   return MODELS.find(m => m.id === modelId)?.label ?? modelId
 }
@@ -43,11 +85,4 @@ export function parseModelConfig(modelId: string): { model: string; use1m: boole
     return { model: modelId.replace('-1m', '') + '[1m]', use1m: true }
   }
   return { model: modelId, use1m: false }
-}
-
-export function getTemperature(chatId: string): number | undefined {
-  const val = getChatSetting(chatId, 'temperature')
-  if (val === undefined) return undefined
-  const num = parseFloat(val)
-  return isNaN(num) ? undefined : num
 }

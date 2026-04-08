@@ -58,7 +58,8 @@ async function runAgentOnce(
   permissionMode?: string,
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
   mcpAllowList?: string[],
-  agents?: Record<string, AgentDefinition>
+  agents?: Record<string, AgentDefinition>,
+  effort?: 'low' | 'medium' | 'high' | 'max'
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -104,7 +105,7 @@ async function runAgentOnce(
       }
     }
 
-    logger.debug({ chatId, model, sessionId: sessionId?.slice(0, 8) }, 'Starting agent query')
+    logger.debug({ chatId, model, effort, sessionId: sessionId?.slice(0, 8) }, 'Starting agent query')
 
     // Plan mode: research & analyze freely, block destructive/modifying operations.
     // Like Claude Code /plan — agent reads, searches, saves facts, sends plan to user.
@@ -212,6 +213,7 @@ async function runAgentOnce(
         ...debateHooks,
         ...permissionHooks,
         ...(baseModel ? { model: baseModel } : {}),
+        ...(effort ? { effort } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
         ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),
       },
@@ -291,7 +293,7 @@ async function runAgentOnce(
 
         const modelIds = Object.keys(event.modelUsage)
         if (modelIds.length > 0) {
-          logger.info({ chatId, requestedModel: model, actualModels: modelIds }, 'Agent completed with models')
+          logger.info({ chatId, requestedModel: model, requestedEffort: effort, actualModels: modelIds }, 'Agent completed with models')
         }
         const models = Object.values(event.modelUsage)
         if (models.length > 0) {
@@ -375,7 +377,8 @@ export async function runAgent(
   permissionMode?: string,
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
   mcpAllowList?: string[],
-  agents?: Record<string, AgentDefinition>
+  agents?: Record<string, AgentDefinition>,
+  effort?: 'low' | 'medium' | 'high' | 'max'
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
@@ -391,7 +394,7 @@ export async function runAgent(
     }
   }
 
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -399,7 +402,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }

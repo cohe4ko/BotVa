@@ -5,7 +5,18 @@ vi.mock('./db.js', () => ({
   setChatSetting: vi.fn(),
 }))
 
-import { getModelLabel, getModel, setModel, getTemperature, parseModelConfig, MODELS } from './model.js'
+import {
+  getModelLabel,
+  getModel,
+  setModel,
+  getBackgroundModel,
+  setBackgroundModel,
+  getEffort,
+  setEffort,
+  parseModelConfig,
+  MODELS,
+  EFFORTS,
+} from './model.js'
 import { getChatSetting, setChatSetting } from './db.js'
 
 describe('getModelLabel', () => {
@@ -66,23 +77,84 @@ describe('getModel', () => {
   })
 })
 
-describe('getTemperature', () => {
+describe('getBackgroundModel', () => {
+  beforeEach(() => {
+    vi.mocked(getChatSetting).mockReset()
+  })
+
+  it('returns default "sonnet" when no setting', () => {
+    vi.mocked(getChatSetting).mockReturnValue(undefined)
+    expect(getBackgroundModel('bg-no-setting')).toBe('sonnet')
+  })
+
+  it('returns stored background model from DB', () => {
+    vi.mocked(getChatSetting).mockImplementation((_chatId, key) =>
+      key === 'background_model' ? 'haiku' : undefined,
+    )
+    expect(getBackgroundModel('bg-haiku-chat')).toBe('haiku')
+  })
+
+  it('caches the value after first read', () => {
+    vi.mocked(getChatSetting).mockReturnValueOnce('opus')
+    expect(getBackgroundModel('bg-cache-chat')).toBe('opus')
+    // Subsequent calls should use cache even if DB is reset
+    vi.mocked(getChatSetting).mockReturnValue(undefined)
+    expect(getBackgroundModel('bg-cache-chat')).toBe('opus')
+  })
+})
+
+describe('setBackgroundModel', () => {
+  beforeEach(() => {
+    vi.mocked(setChatSetting).mockReset()
+  })
+
+  it('persists to DB and updates cache', () => {
+    setBackgroundModel('bg-set-chat', 'opus-1m')
+    expect(setChatSetting).toHaveBeenCalledWith('bg-set-chat', 'background_model', 'opus-1m')
+    expect(getBackgroundModel('bg-set-chat')).toBe('opus-1m')
+  })
+})
+
+describe('getEffort', () => {
   beforeEach(() => {
     vi.mocked(getChatSetting).mockReset()
   })
 
   it('returns undefined when no setting', () => {
     vi.mocked(getChatSetting).mockReturnValue(undefined)
-    expect(getTemperature('chat1')).toBeUndefined()
+    expect(getEffort('eff-no-setting')).toBeUndefined()
   })
 
-  it('returns parsed number', () => {
-    vi.mocked(getChatSetting).mockReturnValue('0.7')
-    expect(getTemperature('chat2')).toBe(0.7)
+  it('returns undefined for empty string (explicit "use SDK default")', () => {
+    vi.mocked(getChatSetting).mockReturnValue('')
+    expect(getEffort('eff-empty')).toBeUndefined()
   })
 
-  it('returns undefined for non-numeric value', () => {
-    vi.mocked(getChatSetting).mockReturnValue('abc')
-    expect(getTemperature('chat3')).toBeUndefined()
+  it('returns valid effort levels', () => {
+    for (const level of EFFORTS) {
+      vi.mocked(getChatSetting).mockReturnValue(level)
+      expect(getEffort(`eff-${level}`)).toBe(level)
+    }
+  })
+
+  it('returns undefined for invalid value', () => {
+    vi.mocked(getChatSetting).mockReturnValue('turbo')
+    expect(getEffort('eff-invalid')).toBeUndefined()
+  })
+})
+
+describe('setEffort', () => {
+  beforeEach(() => {
+    vi.mocked(setChatSetting).mockReset()
+  })
+
+  it('persists effort level to DB', () => {
+    setEffort('eff-set-high', 'high')
+    expect(setChatSetting).toHaveBeenCalledWith('eff-set-high', 'effort', 'high')
+  })
+
+  it('persists empty string to clear effort', () => {
+    setEffort('eff-set-clear', '')
+    expect(setChatSetting).toHaveBeenCalledWith('eff-set-clear', 'effort', '')
   })
 })
