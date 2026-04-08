@@ -3,7 +3,7 @@ import { html } from 'hono/html'
 import { randomUUID } from 'crypto'
 import { layout, botNav } from '../views/layout.js'
 import { alert, formatTs, taskStatusBadge, truncate } from '../views/components.js'
-import { getTasks, getTask, createTask, updateTask, deleteTask, pauseTask, resumeTask, getReminders, createReminder, deleteReminder } from '../db-multi.js'
+import { getTasks, getTask, createTask, updateTask, deleteTask, pauseTask, resumeTask, getReminders, createReminder, updateReminder, deleteReminder } from '../db-multi.js'
 import { validateBot, botName } from '../bot-middleware.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 
@@ -31,7 +31,7 @@ app.get('/bot/:name/tasks', validateBot, (c) => {
       <summary><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('tasks.newReminder')}</summary>
       <form hx-post="/bot/${name}/reminders" hx-target="#reminder-alerts" hx-swap="innerHTML">
         <label>${t('tasks.chatId')}<input type="text" name="chat_id" required placeholder="${t('tasks.chatIdPlaceholder')}"></label>
-        <label style="margin-top:0.5rem">${t('tasks.text')}<input type="text" name="text" required placeholder="${t('tasks.textPlaceholder')}"></label>
+        <label style="margin-top:0.5rem">${t('tasks.text')}<textarea name="text" rows="3" required placeholder="${t('tasks.textPlaceholder')}"></textarea></label>
         <label style="margin-top:0.5rem">${t('tasks.when')}<input type="datetime-local" name="remind_at" required></label>
         <button type="submit" style="margin-top:0.75rem"><i data-lucide="plus" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('tasks.create')}</button>
       </form>
@@ -41,17 +41,37 @@ app.get('/bot/:name/tasks', validateBot, (c) => {
       : html`
         <div class="table-wrap" style="margin-bottom:2rem">
           <table>
-            <thead><tr><th style="width:50px">ID</th><th>${t('tasks.text')}</th><th style="width:140px">${t('tasks.when')}</th><th style="width:140px" class="hide-mobile">${t('common.created')}</th><th style="width:60px"></th></tr></thead>
+            <thead><tr><th style="width:50px">ID</th><th>${t('tasks.text')}</th><th style="width:140px">${t('tasks.when')}</th><th style="width:140px" class="hide-mobile">${t('common.created')}</th><th style="width:90px"></th></tr></thead>
             <tbody>
-              ${reminders.map(r => html`
+              ${reminders.map(r => {
+                const d = new Date(r.remind_at * 1000)
+                const pad = (n: number) => String(n).padStart(2, '0')
+                const remindLocal = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                return html`
                 <tr id="reminder-${r.id}">
                   <td><small>#${r.id}</small></td>
                   <td style="font-size:0.78rem">${truncate(r.text, 80)}</td>
                   <td class="ts-cell">${formatTs(r.remind_at)}</td>
                   <td class="ts-cell hide-mobile">${formatTs(r.created_at)}</td>
-                  <td><button hx-delete="/bot/${name}/reminders/${r.id}" hx-target="#reminder-${r.id}" hx-swap="outerHTML" hx-confirm="${t('tasks.reminderDeleteConfirm')}" class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button></td>
+                  <td><div class="btn-group">
+                    <button type="button" onclick="document.getElementById('reminder-edit-${r.id}').toggleAttribute('hidden')" class="outline btn-sm" title="${t('tasks.edit')}"><i data-lucide="pencil" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button>
+                    <button hx-delete="/bot/${name}/reminders/${r.id}" hx-target="#reminder-${r.id}" hx-swap="outerHTML" hx-confirm="${t('tasks.reminderDeleteConfirm')}" class="danger btn-sm"><i data-lucide="trash-2" style="width:12px;height:12px;display:inline-block;vertical-align:middle"></i></button>
+                  </div></td>
                 </tr>
-              `)}
+                <tr hidden id="reminder-edit-${r.id}">
+                  <td colspan="5" style="padding:0.75rem 1rem;background:var(--mc-bg-dim,#f8f9fa)">
+                    <form hx-put="/bot/${name}/reminders/${r.id}" hx-target="#reminder-alerts" hx-swap="innerHTML">
+                      <label>${t('tasks.chatId')}<input type="text" name="chat_id" value="${r.chat_id}" required></label>
+                      <label style="margin-top:0.5rem">${t('tasks.text')}<textarea name="text" rows="3" required>${r.text}</textarea></label>
+                      <label style="margin-top:0.5rem">${t('tasks.when')}<input type="datetime-local" name="remind_at" value="${remindLocal}" required></label>
+                      <div class="btn-group" style="margin-top:0.5rem">
+                        <button type="submit"><i data-lucide="save" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('tasks.update')}</button>
+                        <button type="button" class="outline" onclick="document.getElementById('reminder-edit-${r.id}').setAttribute('hidden','')"><i data-lucide="x" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('common.cancel')}</button>
+                      </div>
+                    </form>
+                  </td>
+                </tr>
+              `})}
             </tbody>
           </table>
         </div>
@@ -109,7 +129,8 @@ app.get('/bot/:name/tasks', validateBot, (c) => {
                 <tr hidden id="edit-${task.id}">
                   <td colspan="7" style="padding:0.75rem 1rem;background:var(--mc-bg-dim,#f8f9fa)">
                     <form hx-put="/bot/${name}/tasks/${task.id}" hx-target="#task-alerts" hx-swap="innerHTML">
-                      <label>${t('tasks.prompt')}<textarea name="prompt" rows="3">${task.prompt}</textarea></label>
+                      <label>${t('tasks.chatId')}<input type="text" name="chat_id" value="${task.chat_id}" required></label>
+                      <label style="margin-top:0.5rem">${t('tasks.prompt')}<textarea name="prompt" rows="3">${task.prompt}</textarea></label>
                       <label style="margin-top:0.5rem">${t('tasks.schedule')}<input type="text" name="schedule" value="${task.schedule}"></label>
                       <div class="btn-group" style="margin-top:0.5rem">
                         <button type="submit"><i data-lucide="save" style="width:13px;height:13px;display:inline-block;vertical-align:middle"></i> ${t('tasks.update')}</button>
@@ -156,16 +177,38 @@ app.put('/bot/:name/tasks/:id', validateBot, async (c) => {
   const name = botName(c)
   const id = c.req.param('id')!
   const body = await c.req.parseBody()
+  const chatId = String(body['chat_id'] ?? '').trim()
   const prompt = String(body['prompt'] ?? '').trim()
   const schedule = String(body['schedule'] ?? '').trim()
-  if (!prompt || !schedule) return c.html(alert('error', t('tasks.allRequired')))
+  if (!chatId || !prompt || !schedule) return c.html(alert('error', t('tasks.allRequired')))
   try {
     const { parseExpression } = await import('cron-parser')
-    parseExpression(schedule) // validate
-    const updated = updateTask(name, id, prompt, schedule)
+    const nextRun = Math.floor(parseExpression(schedule).next().getTime() / 1000)
+    const updated = updateTask(name, id, chatId, prompt, schedule, nextRun)
     if (!updated) return c.html(alert('error', t('tasks.notFound')))
     return c.html(alert('success', t('tasks.updated', { id: id.slice(0, 8) })))
   } catch { return c.html(alert('error', t('tasks.invalidCron', { schedule }))) }
+})
+
+app.put('/bot/:name/reminders/:id', validateBot, async (c) => {
+  const t: TFunc = c.get('t')
+  const name = botName(c)
+  const id = parseInt(c.req.param('id')!, 10)
+  const body = await c.req.parseBody()
+  const chatId = String(body['chat_id'] ?? '').trim()
+  const text = String(body['text'] ?? '').trim()
+  const remindAtStr = String(body['remind_at'] ?? '').trim()
+  if (!chatId || !text || !remindAtStr) return c.html(alert('error', t('tasks.allFieldsRequired')))
+  const remindAt = Math.floor(new Date(remindAtStr).getTime() / 1000)
+  if (isNaN(remindAt) || remindAt <= 0) return c.html(alert('error', t('tasks.invalidDate')))
+  try {
+    const updated = updateReminder(name, id, chatId, text, remindAt)
+    if (!updated) return c.html(alert('error', t('tasks.reminderNotFound')))
+    return c.html(alert('success', t('tasks.reminderUpdated', { id: String(id) })))
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return c.html(alert('error', msg))
+  }
 })
 
 app.post('/bot/:name/reminders', validateBot, async (c) => {

@@ -169,9 +169,9 @@ export function createTask(bot: BotName, id: string, chatId: string, prompt: str
   ).run(id, chatId, prompt, schedule, nextRun, 'active', now)
 }
 
-export function updateTask(bot: BotName, id: string, prompt: string, schedule: string): boolean {
-  const r = getBotDb(bot).prepare('UPDATE scheduled_tasks SET prompt = ?, schedule = ? WHERE id = ?')
-    .run(prompt, schedule, id)
+export function updateTask(bot: BotName, id: string, chatId: string, prompt: string, schedule: string, nextRun: number): boolean {
+  const r = getBotDb(bot).prepare('UPDATE scheduled_tasks SET chat_id = ?, prompt = ?, schedule = ?, next_run = ? WHERE id = ?')
+    .run(chatId, prompt, schedule, nextRun, id)
   return r.changes > 0
 }
 
@@ -220,6 +220,12 @@ export function createReminder(bot: BotName, chatId: string, text: string, remin
     'INSERT INTO reminders (chat_id, text, remind_at, created_at, run_agent, schedule) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(chatId, text, remindAt, now, runAgent ? 1 : 0, schedule)
   return Number((result as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+}
+
+export function updateReminder(bot: BotName, id: number, chatId: string, text: string, remindAt: number): boolean {
+  const r = getBotDb(bot).prepare('UPDATE reminders SET chat_id = ?, text = ?, remind_at = ? WHERE id = ?')
+    .run(chatId, text, remindAt, id)
+  return r.changes > 0
 }
 
 export function deleteReminder(bot: BotName, id: number): boolean {
