@@ -306,9 +306,9 @@ const translations: Record<BotLang, Record<string, string>> = {
 
     // Restart / Update
     'cmd.restart': '🔄 Restarting in 5s...',
-    'cmd.update.start': '🔄 Updating...\n\n`git pull`...',
+    'cmd.update.start': '🔄 Updating...\n\n`git pull --ff-only`...',
     'cmd.update.upToDate': '✅ Already up to date.',
-    'cmd.update.building': '🔄 Updating...\n\n`git pull` ✓\n`npm run build`...',
+    'cmd.update.building': '🔄 Updating...\n\n`git pull` ✓\n`deploy.sh build`...',
     'cmd.update.done': '✅ Updated!\n\n```\n{result}\n```\n\nRestarting...',
     'cmd.update.failed': '❌ Update failed:\n\n```\n{error}\n```',
 
@@ -636,9 +636,9 @@ const translations: Record<BotLang, Record<string, string>> = {
 
     // Restart / Update
     'cmd.restart': '🔄 Перезапуск через 5с...',
-    'cmd.update.start': '🔄 Оновлення...\n\n`git pull`...',
+    'cmd.update.start': '🔄 Оновлення...\n\n`git pull --ff-only`...',
     'cmd.update.upToDate': '✅ Вже актуальна версія.',
-    'cmd.update.building': '🔄 Оновлення...\n\n`git pull` ✓\n`npm run build`...',
+    'cmd.update.building': '🔄 Оновлення...\n\n`git pull` ✓\n`deploy.sh build`...',
     'cmd.update.done': '✅ Оновлено!\n\n```\n{result}\n```\n\nПерезапуск...',
     'cmd.update.failed': '❌ Помилка оновлення:\n\n```\n{error}\n```',
 
