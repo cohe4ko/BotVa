@@ -145,12 +145,13 @@ export function buildProjectsMessage(chatId: string, page = 0) {
   }
 
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
-  // Project buttons — 2 per row
+  // Project buttons — 2 per row. Use index-based callback_data to stay under
+  // Telegram's 64-byte callback_data limit (raw project keys can exceed it).
   for (let i = 0; i < pageProjects.length; i += 2) {
     const row: Array<{ text: string; callback_data: string }> = []
-    row.push({ text: `📁 ${pageProjects[i].label}`, callback_data: `ses:proj:${pageProjects[i].key}:0` })
+    row.push({ text: `📁 ${pageProjects[i].label}`, callback_data: `ses:pidx:${safePage}:${i}:0` })
     if (i + 1 < pageProjects.length) {
-      row.push({ text: `📁 ${pageProjects[i + 1].label}`, callback_data: `ses:proj:${pageProjects[i + 1].key}:0` })
+      row.push({ text: `📁 ${pageProjects[i + 1].label}`, callback_data: `ses:pidx:${safePage}:${i + 1}:0` })
     }
     keyboard.push(row)
   }
@@ -166,7 +167,13 @@ export function buildProjectsMessage(chatId: string, page = 0) {
 }
 
 /** Build sessions list for a specific project (level 2) */
-export function buildSessionMessage(chatId: string, projectKey: string, page = 0) {
+export function buildSessionMessage(
+  chatId: string,
+  projectKey: string,
+  page: number,
+  projectsPage: number,
+  idxOnPage: number,
+) {
   const t = chatT(chatId)
   const currentSessionId = getSession(chatId)
   const allSessions = listDiskSessionsByKey(projectKey)
@@ -211,11 +218,11 @@ export function buildSessionMessage(chatId: string, projectKey: string, page = 0
     ])
   }
 
-  // Navigation
+  // Navigation. Use index-based callbacks to stay under Telegram's 64-byte limit.
   const navRow: Array<{ text: string; callback_data: string }> = []
-  if (safePage > 0) navRow.push({ text: '◀️', callback_data: `ses:proj:${projectKey}:${safePage - 1}` })
-  navRow.push({ text: '← back', callback_data: 'ses:projects:0' })
-  if (safePage < totalPages - 1) navRow.push({ text: '▶️', callback_data: `ses:proj:${projectKey}:${safePage + 1}` })
+  if (safePage > 0) navRow.push({ text: '◀️', callback_data: `ses:pidx:${projectsPage}:${idxOnPage}:${safePage - 1}` })
+  navRow.push({ text: '← back', callback_data: `ses:projects:${projectsPage}` })
+  if (safePage < totalPages - 1) navRow.push({ text: '▶️', callback_data: `ses:pidx:${projectsPage}:${idxOnPage}:${safePage + 1}` })
   keyboard.push(navRow)
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
@@ -357,14 +364,22 @@ export async function handleSessionCallback(ctx: Context, chatIdStr: string, act
     return
   }
 
-  // Open project sessions: ses:proj:<key>:<page>
-  if (action.startsWith('proj:')) {
-    const parts = action.slice(5) // remove 'proj:'
-    const lastColon = parts.lastIndexOf(':')
-    const projectKey = parts.slice(0, lastColon)
-    const page = parseInt(parts.slice(lastColon + 1), 10) || 0
+  // Open project sessions (index-based): ses:pidx:<projectsPage>:<idxOnPage>:<sessionsPage>
+  if (action.startsWith('pidx:')) {
+    const [, projectsPageStr, idxStr, sessionsPageStr] = action.split(':')
+    const projectsPage = parseInt(projectsPageStr, 10) || 0
+    const idxOnPage = parseInt(idxStr, 10) || 0
+    const sessionsPage = parseInt(sessionsPageStr, 10) || 0
+    const projects = listClaudeProjects()
+    const proj = projects[projectsPage * PROJECTS_PER_PAGE + idxOnPage]
+    if (!proj) {
+      await ctx.answerCallbackQuery({ text: _t('cmd.session.empty'), show_alert: false })
+      const { text, reply_markup } = buildProjectsMessage(chatIdStr, 0)
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
+      return
+    }
     await ctx.answerCallbackQuery()
-    const { text, reply_markup } = buildSessionMessage(chatIdStr, projectKey, page)
+    const { text, reply_markup } = buildSessionMessage(chatIdStr, proj.key, sessionsPage, projectsPage, idxOnPage)
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup })
     return
   }
