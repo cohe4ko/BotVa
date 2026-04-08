@@ -208,9 +208,6 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Consolidation
     'consolidate.done': '🧠 Memory consolidation for {date} complete.',
 
-    // Auth
-    'auth.tokenExpired': '⚠️ Claude CLI token expired and auto-refresh failed.\n\nBots cannot process requests.\n\n👉 Open admin panel → <b>Terminal</b> and follow the login prompts.',
-
     // Settings
     'cmd.settings.title': 'Settings',
     'settings.voice.on': '🗣 Voice: ON',
@@ -537,9 +534,6 @@ const translations: Record<BotLang, Record<string, string>> = {
 
     // Consolidation
     'consolidate.done': '🧠 Консолідація пам\'яті за {date} завершена.',
-
-    // Auth
-    'auth.tokenExpired': '⚠️ Claude CLI токен протух і автоматичне оновлення не вдалося.\n\nБоти не можуть обробляти запити.\n\n👉 Відкрийте адмінку → <b>Термінал</b> і пройдіть логін.',
 
     // Settings
     'cmd.settings.title': 'Налаштування',
