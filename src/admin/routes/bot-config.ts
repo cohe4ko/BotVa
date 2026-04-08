@@ -66,19 +66,22 @@ function getModelLabels(t: TFunc) {
 }
 
 const MODEL_IDS = ['opus-1m', 'opus', 'sonnet-1m', 'sonnet', 'haiku']
+const EFFORT_IDS = ['', 'low', 'medium', 'high', 'max']
 
-function getAgentSettings(name: string): { model: string; temperature: string } {
+function getAgentSettings(name: string): { model: string; backgroundModel: string; effort: string } {
   try {
     const settings = getSettings(name)
     const chatId = readEnv(name)['ALLOWED_CHAT_ID'] ?? ''
     const modelSetting = settings.find(s => s.key === 'model' && s.chat_id === chatId)
-    const tempSetting = settings.find(s => s.key === 'temperature' && s.chat_id === chatId)
+    const bgModelSetting = settings.find(s => s.key === 'background_model' && s.chat_id === chatId)
+    const effortSetting = settings.find(s => s.key === 'effort' && s.chat_id === chatId)
     return {
       model: modelSetting?.value ?? 'sonnet',
-      temperature: tempSetting?.value ?? '1',
+      backgroundModel: bgModelSetting?.value ?? 'sonnet',
+      effort: effortSetting?.value ?? '',
     }
   } catch {
-    return { model: 'sonnet', temperature: '1' }
+    return { model: 'sonnet', backgroundModel: 'sonnet', effort: '' }
   }
 }
 
@@ -102,18 +105,47 @@ app.get('/bot/:name/config', validateBot, (c) => {
     <form class="form-section" hx-post="/bot/${name}/config/agent" hx-target="#config-alerts" hx-swap="innerHTML">
       <div class="grid">
         <label>${t('config.model')}
-          <select name="model">
+          <select name="model" id="chat-model-select">
             ${MODELS.map(m => html`<option value="${m.id}" ${m.id === agentSettings.model ? 'selected' : ''}>${m.label}</option>`)}
           </select>
+          <small>${t('config.modelHint')}</small>
         </label>
-        <label>${t('config.temperature')}: <output id="temp-val">${agentSettings.temperature}</output>
-          <input type="range" name="temperature" min="0" max="1" step="0.1" value="${agentSettings.temperature}"
-            oninput="document.getElementById('temp-val').textContent=this.value">
-          <small>${t('config.tempStrict')}<br>${t('config.tempBalanced')}<br>${t('config.tempCreative')}<br>${t('config.tempMax')}</small>
+        <label>${t('config.effort')}
+          <select name="effort" id="chat-effort-select">
+            <option value="" ${agentSettings.effort === '' ? 'selected' : ''}>${t('config.effortDefault')}</option>
+            <option value="low" ${agentSettings.effort === 'low' ? 'selected' : ''}>${t('config.effortLow')}</option>
+            <option value="medium" ${agentSettings.effort === 'medium' ? 'selected' : ''}>${t('config.effortMedium')}</option>
+            <option value="high" ${agentSettings.effort === 'high' ? 'selected' : ''}>${t('config.effortHigh')}</option>
+            <option value="max" ${agentSettings.effort === 'max' ? 'selected' : ''} data-opus-only>${t('config.effortMax')}</option>
+          </select>
+          <small>${t('config.effortHint')}</small>
+        </label>
+        <label>${t('config.backgroundModel')}
+          <select name="background_model">
+            ${MODELS.map(m => html`<option value="${m.id}" ${m.id === agentSettings.backgroundModel ? 'selected' : ''}>${m.label}</option>`)}
+          </select>
+          <small>${t('config.backgroundModelHint')}</small>
         </label>
       </div>
       <button type="submit">${icon('save', 13)} ${t('config.saveAgent')}</button>
     </form>
+    <script>
+    (function() {
+      const modelSel = document.getElementById('chat-model-select');
+      const effortSel = document.getElementById('chat-effort-select');
+      if (!modelSel || !effortSel) return;
+      function syncMax() {
+        const isOpus = modelSel.value.indexOf('opus') === 0;
+        const maxOpt = effortSel.querySelector('option[data-opus-only]');
+        if (!maxOpt) return;
+        maxOpt.hidden = !isOpus;
+        maxOpt.disabled = !isOpus;
+        if (!isOpus && effortSel.value === 'max') effortSel.value = 'high';
+      }
+      modelSel.addEventListener('change', syncMax);
+      syncMax();
+    })();
+    </script>
 
     <h3 class="section-title">${icon('file-key')} ${t('config.environment')}</h3>
     <form class="form-section" hx-post="/bot/${name}/config/env" hx-target="#config-alerts" hx-swap="innerHTML">
@@ -316,7 +348,8 @@ app.post('/bot/:name/config/agent', validateBot, async (c) => {
   const name = botName(c)
   const body = await c.req.parseBody()
   const model = String(body['model'] ?? 'sonnet')
-  const temperature = String(body['temperature'] ?? '1')
+  const backgroundModel = String(body['background_model'] ?? 'sonnet')
+  const effort = String(body['effort'] ?? '')
   const chatId = readEnv(name)['ALLOWED_CHAT_ID'] ?? ''
   if (!chatId) {
     return c.html(alert('warning', t('config.noChatId')))
@@ -324,17 +357,24 @@ app.post('/bot/:name/config/agent', validateBot, async (c) => {
   if (!MODEL_IDS.includes(model)) {
     return c.html(alert('error', t('config.invalidModel')))
   }
-  const temp = parseFloat(temperature)
-  if (isNaN(temp) || temp < 0 || temp > 1) {
-    return c.html(alert('error', t('config.tempRange')))
+  if (!MODEL_IDS.includes(backgroundModel)) {
+    return c.html(alert('error', t('config.invalidModel')))
+  }
+  if (!EFFORT_IDS.includes(effort)) {
+    return c.html(alert('error', t('config.invalidEffort')))
+  }
+  // Server-side safeguard: effort=max only for Opus
+  if (effort === 'max' && !model.startsWith('opus')) {
+    return c.html(alert('error', t('config.effortMaxOpusOnly')))
   }
   try {
     upsertSetting(name, chatId, 'model', model)
-    upsertSetting(name, chatId, 'temperature', temperature)
+    upsertSetting(name, chatId, 'background_model', backgroundModel)
+    upsertSetting(name, chatId, 'effort', effort)
   } catch {
     return c.html(alert('warning', t('config.noDb')))
   }
-  return c.html(alert('success', t('config.agentSaved', { model, temperature })))
+  return c.html(alert('success', t('config.agentSaved', { model, backgroundModel, effort: effort || 'default' })))
 })
 
 app.post('/bot/:name/config/env', validateBot, async (c) => {
