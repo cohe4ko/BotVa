@@ -230,6 +230,40 @@ describe('myFunction', () => {
 })
 ```
 
+## Збірка і застосування змін (deploy)
+
+Node ESM **не підтримує hot-reload**. Після правки `src/` модулі в живому процесі бота не оновлюються — процес має бути перезапущений атомарно з ребілдом.
+
+### 🔒 Правило
+
+**У цьому проекті збирати код дозволено виключно через `scripts/deploy.sh`. Голий `npm run build` / `tsc` / `npx tsc` — заборонено.**
+
+Дозволені команди:
+
+| Команда | Коли |
+|---|---|
+| `scripts/deploy.sh restart` | щоденна ітерація — рестартить всі боти з ребілдом |
+| `scripts/deploy.sh build` | перед push / релізом — повноцінний білд з бекапом, timestamp'ом, rollback'ом; окремо від restart якщо треба лише валідувати збірку |
+| `npm run typecheck` | тільки перевірка типів (`tsc --noEmit`) — нічого не міняє в `dist/`, безпечно |
+| `npm test` | тести (`vitest run`) — не чіпає `dist/` |
+
+**Заборонено** (ніколи):
+
+- `npm run build`, `tsc`, `npx tsc`, `yarn build` — породжує розсинхронізацію `dist/` ↔ живий процес
+- ручне редагування `dist/`
+- `node dist/index.js` напряму — обходить `start-bot-safe.sh` (watchdog, crash rollback, probation window)
+
+### Чому це критично
+
+Якщо `dist/` оновлений, а процес не перезапущений, виникає **розбіжність версій модулів усередині одного процесу**: статично імпортовані на старті модулі лишаються в ESM кеші старими, а динамічні `await import('./foo.js')` підтягнуть нову версію. Перший же імпорт нового файлу, що посилається на новий експорт зі старого-кешованого модуля, впаде з `SyntaxError: The requested module './X.js' does not provide an export named 'Y'`. Реальний кейс — `botva-cap` (8 квітня 2026): `getBackgroundModel` додали в `model.ts`, `dist/` перебудували голим `npm run build`, бота не перезапустили — approve/reject листер-фактів перестав працювати, доки процес не підняли заново.
+
+### Рестарт тільки одного бота
+
+`deploy.sh restart` піднімає ВСІ боти з `BOTS` масиву. Щоб рестартувати лише один (наприклад `cap`):
+
+- найпростіше — надіслати `/restart` цьому боту в Telegram (команда у `src/bot.ts:1439`, робить `process.exit(42)`, `start-bot-safe.sh` розпізнає як requested restart і ребілдить при старті),
+- або `kill <wrapper_pid>` + `bash scripts/start-bot-safe.sh <bot> &` вручну (wrapper PID — у `bots/<name>/store/wrapper.pid`).
+
 ## Архітектура даних
 
 **КОД (git tracked):**

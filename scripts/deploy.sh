@@ -399,7 +399,15 @@ do_admin() {
 
 do_start() {
   echo -e "${BOLD}Starting BotVa...${NC}"
-  npm run build 2>/dev/null || true
+
+  # Full-fidelity build with backup/timestamp/rollback — NOT the old silent
+  # `npm run build 2>/dev/null || true`. If compilation fails, do_build logs
+  # the error, rolls back to dist.prev/, and returns non-zero → we abort the
+  # start instead of silently launching stale or half-built code.
+  if ! do_build; then
+    err "Aborting start: build failed (see output above). Running bots left untouched."
+    return 1
+  fi
 
   # No bots yet — launch admin panel for initial setup
   if [ ${#BOTS[@]} -eq 0 ]; then
