@@ -28,6 +28,7 @@ import {
   readFileSync,
   readdirSync,
   unlinkSync,
+  statSync,
 } from "fs";
 import { join, extname } from "path";
 import { tmpdir } from "os";
@@ -495,7 +496,6 @@ function convertWavToOgg(wavPath: string): string | null {
     ], { timeout: 120_000, stdio: "pipe" });
 
     unlinkSync(wavPath);
-    const { statSync } = require("fs");
     const oggSize = (statSync(oggPath).size / 1024).toFixed(0);
     console.log(`[${timestamp()}] Converted WAV → OGG (${oggSize} KB), deleted WAV`);
     return oggPath;
