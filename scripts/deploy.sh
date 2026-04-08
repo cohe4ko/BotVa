@@ -288,6 +288,18 @@ do_setup() {
 do_build() {
   echo "Building TypeScript..."
 
+  # Ensure node_modules is in sync with package.json.
+  # If package.json is newer than the install marker (or marker missing),
+  # run npm install so newly added deps are available before tsc runs.
+  local install_marker="node_modules/.package-lock.json"
+  if [ ! -f "$install_marker" ] || [ package.json -nt "$install_marker" ] || [ package-lock.json -nt "$install_marker" ]; then
+    echo "Dependencies out of sync — running npm install..."
+    if ! npm install --silent; then
+      err "npm install FAILED"
+      return 1
+    fi
+  fi
+
   # Backup current dist/ before build
   if [ -d dist/ ]; then
     rm -rf dist.prev/
