@@ -10,7 +10,7 @@ import {
 import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup } from './db.js'
 import { runAgent, type UsageStats } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
-import { transcribeAudio, voiceCapabilities, synthesizeSpeech } from './voice.js'
+import { transcribeAudio, transcribeAudioLong, voiceCapabilities, synthesizeSpeech } from './voice.js'
 import { getProvider as getTtsProvider } from './tts-providers/index.js'
 import { isLongText } from './tts-providers/chunking.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
@@ -85,6 +85,28 @@ const pendingGroupApprovals = new Map<string, {
 
 // --- /review "later" skip set (in-memory, per chat, cleared on new /review) ---
 const reviewSkipped = new Map<string, Set<string>>()
+
+// --- Paste coalescing: Telegram splits long pastes (>4096 chars) into
+// multiple message:text events delivered within ~50-200ms. Buffer chunks that
+// look like part of a split paste so handleMessage is invoked once with the
+// full text instead of starting the agent on chunk1 and force-feeding chunk2
+// as a followup mid-flight.
+const PASTE_COALESCE_MS = 500
+const PASTE_SPLIT_THRESHOLD = 3500 // chars — below this a message is not a split chunk
+type PasteBuffer = {
+  ctx: Context
+  parts: string[]
+  timer: ReturnType<typeof setTimeout>
+}
+const pasteBuffers = new Map<string, PasteBuffer>()
+
+function clearPasteBuffer(chatIdStr: string): void {
+  const buf = pasteBuffers.get(chatIdStr)
+  if (buf) {
+    clearTimeout(buf.timer)
+    pasteBuffers.delete(chatIdStr)
+  }
+}
 
 // --- Auth ---
 
@@ -1289,6 +1311,7 @@ export function createBot(): Bot {
       const chatIdStr = String(ctx.chat?.id)
       if (!isAuthorised(ctx.chat!.id)) return
       const _t = chatT(chatIdStr)
+      clearPasteBuffer(chatIdStr)
       const cancelled = await cancelRequest(chatIdStr)
       const cleared = clearQueue(chatIdStr)
       if (cancelled || cleared > 0) {
@@ -1392,6 +1415,7 @@ export function createBot(): Bot {
   // --- /new (session clear) + aliases ---
   const clearSessionHandler = async (ctx: Context) => {
     const chatIdStr = String(ctx.chat!.id)
+    clearPasteBuffer(chatIdStr)
     const oldSessionId = getSession(chatIdStr)
     clearSession(chatIdStr)
     logAudit(chatIdStr, 'session_clear')
@@ -1745,6 +1769,21 @@ export function createBot(): Bot {
     }
   })
 
+  // Flush a coalesced paste buffer: joins collected chunks and dispatches to
+  // handleMessage as a single invocation. Called from the debounce timer.
+  const flushPasteBuffer = (chatIdStr: string): void => {
+    const buf = pasteBuffers.get(chatIdStr)
+    if (!buf) return
+    pasteBuffers.delete(chatIdStr)
+    // Telegram splits mid-text on best-effort boundaries; concatenate without
+    // separator to reconstruct the original paste as faithfully as possible.
+    const joined = buf.parts.join('')
+    const cleanText = joined.startsWith('/') ? joined.slice(1) : joined
+    handleMessage(buf.ctx, cleanText).catch(err => {
+      logger.error({ err, chatIdStr }, 'flushPasteBuffer: handleMessage failed')
+    })
+  }
+
   // Text messages
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text
@@ -1759,6 +1798,29 @@ export function createBot(): Bot {
     if (text.startsWith('/')) {
       logAudit(chatIdStr, 'command', text.split(' ')[0])
     }
+
+    // Paste coalescing: if a buffer is already open for this chat OR this
+    // message is large enough to plausibly be a split-paste chunk, buffer it
+    // and (re)arm the debounce timer. Short standalone messages bypass the
+    // buffer entirely to preserve instant responsiveness.
+    const existing = pasteBuffers.get(chatIdStr)
+    if (existing || text.length >= PASTE_SPLIT_THRESHOLD) {
+      if (existing) {
+        clearTimeout(existing.timer)
+        existing.parts.push(text)
+        existing.ctx = ctx
+        existing.timer = setTimeout(() => flushPasteBuffer(chatIdStr), PASTE_COALESCE_MS)
+      } else {
+        const buf: PasteBuffer = {
+          ctx,
+          parts: [text],
+          timer: setTimeout(() => flushPasteBuffer(chatIdStr), PASTE_COALESCE_MS),
+        }
+        pasteBuffers.set(chatIdStr, buf)
+      }
+      return
+    }
+
     await handleMessage(ctx, cleanText)
   })
 
@@ -1826,6 +1888,34 @@ export function createBot(): Bot {
       }
     } catch (err) {
       logger.error({ err }, 'Voice processing failed')
+      await ctx.reply(t('cmd.voice.fail'))
+    }
+  })
+
+  // Audio files (e.g. .m4a, .mp3 sent as audio — different from voice messages)
+  bot.on('message:audio', async (ctx) => {
+    const chatId = ctx.chat.id
+    if (isGroupChat(ctx)) {
+      if (!isAuthorised(chatId) || !shouldProcessGroupMessage(ctx)) return
+    } else if (!isAuthorised(chatId)) return
+
+    const t = chatT(String(chatId))
+    const caps = voiceCapabilities()
+    if (!caps.stt) {
+      await ctx.reply(t('cmd.voice.noStt'))
+      return
+    }
+
+    try {
+      const audio = ctx.message.audio
+      const ext = audio.file_name?.match(/\.[^.]+$/)?.[0] ?? '.mp3'
+      const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, audio.file_id, `audio${ext}`)
+      const { text: transcript } = await transcribeAudioLong(localPath)
+      const preview = transcript.length > 3800 ? transcript.slice(0, 3800) + '…' : transcript
+      await ctx.reply(`🎙️ ${preview}`)
+      await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true)
+    } catch (err) {
+      logger.error({ err }, 'Audio processing failed')
       await ctx.reply(t('cmd.voice.fail'))
     }
   })

@@ -76,6 +76,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'GeminiSearch', icon: 'search-check', category: 'ai', description: 'Gemini + Google Search with citations', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
     // Voice
     { name: 'TextToSpeech', icon: 'volume-2', category: 'voice', description: 'Text to voice message (Edge-TTS)', available: true },
+    { name: 'TranscribeAudio', icon: 'mic', category: 'voice', description: 'Transcribe a local audio file (Groq Whisper, auto-chunk for long files)', condition: 'GROQ_API_KEY', available: hasGroq },
     // Publishing
     { name: 'PublishTelegraph', icon: 'newspaper', category: 'publish', description: 'Publish long text to Telegraph', condition: 'TELEGRAPH_ENABLED', available: TELEGRAPH_ENABLED },
     { name: 'ShareFile', icon: 'upload', category: 'publish', description: 'Upload file to public server (SSH or local)', condition: 'PUBLISH_BASE_URL', available: hasPublish },
@@ -326,6 +327,43 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'TextToSpeech tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  if (env['GROQ_API_KEY'] && isOn('TranscribeAudio')) tools.push(
+    tool(
+      'TranscribeAudio',
+      'Transcribe a local audio file via Groq Whisper. Accepts a path to a file on disk (absolute, or relative to BOT_DIR / BOT_DIR/workspace / BOT_DIR/workspace/sandbox / /tmp). Long or oversized files are automatically re-encoded with ffmpeg and split into chunks; transcripts are concatenated. Use when the user asks to transcribe a recording, podcast, or audio file you have on disk. NOT for transcribing inbound Telegram voice messages — those arrive already as `[Voice transcribed]: ...` automatically. NOT for synthesizing speech — that is TextToSpeech.',
+      {
+        path: z.string().describe('Path to the audio file. Absolute path or relative to BOT_DIR / BOT_DIR/workspace / BOT_DIR/workspace/sandbox / /tmp.'),
+        language: z.string().optional().describe('Optional ISO-639-1 language hint (e.g. "uk", "ru", "en"). Default: auto-detect or GROQ_STT_LANGUAGE.'),
+      },
+      async (args) => {
+        usedTools.add('TranscribeAudio')
+        try {
+          const { BOT_DIR } = await import('./config.js')
+          const candidates = args.path.startsWith('/')
+            ? [args.path]
+            : [
+                resolve(BOT_DIR, 'workspace', 'sandbox', args.path),
+                resolve(BOT_DIR, 'workspace', args.path),
+                resolve(BOT_DIR, args.path),
+                resolve('/tmp', args.path),
+              ]
+          const found = candidates.find(p => existsSync(p))
+          if (!found) {
+            return { content: [{ type: 'text' as const, text: `Error: file not found. Tried: ${candidates.join(', ')}` }], isError: true }
+          }
+          const { transcribeAudioLong } = await import('./voice.js')
+          const r = await transcribeAudioLong(found, { language: args.language })
+          const meta = `chunks=${r.chunks}, ${r.durationSec ? `duration=${Math.round(r.durationSec)}s, ` : ''}bytes=${r.bytes}`
+          return { content: [{ type: 'text' as const, text: `[${meta}]\n\n${r.text}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'TranscribeAudio tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }
