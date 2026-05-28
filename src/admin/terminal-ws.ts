@@ -87,6 +87,28 @@ function fixSpawnHelper(): void {
 
 function getUserShell(): string { return process.env.SHELL || '/bin/zsh' }
 
+/** Merge user-bin paths into PATH so `claude` (installed in ~/.local/bin, ~/.bun/bin, /opt/homebrew/bin)
+ *  resolves even when bot was launched by launchd with a stripped PATH. zsh -lc cannot fix this on its
+ *  own because the user has no .zprofile/.zlogin and .zshrc is interactive-only. */
+function getEnhancedPath(): string {
+  const home = process.env.HOME || ''
+  const extras = [
+    join(home, '.local', 'bin'),
+    join(home, '.bun', 'bin'),
+    join(home, '.opencode', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+  ]
+  const current = (process.env.PATH || '').split(':').filter(Boolean)
+  const seen = new Set(current)
+  const prepended = extras.filter(p => !seen.has(p))
+  return [...prepended, ...current].join(':')
+}
+
+function getPtyEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, TERM: 'xterm-256color', PATH: getEnhancedPath() }
+}
+
 /** Strip terminal query responses (DA, focus) that leak through PTY */
 const TERM_NOISE_RE = /\x1b\[\??[\d;]*[cI]/g
 function cleanPtyOutput(data: string): string { return data.replace(TERM_NOISE_RE, '') }
@@ -128,7 +150,7 @@ function spawnClaude(session: TermSession, userShell: string, cmd: string): void
   const shell = pty.spawn(userShell, ['-lc', cmd], {
     name: 'xterm-256color', cols: 80, rows: 24,
     cwd: process.cwd(),
-    env: { ...process.env, TERM: 'xterm-256color' },
+    env: getPtyEnv(),
   })
   session.pty = shell
   session.alive = true
@@ -224,7 +246,7 @@ export function attachTerminalWS(server: { on: Function }): void {
       shell = pty.spawn(userShell, ['-lc', `claude --session-id ${id}`], {
         name: 'xterm-256color', cols: 80, rows: 24,
         cwd: process.cwd(),
-        env: { ...process.env, TERM: 'xterm-256color' },
+        env: getPtyEnv(),
       })
     } catch (err) {
       ws.send(`\r\nFailed to start claude: ${err}\r\n`)
