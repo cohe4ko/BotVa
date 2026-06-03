@@ -6,6 +6,7 @@ import {
   BOT_NAME,
   BOT_DIR,
   DEBUG_CONTEXT,
+  GUEST_MODE_ENABLED,
 } from './config.js'
 import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup } from './db.js'
 import { runAgent, type UsageStats } from './agent.js'
@@ -30,6 +31,7 @@ import { classifyReaction } from './auto-react.js'
 import { appendFileSync } from 'node:fs'
 import { resolve as pathResolve } from 'node:path'
 import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './group-relay.js'
+import { isGuestAuthorised, cleanGuestText, buildGuestContext, checkGuestRateLimit, GUEST_ALLOWED_TOOLS, GUEST_MCP_ALLOW_LIST, type GuestMessage } from './guest-mode.js'
 import { appendGroupContext, readGroupContext, clearGroupContext } from './group-context.js'
 import { escapeHtml, formatForTelegram, splitMessage, formatUsageStats, sendChunked } from './message-format.js'
 import { handleSettingsCallback, handleModelCallback, handleSessionCallback, registerSettingsCommands } from './bot-settings.js'
@@ -1335,11 +1337,41 @@ export function createBot(): Bot {
           return
         }
         // Build follow-up text from any message type
+        // For media: download file first so Claude gets a real path, not just a marker
         let followupText = ctx.message.text ?? ''
         if (!followupText && ctx.message.caption) followupText = ctx.message.caption
         if (!followupText && ctx.message.voice) followupText = '[Voice message received]'
-        if (!followupText && ctx.message.photo) followupText = '[Photo received]'
-        if (!followupText && ctx.message.document) followupText = `[Document: ${ctx.message.document.file_name ?? 'file'}]`
+        if (!followupText && ctx.message.photo) {
+          try {
+            const photos = ctx.message.photo
+            const largest = photos[photos.length - 1]
+            const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, largest.file_id, 'photo.jpg')
+            followupText = buildPhotoMessage(localPath, ctx.message.caption)
+          } catch (err) {
+            logger.error({ err }, 'Follow-up photo download failed')
+            followupText = '[Photo received but download failed]'
+          }
+        }
+        if (!followupText && ctx.message.document) {
+          try {
+            const doc = ctx.message.document
+            const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, doc.file_id, doc.file_name)
+            followupText = buildDocumentMessage(localPath, doc.file_name ?? 'document', ctx.message.caption)
+          } catch (err) {
+            logger.error({ err }, 'Follow-up document download failed')
+            followupText = `[Document: ${ctx.message.document.file_name ?? 'file'} - download failed]`
+          }
+        }
+        if (!followupText && ctx.message.video) {
+          try {
+            const video = ctx.message.video
+            const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, video.file_id, 'video.mp4')
+            followupText = buildVideoMessage(localPath, ctx.message.caption)
+          } catch (err) {
+            logger.error({ err }, 'Follow-up video download failed')
+            followupText = '[Video received but download failed]'
+          }
+        }
         if (followupText) {
           await addFollowup(chatIdStr, followupText)
           // Visual feedback: react with 👀 so user knows it was captured
@@ -2035,6 +2067,120 @@ export function createBot(): Bot {
     ctx.api.stopPoll(pending.chatId, pending.messageId).catch(() => {})
 
     pending.resolve(answer)
+  })
+
+  // --- Guest AI Bots (Bot API 10.0) ---
+  // Handle guest_message updates: bot tagged in chats it's not a member of
+  bot.use(async (ctx, next) => {
+    const raw = ctx.update as any
+    if (!raw.guest_message) {
+      await next()
+      return
+    }
+
+    if (!GUEST_MODE_ENABLED) {
+      logger.debug('Guest query received but GUEST_MODE_ENABLED=false, ignoring')
+      return
+    }
+
+    const guestMsg: GuestMessage = raw.guest_message
+    const userId = guestMsg.from.id
+    const botUsername = ctx.me?.username ?? ''
+
+    // Auth: only respond to authorised users
+    if (!isGuestAuthorised(userId)) {
+      logger.info({ userId, chatId: guestMsg.chat.id }, 'Guest query from unauthorised user, ignoring')
+      return
+    }
+
+    // Rate limit
+    if (!checkGuestRateLimit(userId)) {
+      logger.warn({ userId }, 'Guest query rate limited')
+      return
+    }
+
+    // Extract clean text
+    const text = cleanGuestText(guestMsg.text ?? '', botUsername, guestMsg.entities)
+    if (!text.trim()) return
+
+    logger.info({ userId, guestChatId: guestMsg.chat.id, textLen: text.length }, 'Guest query received')
+
+    // Build message with guest context prefix
+    const guestCtx = buildGuestContext(guestMsg.chat.title)
+    const fullMessage = `[${guestCtx}]\n\n${text}`
+
+    // Use user's personal chatId for session (guest chat has no session)
+    const chatIdStr = String(userId)
+
+    // Send typing in guest chat (may not be supported, ignore errors)
+    // Actually guest mode doesn't support typing - we just respond
+
+    try {
+      // Run agent with restricted tool set (no side effects)
+      const sessionId = getSession(chatIdStr)
+      const { text: memoryCtx } = await buildMemoryContext(chatIdStr, text, { skipShortTermMemories: true })
+      const messageWithMemory = memoryCtx
+        ? `[Short-term context]\n${memoryCtx}\n\n${fullMessage}`
+        : fullMessage
+
+      const model = getModel(chatIdStr)
+      const effort = getEffort(chatIdStr)
+      const result = await runAgent(
+        messageWithMemory,
+        sessionId,
+        undefined,  // no typing callback (guest mode)
+        chatIdStr,
+        undefined,  // no onEvent
+        model,
+        undefined,  // no builtin MCP (guest = text only)
+        undefined,  // no permission mode
+        undefined,  // no permission request callback
+        GUEST_MCP_ALLOW_LIST.length > 0 ? GUEST_MCP_ALLOW_LIST : undefined,
+        undefined,  // no agents
+        effort as any
+      )
+
+      // Save session
+      if (result.newSessionId) {
+        setSession(chatIdStr, result.newSessionId)
+      }
+
+      // Respond via answerGuestQuery
+      const responseText = result.text || 'No response'
+      const formatted = formatForTelegram(responseText)
+      const chunks = splitMessage(formatted)
+
+      // answerGuestQuery - try the official API method first
+      try {
+        await (ctx.api as any).raw.answerGuestQuery({
+          guest_query_id: guestMsg.guest_query_id,
+          text: chunks[0],
+          parse_mode: 'HTML',
+        })
+        // If response is too long, send remaining chunks as separate guest answers
+        // (API may not support this - fallback: truncate)
+      } catch (apiErr: any) {
+        // Fallback: try calling raw Telegram API directly
+        logger.warn({ apiErr }, 'answerGuestQuery via grammy failed, trying raw fetch')
+        const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerGuestQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            guest_query_id: guestMsg.guest_query_id,
+            text: chunks[0],
+            parse_mode: 'HTML',
+          })
+        })
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}))
+          logger.error({ errBody, guestQueryId: guestMsg.guest_query_id }, 'answerGuestQuery raw fetch failed')
+        }
+      }
+
+      logger.info({ userId, responseLen: responseText.length }, 'Guest query answered')
+    } catch (err) {
+      logger.error({ err, userId, guestQueryId: guestMsg.guest_query_id }, 'Guest query handler error')
+    }
   })
 
   bot.catch((err) => {

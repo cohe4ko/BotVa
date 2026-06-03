@@ -58,5 +58,8 @@ export const MIN_MSG_LEN_TO_SAVE = parseInt(env['MIN_MSG_LEN_TO_SAVE'] ?? '20', 
 export const MIN_ASSISTANT_LEN_TO_SAVE = parseInt(env['MIN_ASSISTANT_LEN_TO_SAVE'] ?? '50', 10)
 export const MAX_ASSISTANT_MEMORY_LEN = parseInt(env['MAX_ASSISTANT_MEMORY_LEN'] ?? '500', 10)
 
+// Guest mode (Bot API 10.0)
+export const GUEST_MODE_ENABLED = (env['GUEST_MODE_ENABLED'] ?? 'true') === 'true'
+
 // Debug
 export const DEBUG_CONTEXT = (env['DEBUG_CONTEXT'] ?? '') === 'true'
