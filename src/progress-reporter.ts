@@ -229,6 +229,8 @@ export class ProgressReporter {
   private streamingText = ''
   private streamingLineIdx: number | null = null
   private hasStreaming = false // true if stream_events are active (skip text in assistant)
+  // Last cleared streaming text (for AskUser pre-message)
+  private _lastClearedStreamingText = ''
   private cleanupDelayMs: number
   private cuteMode: boolean
   private t: BotT
@@ -259,6 +261,14 @@ export class ProgressReporter {
     this.addLine(`\n💬 <b>→ ${escapeHtml(preview)}${message.length > 100 ? '...' : ''}</b>`)
     this.dirty = true
     this.scheduleFlush()
+  }
+
+  /** Get and clear the last streaming text that was cleared before a tool call.
+   *  Used by AskUser to send context message before the question. */
+  getAndClearPendingText(): string {
+    const text = this._lastClearedStreamingText
+    this._lastClearedStreamingText = ''
+    return text
   }
 
   /** Freeze: stop updating, remove Stop button, keep message forever */
@@ -656,6 +666,12 @@ export class ProgressReporter {
   }
 
   private clearStreamingLine(): void {
+    // Save streaming text for AskUser pre-message
+    const trimmed = this.streamingText.trim()
+    if (trimmed.length > 0) {
+      this._lastClearedStreamingText = trimmed
+    }
+
     if (this.streamingLineIdx !== null && this.streamingLineIdx < this.lines.length) {
       // Replace streaming preview with final text block
       const display = this.streamingText.replace(/\n/g, ' ').trim()
