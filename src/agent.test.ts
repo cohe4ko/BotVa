@@ -314,4 +314,70 @@ describe('runAgent', () => {
     })
   })
 
+  describe('ask mode canUseTool', () => {
+    const okStream = () => eventStream([
+      { type: 'system', subtype: 'init', session_id: 's1' },
+      { type: 'result', subtype: 'success', result: 'ok', modelUsage: {} },
+    ])
+
+    it('non-ask mode uses bypassPermissions and no canUseTool', async () => {
+      mockQuery.mockReturnValue(okStream())
+      await runAgent('test', undefined, undefined, 'chat1')
+      const opts = mockQuery.mock.calls[0][0].options
+      expect(opts.permissionMode).toBe('bypassPermissions')
+      expect(opts.allowDangerouslySkipPermissions).toBe(true)
+      expect(opts.canUseTool).toBeUndefined()
+    })
+
+    it('ask mode uses permissionMode default + canUseTool, no bypass flag', async () => {
+      mockQuery.mockReturnValue(okStream())
+      const onPerm = vi.fn(async () => true)
+      await runAgent('test', undefined, undefined, 'chat1', undefined, undefined, undefined, undefined, onPerm)
+      const opts = mockQuery.mock.calls[0][0].options
+      expect(opts.permissionMode).toBe('default')
+      expect(opts.allowDangerouslySkipPermissions).toBeUndefined()
+      expect(typeof opts.canUseTool).toBe('function')
+    })
+
+    it('canUseTool auto-approves read-only tools without prompting', async () => {
+      mockQuery.mockReturnValue(okStream())
+      const onPerm = vi.fn(async () => false)
+      await runAgent('test', undefined, undefined, 'chat1', undefined, undefined, undefined, undefined, onPerm)
+      const canUseTool = mockQuery.mock.calls[0][0].options.canUseTool
+      const res = await canUseTool('Read', { file_path: '/x' }, { agentID: undefined })
+      expect(res.behavior).toBe('allow')
+      expect(onPerm).not.toHaveBeenCalled()
+    })
+
+    it('canUseTool bridges dangerous tools to onPermissionRequest (deny)', async () => {
+      mockQuery.mockReturnValue(okStream())
+      const onPerm = vi.fn(async () => false)
+      await runAgent('test', undefined, undefined, 'chat1', undefined, undefined, undefined, undefined, onPerm)
+      const canUseTool = mockQuery.mock.calls[0][0].options.canUseTool
+      const res = await canUseTool('Bash', { command: 'rm -rf /' }, {})
+      expect(res.behavior).toBe('deny')
+      expect(res.message).toBe('Denied by user')
+      expect(onPerm).toHaveBeenCalledWith('Bash', expect.stringContaining('bash: rm -rf'))
+    })
+
+    it('canUseTool prefixes subagent requests with (субагент)', async () => {
+      mockQuery.mockReturnValue(okStream())
+      const onPerm = vi.fn(async () => true)
+      await runAgent('test', undefined, undefined, 'chat1', undefined, undefined, undefined, undefined, onPerm)
+      const canUseTool = mockQuery.mock.calls[0][0].options.canUseTool
+      const res = await canUseTool('Write', { file_path: '/f' }, { agentID: 'agent-7' })
+      expect(res.behavior).toBe('allow')
+      expect(onPerm).toHaveBeenCalledWith('(субагент) Write', expect.stringContaining('/f'))
+    })
+
+    it('plan mode still uses bypassPermissions with PreToolUse hooks (no canUseTool)', async () => {
+      mockQuery.mockReturnValue(okStream())
+      await runAgent('test', undefined, undefined, 'chat1', undefined, undefined, undefined, 'plan')
+      const opts = mockQuery.mock.calls[0][0].options
+      expect(opts.permissionMode).toBe('bypassPermissions')
+      expect(opts.canUseTool).toBeUndefined()
+      expect(opts.hooks?.PreToolUse).toBeDefined()
+    })
+  })
+
 })

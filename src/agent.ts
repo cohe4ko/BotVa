@@ -1,4 +1,4 @@
-import { query, type SDKMessage, type McpSdkServerConfigWithInstance, type AgentDefinition } from '@anthropic-ai/claude-agent-sdk'
+import { query, type SDKMessage, type McpSdkServerConfigWithInstance, type AgentDefinition, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
 import { parseModelConfig, getFallbackModel } from './model.js'
 import { buildMcpServers } from './mcp-config.js'
@@ -199,30 +199,34 @@ async function runAgentOnce(
       },
     } : {}
 
-    // PreToolUse hooks for ask mode — intercept dangerous tools
+    // Ask mode — migrated from a PreToolUse hook to the SDK `canUseTool`
+    // callback (SDK ≥0.3.186). Read-only tools auto-approve; everything else
+    // bridges to Telegram approve/deny buttons via onPermissionRequest.
+    //
+    // canUseTool is only consulted when permissionMode is NOT bypassPermissions
+    // (bypass short-circuits every permission check), so ask mode runs under
+    // permissionMode:'default' instead. Plan/debate keep their PreToolUse hooks
+    // and their bypass mode untouched.
     const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'Task']
-    const permissionHooks = onPermissionRequest ? {
-      hooks: {
-        PreToolUse: [{
-          hooks: [async (input: any) => {
-            const toolName = input.tool_name ?? ''
-            if (READ_ONLY_TOOLS.includes(toolName)) {
-              return { decision: 'approve' as const }
-            }
-            const toolInput = input.tool_input ?? {}
-            const summary = toolInput.command
-              ? `bash: ${String(toolInput.command).slice(0, 150)}`
-              : toolInput.file_path
-                ? `${toolName}: ${toolInput.file_path}`
-                : toolName
-            const allowed = await onPermissionRequest(toolName, summary)
-            return allowed
-              ? { decision: 'approve' as const }
-              : { decision: 'block' as const, reason: 'Denied by user' }
-          }],
-        }],
-      },
-    } : {}
+    const askMode = !!onPermissionRequest
+    const askCanUseTool: CanUseTool | undefined = onPermissionRequest ? async (toolName, input, opts) => {
+      if (READ_ONLY_TOOLS.includes(toolName)) {
+        return { behavior: 'allow', updatedInput: input } as PermissionResult
+      }
+      const toolInput = (input ?? {}) as Record<string, any>
+      const summary = toolInput.command
+        ? `bash: ${String(toolInput.command).slice(0, 150)}`
+        : toolInput.file_path
+          ? `${toolName}: ${toolInput.file_path}`
+          : toolName
+      // Background/task subagents forward their prompts here (agentID set) instead
+      // of being auto-denied — flag them so the user knows who is asking.
+      const label = opts.agentID ? `(субагент) ${toolName}` : toolName
+      const allowed = await onPermissionRequest(label, summary)
+      return (allowed
+        ? { behavior: 'allow', updatedInput: input }
+        : { behavior: 'deny', message: 'Denied by user' }) as PermissionResult
+    } : undefined
 
     const { model: baseModel } = model ? parseModelConfig(model) : { model: undefined as string | undefined }
     // Resilience: let the SDK auto-demote to a lower tier if the primary model
@@ -233,8 +237,10 @@ async function runAgentOnce(
       prompt: stripLoneSurrogates(message),
       options: {
         cwd: BOT_DIR,
-        permissionMode: 'bypassPermissions' as any,
-        allowDangerouslySkipPermissions: true,
+        // Ask mode needs 'default' so the SDK consults canUseTool; all other
+        // modes keep the historical bypass behaviour (plan/debate gate via hooks).
+        permissionMode: (askMode ? 'default' : 'bypassPermissions') as any,
+        ...(askMode ? {} : { allowDangerouslySkipPermissions: true }),
         settingSources: ['project', 'user'],
         abortController,
         mcpServers,
@@ -242,7 +248,7 @@ async function runAgentOnce(
         agentProgressSummaries: true,
         ...planHooks,
         ...debateHooks,
-        ...permissionHooks,
+        ...(askCanUseTool ? { canUseTool: askCanUseTool } : {}),
         ...(baseModel ? { model: baseModel } : {}),
         ...(fallbackModel ? { fallbackModel } : {}),
         ...(effort ? { effort } : {}),
