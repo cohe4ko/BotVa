@@ -8,6 +8,10 @@ import { draftRichMessage } from './rich-message.js'
 const THROTTLE_MS = 1500
 const MAX_LINES = 20
 const TEXT_PREVIEW_LEN = 200
+// Стрімінг у прогрес-вікні: скільки останніх символів показувати
+const STREAM_PREVIEW_LEN = 600
+// Трансляція мислення (thinking_delta): розгортуваний blockquote з хвостом процесу
+const THINKING_PREVIEW_LEN = 1200
 const DEFAULT_CLEANUP_DELAY_MS = 18_000
 
 function escapeHtml(s: string): string {
@@ -229,6 +233,8 @@ export class ProgressReporter {
   // Streaming text accumulator
   private streamingText = ''
   private streamingLineIdx: number | null = null
+  private thinkingText = ''
+  private thinkingLineIdx: number | null = null
   // Index of the transient api_retry line, updated in place to avoid one line per retry
   private retryLineIdx: number | null = null
   private hasStreaming = false // true if stream_events are active (skip text in assistant)
@@ -271,6 +277,8 @@ export class ProgressReporter {
     this.clearStreamingLine()
     this.hasStreaming = false
     this.retryLineIdx = null // new turn — don't reuse a previous turn's retry line
+    this.thinkingText = ''
+    this.thinkingLineIdx = null
     const preview = message.replace(/\n/g, ' ').trim().slice(0, 100)
     this.addLine(`\n💬 <b>→ ${escapeHtml(preview)}${message.length > 100 ? '...' : ''}</b>`)
     this.dirty = true
@@ -456,6 +464,26 @@ export class ProgressReporter {
       const streamEvent = raw.event
       if (!streamEvent) return false
 
+      // Мислення агента: стрімимо повний процес розгортуваним блоком (🧠)
+      if (streamEvent.type === 'content_block_delta' && streamEvent.delta?.type === 'thinking_delta') {
+        const chunk = streamEvent.delta.thinking ?? ''
+        if (!chunk) return false
+        this.thinkingText += chunk
+        const display = this.thinkingText.trim()
+        if (display.length === 0) return false
+        const preview = display.length > THINKING_PREVIEW_LEN
+          ? '...' + display.slice(-(THINKING_PREVIEW_LEN - 3))
+          : display
+        const thinkingLine = `<blockquote expandable>${indent}🧠 <i>${escapeHtml(preview)}</i></blockquote>`
+        if (this.thinkingLineIdx !== null && this.thinkingLineIdx < this.lines.length) {
+          this.lines[this.thinkingLineIdx] = thinkingLine
+        } else {
+          this.thinkingLineIdx = this.lines.length
+          this.addLine(thinkingLine)
+        }
+        return true
+      }
+
       if (streamEvent.type === 'content_block_delta' && streamEvent.delta?.type === 'text_delta') {
         const chunk = streamEvent.delta.text ?? ''
         if (!chunk) return false
@@ -464,12 +492,14 @@ export class ProgressReporter {
         this.streamingText += chunk
         // Стрімимо ефемерну Rich-чернетку з часткової відповіді (тільки приватні чати)
         this.scheduleDraftFlush()
-        // Show last 300 chars of streaming text
+        // Show last STREAM_PREVIEW_LEN chars of streaming text
         const display = this.streamingText.replace(/\n/g, ' ').trim()
-        const preview = display.length > 300 ? '...' + display.slice(-297) : display
+        const preview = display.length > STREAM_PREVIEW_LEN
+          ? '...' + display.slice(-(STREAM_PREVIEW_LEN - 3))
+          : display
 
         const streamEmoji = this.cuteMode ? '💭' : '✍️'
-        const streamLine = `<blockquote>${indent}${streamEmoji} <i>${mdToHtml(preview)}</i></blockquote>`
+        const streamLine = `<blockquote expandable>${indent}${streamEmoji} <i>${mdToHtml(preview)}</i></blockquote>`
         if (this.streamingLineIdx !== null && this.streamingLineIdx < this.lines.length) {
           this.lines[this.streamingLineIdx] = streamLine
         } else {
@@ -753,6 +783,10 @@ export class ProgressReporter {
       if (this.streamingLineIdx !== null) {
         this.streamingLineIdx--
         if (this.streamingLineIdx < 0) this.streamingLineIdx = null
+      }
+      if (this.thinkingLineIdx !== null) {
+        this.thinkingLineIdx--
+        if (this.thinkingLineIdx < 0) this.thinkingLineIdx = null
       }
       if (this.retryLineIdx !== null) {
         this.retryLineIdx--
