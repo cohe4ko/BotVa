@@ -16,6 +16,7 @@ vi.mock('./config.js', () => ({
   TYPING_REFRESH_MS: 4000,
   AGENT_WATCHDOG_WARN_SECONDS: 60,
   AGENT_WATCHDOG_TIMEOUT_MS: 600000,
+  SANDBOX_ENABLED: false,
 }))
 
 vi.mock('./logger.js', () => ({
@@ -377,6 +378,13 @@ describe('runAgent', () => {
       expect(opts.permissionMode).toBe('bypassPermissions')
       expect(opts.canUseTool).toBeUndefined()
       expect(opts.hooks?.PreToolUse).toBeDefined()
+    })
+
+    it('does not pass a sandbox option when SANDBOX_ENABLED is off (default)', async () => {
+      mockQuery.mockReturnValue(okStream())
+      await runAgent('test', undefined, undefined, 'chat1')
+      const opts = mockQuery.mock.calls[0][0].options
+      expect('sandbox' in opts).toBe(false)
     })
   })
 

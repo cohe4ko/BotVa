@@ -79,5 +79,13 @@ export const RICH_DRAFT_THROTTLE_MS = Math.max(1000, Number(env['RICH_DRAFT_THRO
 // (20-line eviction) behaviour.
 export const PROGRESS_FULL_LOG = (env['PROGRESS_FULL_LOG'] ?? '1') !== '0'
 
+// Sandbox with credential masking (opt-in, SDK sandbox.credentials).
+// Default OFF — when enabled, the agent's Bash tool runs inside the SDK sandbox
+// and sensitive API keys present in process.env are masked (a sentinel is shown
+// to sandboxed commands; the real value is injected only at the credential's
+// egress host). Enabling narrows sandboxed network access to those hosts.
+// See src/sandbox-config.ts. Set SANDBOX_ENABLED=1 to turn on.
+export const SANDBOX_ENABLED = (env['SANDBOX_ENABLED'] ?? '0') === '1' || (env['SANDBOX_ENABLED'] ?? '') === 'true'
+
 // Debug
 export const DEBUG_CONTEXT = (env['DEBUG_CONTEXT'] ?? '') === 'true'

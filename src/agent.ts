@@ -1,5 +1,6 @@
 import { query, type SDKMessage, type McpSdkServerConfigWithInstance, type AgentDefinition, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
-import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
+import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS, SANDBOX_ENABLED } from './config.js'
+import { buildSandboxSettings } from './sandbox-config.js'
 import { parseModelConfig, getFallbackModel } from './model.js'
 import { buildMcpServers } from './mcp-config.js'
 import { refreshClaudeMd } from './workspace-files.js'
@@ -258,6 +259,10 @@ async function runAgentOnce(
         ...(sessionId ? { resume: sessionId } : {}),
         ...(sessionId && resumeAt ? { resumeSessionAt: resumeAt } : {}),
         ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),
+        // Opt-in only (SANDBOX_ENABLED): sandbox the agent's Bash tool and mask
+        // sensitive API keys present in the environment. Flag off → no sandbox
+        // key at all, default behaviour unchanged.
+        ...(SANDBOX_ENABLED ? { sandbox: buildSandboxSettings() } : {}),
       },
     })
 
