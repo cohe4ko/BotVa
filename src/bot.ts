@@ -9,6 +9,7 @@ import {
   GUEST_MODE_ENABLED,
   RICH_MESSAGES_ENABLED,
   RICH_DRAFT_ENABLED,
+  RICH_DRAFT_THROTTLE_MS,
   PROGRESS_FULL_LOG,
 } from './config.js'
 import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup, setPendingRewind, getPendingRewind, clearPendingRewind } from './db.js'
@@ -633,7 +634,7 @@ async function handleMessage(
     const cuteMode = getChatSetting(chatIdStr, 'progress_style') === 'blonde'
     const lang = getChatLang(chatIdStr)
     const richDraft = RICH_MESSAGES_ENABLED && RICH_DRAFT_ENABLED && ctx.chat?.type === 'private'
-    const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang, richDraft, PROGRESS_FULL_LOG)
+    const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang, richDraft, PROGRESS_FULL_LOG, RICH_DRAFT_THROTTLE_MS)
 
     // Loop: run agent, check for follow-up messages (like typing in CLI while agent runs)
     while (true) {

@@ -263,7 +263,9 @@ export class ProgressReporter {
   private lastDraftTime = 0
   private lastDraftText = ''
 
-  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang, richDraft?: boolean, fullLog?: boolean) {
+  private draftThrottleMs: number
+
+  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang, richDraft?: boolean, fullLog?: boolean, draftThrottleMs?: number) {
     this.chatId = chatId
     this.api = api
     this.cleanupDelayMs = cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS
@@ -271,6 +273,8 @@ export class ProgressReporter {
     this.t = createBotT(lang ?? 'uk')
     this.richDraft = richDraft ?? false
     this.fullLog = fullLog ?? false
+    // Повільніший тротлінг чернеток: швидкі оновлення крашили десктопні клієнти
+    this.draftThrottleMs = Math.max(1000, draftThrottleMs ?? 2000)
     // draft_id має бути ненульовим і стабільним у межах одного ходу
     this.draftId = Math.floor(Math.random() * 2_000_000_000) + 1
   }
@@ -881,7 +885,7 @@ export class ProgressReporter {
     if (!this.richDraft || this.draftDisabled || this.stopped) return
     if (this.draftTimer) return
     const elapsed = Date.now() - this.lastDraftTime
-    const delay = Math.max(0, THROTTLE_MS - elapsed)
+    const delay = Math.max(0, this.draftThrottleMs - elapsed)
     this.draftTimer = setTimeout(() => {
       this.draftTimer = null
       this.flushDraft().catch(() => {})
