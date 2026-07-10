@@ -145,7 +145,7 @@ describe('ProgressReporter — chained rollover', () => {
     expect(api.sendMessage).toHaveBeenCalledTimes(1)
     expect(api.sendMessage.mock.calls[0][2].reply_markup).toBeDefined()
 
-    const editCall = api.editMessageText.mock.calls.find((c: any[]) => c[1] === 500)
+    const editCall = api.editMessageText.mock.calls.find((c: any[]) => c[1] === 500) as any[]
     expect(editCall).toBeDefined()
     expect(editCall[3].reply_markup).toBeUndefined() // buttons removed from frozen msg
     // Frozen snapshot keeps everything before rollover
@@ -235,7 +235,7 @@ describe('ProgressReporter — chained rollover', () => {
     expect(r.chainIds).toEqual([])
     expect(r.messageId).toBe(500)
     // Fell through to a normal in-place edit of the old message
-    const editCall = api.editMessageText.mock.calls.find((c: any[]) => c[1] === 500)
+    const editCall = api.editMessageText.mock.calls.find((c: any[]) => c[1] === 500) as any[]
     expect(editCall).toBeDefined()
     expect(editCall[3].reply_markup).toBeDefined() // buttons still present
   })

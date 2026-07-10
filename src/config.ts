@@ -64,6 +64,10 @@ export const GUEST_MODE_ENABLED = (env['GUEST_MODE_ENABLED'] ?? 'true') === 'tru
 // Rich messages (Bot API 10.1) — structured answers + draft streaming in private chats.
 // Default enabled; set RICH_MESSAGES_ENABLED=0 to disable and keep the HTML/chunked path.
 export const RICH_MESSAGES_ENABLED = (env['RICH_MESSAGES_ENABLED'] ?? '1') !== '0'
+// Draft-стрімінг (sendRichMessageDraft) — DEFAULT OFF: десктопні клієнти Telegram
+// (macOS/Windows, липень 2026) крашаться при швидких оновленнях rich-чернетки.
+// Увімкнути: RICH_DRAFT_ENABLED=1 (iOS/Android рендерять коректно).
+export const RICH_DRAFT_ENABLED = env['RICH_DRAFT_ENABLED'] === '1'
 
 // Full process log — chained progress messages without eviction.
 // When enabled, the progress reporter never drops lines: once a message
