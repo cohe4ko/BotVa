@@ -1124,9 +1124,14 @@ export function createBot(): Bot {
     if (ctx.callbackQuery?.data?.startsWith('stop:')) {
       const targetChatId = ctx.callbackQuery.data.split(':')[1]
       if (String(ctx.chat?.id) === targetChatId) {
-        const interrupted = await interruptRequest(targetChatId)
+        const result = await interruptRequest(targetChatId)
         const _t = chatT(targetChatId)
-        await ctx.answerCallbackQuery({ text: interrupted ? _t('cb.stopping') : _t('cb.nothingToStop') })
+        await ctx.answerCallbackQuery({ text: result.interrupted ? _t('cb.stopping') : _t('cb.nothingToStop') })
+        // interrupt_receipt_v1: some queued follow-ups survive the interrupt.
+        // Tell the user so the extra messages aren't a surprise.
+        if (result.stillQueued > 0) {
+          await ctx.reply(_t('cb.stillQueued', { n: result.stillQueued })).catch(() => {})
+        }
       }
       return // don't pass to next middleware
     }

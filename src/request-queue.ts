@@ -107,21 +107,36 @@ export async function cancelRequest(sessionKey: string): Promise<boolean> {
   return false
 }
 
+// Result of a soft interrupt. `stillQueued` is the number of async user
+// messages that survive the interrupt and WILL still run unless cancelled —
+// reported only when the CLI advertises the `interrupt_receipt_v1` capability
+// (older CLIs resolve interrupt() to undefined, so stillQueued stays 0).
+export interface InterruptResult {
+  interrupted: boolean
+  stillQueued: number
+}
+
 // Soft stop: asks the agent to finish gracefully (like ESC)
-export async function interruptRequest(sessionKey: string): Promise<boolean> {
+export async function interruptRequest(sessionKey: string): Promise<InterruptResult> {
   const q = activeQueries.get(sessionKey)
 
   if (q) {
     interruptedChats.add(sessionKey)
+    let stillQueued = 0
     try {
-      await q.interrupt()
+      const receipt = await q.interrupt()
+      // Feature-detect the interrupt_receipt_v1 shape; guard for older CLIs
+      // that resolve to undefined and for a missing/odd still_queued field.
+      if (receipt && Array.isArray(receipt.still_queued)) {
+        stillQueued = receipt.still_queued.length
+      }
     } catch {
       // interrupt() may throw if query already finished
     }
-    return true
+    return { interrupted: true, stillQueued }
   }
 
-  return false
+  return { interrupted: false, stillQueued: 0 }
 }
 
 // Queue a follow-up message and interrupt agent so it picks up the message
