@@ -21,6 +21,9 @@ const translations: Record<BotLang, Record<string, string>> = {
 
     // Session
     'cmd.newchat': 'Session cleared. Starting fresh.',
+    'cmd.undo.ok': '⏪ Rewound the last step — your next message will continue from the previous point.',
+    'cmd.undo.nothing': 'Nothing to undo.',
+    'cmd.undo.cleared': '⏪ That was the first step, so the session was cleared.',
 
     // Cancel
     'cancel.request': 'request cancelled',
@@ -327,6 +330,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Bot commands menu
     'menu.start': 'Start',
     'menu.new': 'New session (clear context)',
+    'menu.undo': 'Undo last step (rewind one exchange)',
     'menu.cancel': 'Cancel current request',
     'menu.model': 'Switch AI model',
     'menu.usage': 'Usage stats',
@@ -354,6 +358,9 @@ const translations: Record<BotLang, Record<string, string>> = {
 
     // Session
     'cmd.newchat': 'Сесію очищено. Починаємо з нуля.',
+    'cmd.undo.ok': '⏪ Відкотив останній крок — наступне повідомлення продовжить з попередньої точки.',
+    'cmd.undo.nothing': 'Нема що відкочувати.',
+    'cmd.undo.cleared': '⏪ Це був перший крок, тому сесію очищено.',
 
     // Cancel
     'cancel.request': 'запит скасовано',
@@ -660,6 +667,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     // Bot commands menu
     'menu.start': 'Почати роботу',
     'menu.new': 'Нова сесія (очистити контекст)',
+    'menu.undo': 'Відкотити останній крок',
     'menu.cancel': 'Скасувати поточний запит',
     'menu.model': 'Змінити модель AI',
     'menu.usage': 'Статистика використання',

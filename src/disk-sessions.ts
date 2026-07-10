@@ -120,6 +120,74 @@ function getClaudeProjectsRoot(): string {
   return join(homedir(), '.claude', 'projects')
 }
 
+/** Result of computing an undo (rewind) anchor over a session JSONL. */
+export type UndoAnchor =
+  | { action: 'anchor'; anchorUuid: string; removedPreview: string }
+  | { action: 'clear' }
+  | { action: 'none' }
+
+/**
+ * Pure, testable core of /undo: given the raw JSONL of a Claude session,
+ * decide where the NEXT turn should resume so the last user↔agent exchange
+ * is dropped.
+ *
+ * Structure of a Claude session JSONL:
+ * - real user prompts:  { type:'user', message.content = string | [{type:'text'},…], uuid, promptSource:'sdk'|'user' }
+ * - tool results:       { type:'user', message.content = [{type:'tool_result'}] }  ← NOT a real user turn
+ * - assistant messages: { type:'assistant', message.content=[…], uuid }
+ * - meta/service lines:  queue-operation, attachment, ai-title, custom-title, file-history-snapshot, …
+ *
+ * We keep only real user turns (extractMessageText non-empty, not isMeta) and
+ * assistant turns. To undo the last exchange we resume "up to and including"
+ * (see SDK `resumeSessionAt`) the last assistant message that precedes the last
+ * real user prompt — i.e. the answer that concluded the previous turn.
+ *
+ * - 0 real user turns  → 'none'  (nothing to undo)
+ * - 1 real user turn   → 'clear' (undo would empty the session)
+ * - ≥2 real user turns → 'anchor' at that preceding assistant uuid
+ */
+export function selectUndoAnchor(jsonl: string): UndoAnchor {
+  interface RewindEntry { type: 'user' | 'assistant'; uuid?: string; isRealUser: boolean; text: string }
+  const entries: RewindEntry[] = []
+  for (const line of jsonl.split('\n')) {
+    if (!line.trim()) continue
+    let e: any
+    try { e = JSON.parse(line) } catch { continue }
+    if (e?.type === 'user' && e.message?.content) {
+      const text = extractMessageText(e.message.content)
+      entries.push({ type: 'user', uuid: e.uuid, isRealUser: !!text && !e.isMeta, text })
+    } else if (e?.type === 'assistant' && e.uuid) {
+      entries.push({ type: 'assistant', uuid: e.uuid, isRealUser: false, text: '' })
+    }
+  }
+
+  const realUserIdx: number[] = []
+  entries.forEach((en, i) => { if (en.isRealUser) realUserIdx.push(i) })
+
+  if (realUserIdx.length === 0) return { action: 'none' }
+  if (realUserIdx.length < 2) return { action: 'clear' }
+
+  const lastUserIdx = realUserIdx[realUserIdx.length - 1]
+  let anchorUuid: string | undefined
+  for (let i = lastUserIdx - 1; i >= 0; i--) {
+    if (entries[i].type === 'assistant' && entries[i].uuid) { anchorUuid = entries[i].uuid; break }
+  }
+  if (!anchorUuid) return { action: 'clear' }
+
+  return { action: 'anchor', anchorUuid, removedPreview: entries[lastUserIdx].text.slice(0, 80) }
+}
+
+/** Read a session's JSONL from disk and compute its undo anchor. */
+export function computeUndoAnchor(botDir: string, sessionId: string): UndoAnchor {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sessionId)) return { action: 'none' }
+  const filePath = join(getClaudeProjectDir(botDir), `${sessionId}.jsonl`)
+  try {
+    return selectUndoAnchor(readFileSync(filePath, 'utf-8'))
+  } catch {
+    return { action: 'none' }
+  }
+}
+
 /** Get Claude project dir for a given bot working directory */
 export function getClaudeProjectDir(botDir: string): string {
   const projectKey = botDir.replace(/\//g, '-')

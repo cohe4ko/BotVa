@@ -9,7 +9,8 @@ import {
   GUEST_MODE_ENABLED,
   RICH_MESSAGES_ENABLED,
 } from './config.js'
-import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup } from './db.js'
+import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup, setPendingRewind, getPendingRewind, clearPendingRewind } from './db.js'
+import { computeUndoAnchor } from './disk-sessions.js'
 import { runAgent, type UsageStats } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, transcribeAudioLong, voiceCapabilities, synthesizeSpeech } from './voice.js'
@@ -699,6 +700,16 @@ async function handleMessage(
       // Get session
       const sessionId = getSession(chatIdStr)
 
+      // Consume any pending /undo anchor — one-shot. Resume this turn only up to
+      // the stored assistant message (SDK resumeSessionAt) so the last exchange
+      // is dropped. Ignore if it was computed against a different session.
+      let resumeAt: string | undefined
+      const pendingRewind = getPendingRewind(chatIdStr)
+      if (pendingRewind) {
+        clearPendingRewind(chatIdStr)
+        if (sessionId && pendingRewind.sessionId === sessionId) resumeAt = pendingRewind.anchorUuid
+      }
+
       // Nudge LLM to name untitled sessions
       if (sessionId && !hasSessionTitle(sessionId)) {
         fullMessage += '\n\n[Session has no title yet. Call NameSession now with a short 3-5 word title.]'
@@ -861,7 +872,7 @@ async function handleMessage(
           ? buildAgentDefinitions(matched, getChatLang(chatIdStr))
           : undefined
 
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs, currentEffort)
+        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs, currentEffort, resumeAt)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage
@@ -1502,6 +1513,34 @@ export function createBot(): Bot {
   bot.command('new', clearSessionHandler)
   bot.command('newchat', clearSessionHandler)
   bot.command('forget', clearSessionHandler)
+
+  // --- /undo (rewind last user↔agent exchange) ---
+  const undoHandler = async (ctx: Context) => {
+    const chatIdStr = String(ctx.chat!.id)
+    const t = chatT(chatIdStr)
+    const sessionId = getSession(chatIdStr)
+    if (!sessionId) {
+      await ctx.reply(t('cmd.undo.nothing'))
+      return
+    }
+    const anchor = computeUndoAnchor(BOT_DIR, sessionId)
+    if (anchor.action === 'none') {
+      await ctx.reply(t('cmd.undo.nothing'))
+      return
+    }
+    if (anchor.action === 'clear') {
+      // Undoing the only exchange empties the session — clear it outright.
+      clearSession(chatIdStr)
+      clearPendingRewind(chatIdStr)
+      logAudit(chatIdStr, 'session_undo_clear')
+      await ctx.reply(t('cmd.undo.cleared'))
+      return
+    }
+    setPendingRewind(chatIdStr, sessionId, anchor.anchorUuid)
+    logAudit(chatIdStr, 'session_undo', anchor.anchorUuid)
+    await ctx.reply(t('cmd.undo.ok'))
+  }
+  bot.command('undo', undoHandler)
 
   bot.command('usage', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
@@ -2231,6 +2270,7 @@ export function createBot(): Bot {
   const tEn = createBotT('en')
   const cmds = (t: BotT) => [
     { command: 'new', description: t('menu.new') },
+    { command: 'undo', description: t('menu.undo') },
     { command: 'cancel', description: t('menu.cancel') },
     { command: 'model', description: t('menu.model') },
     { command: 'usage', description: t('menu.usage') },

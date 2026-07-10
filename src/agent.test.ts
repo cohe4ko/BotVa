@@ -282,4 +282,36 @@ describe('runAgent', () => {
       expect(refreshClaudeMd).toHaveBeenCalledWith(testDir)
     })
   })
+
+  describe('rewind anchor (resumeSessionAt)', () => {
+    const okStream = () => eventStream([
+      { type: 'system', subtype: 'init', session_id: 's1' },
+      { type: 'result', subtype: 'success', result: 'ok', modelUsage: {} },
+    ])
+
+    it('passes resumeSessionAt when a session + anchor are provided', async () => {
+      createFakeSession('sess-anchor')
+      mockQuery.mockReturnValue(okStream())
+      await runAgent('test', 'sess-anchor', undefined, 'chat1', undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'anchor-uuid')
+      const opts = mockQuery.mock.calls[0][0].options
+      expect(opts.resume).toBe('sess-anchor')
+      expect(opts.resumeSessionAt).toBe('anchor-uuid')
+    })
+
+    it('omits resumeSessionAt when no anchor is given', async () => {
+      createFakeSession('sess-plain')
+      mockQuery.mockReturnValue(okStream())
+      await runAgent('test', 'sess-plain', undefined, 'chat1')
+      const opts = mockQuery.mock.calls[0][0].options
+      expect(opts.resumeSessionAt).toBeUndefined()
+    })
+
+    it('omits resumeSessionAt when there is no session (fresh start)', async () => {
+      mockQuery.mockReturnValue(okStream())
+      await runAgent('test', undefined, undefined, 'chat1', undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'anchor-uuid')
+      const opts = mockQuery.mock.calls[0][0].options
+      expect(opts.resumeSessionAt).toBeUndefined()
+    })
+  })
+
 })

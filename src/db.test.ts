@@ -39,6 +39,9 @@ import {
   removeApprovedGroup,
   bumpFactUsefulness,
   getDb,
+  setPendingRewind,
+  getPendingRewind,
+  clearPendingRewind,
 } from './db.js'
 
 import { logger } from './logger.js'
@@ -166,6 +169,30 @@ describe('chat settings', () => {
     setChatSetting(CHAT, 'tmp', 'val')
     deleteChatSetting(CHAT, 'tmp')
     expect(getChatSetting(CHAT, 'tmp')).toBeUndefined()
+  })
+})
+
+describe('pending rewind (/undo)', () => {
+  const C = 'rewind-chat'
+  it('returns undefined when nothing pending', () => {
+    expect(getPendingRewind(C)).toBeUndefined()
+  })
+
+  it('set and get roundtrip preserves session + anchor', () => {
+    setPendingRewind(C, 'sess-1', 'anchor-uuid-1')
+    expect(getPendingRewind(C)).toEqual({ sessionId: 'sess-1', anchorUuid: 'anchor-uuid-1' })
+  })
+
+  it('clear removes the pending anchor', () => {
+    setPendingRewind(C, 'sess-2', 'anchor-2')
+    clearPendingRewind(C)
+    expect(getPendingRewind(C)).toBeUndefined()
+  })
+
+  it('handles anchor uuids that contain no separator gracefully', () => {
+    // sessionId itself never contains "|", so first "|" is the delimiter.
+    setPendingRewind(C, 'sess-3', 'a-b-c-d')
+    expect(getPendingRewind(C)).toEqual({ sessionId: 'sess-3', anchorUuid: 'a-b-c-d' })
   })
 })
 

@@ -86,7 +86,8 @@ async function runAgentOnce(
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
   mcpAllowList?: string[],
   agents?: Record<string, AgentDefinition>,
-  effort?: 'low' | 'medium' | 'high' | 'max'
+  effort?: 'low' | 'medium' | 'high' | 'max',
+  resumeAt?: string
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -246,6 +247,7 @@ async function runAgentOnce(
         ...(fallbackModel ? { fallbackModel } : {}),
         ...(effort ? { effort } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
+        ...(sessionId && resumeAt ? { resumeSessionAt: resumeAt } : {}),
         ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),
       },
     })
@@ -409,7 +411,8 @@ export async function runAgent(
   onPermissionRequest?: (toolName: string, summary: string) => Promise<boolean>,
   mcpAllowList?: string[],
   agents?: Record<string, AgentDefinition>,
-  effort?: 'low' | 'medium' | 'high' | 'max'
+  effort?: 'low' | 'medium' | 'high' | 'max',
+  resumeAt?: string
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
@@ -425,7 +428,7 @@ export async function runAgent(
     }
   }
 
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, resumeAt)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {

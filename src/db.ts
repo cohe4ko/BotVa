@@ -751,6 +751,27 @@ export function deleteChatSetting(chatId: string, key: string): void {
   getDb().prepare('DELETE FROM chat_settings WHERE chat_id = ? AND key = ?').run(chatId, key)
 }
 
+// --- Pending rewind (/undo) ---
+// One-shot anchor consumed by the next turn: resume the current session only up
+// to `anchorUuid` (SDK resumeSessionAt). Stored in chat_settings, tied to the
+// session it was computed against so a session switch invalidates it.
+
+export function setPendingRewind(chatId: string, sessionId: string, anchorUuid: string): void {
+  setChatSetting(chatId, 'rewind_anchor', `${sessionId}|${anchorUuid}`)
+}
+
+export function getPendingRewind(chatId: string): { sessionId: string; anchorUuid: string } | undefined {
+  const v = getChatSetting(chatId, 'rewind_anchor')
+  if (!v) return undefined
+  const idx = v.indexOf('|')
+  if (idx < 0) return undefined
+  return { sessionId: v.slice(0, idx), anchorUuid: v.slice(idx + 1) }
+}
+
+export function clearPendingRewind(chatId: string): void {
+  deleteChatSetting(chatId, 'rewind_anchor')
+}
+
 // --- Dynamic group allowlist ---
 
 const GLOBAL_SETTINGS_ID = '_global'
@@ -839,7 +860,7 @@ export function logUsage(
 
 // --- Audit log ---
 
-export type AuditEventType = 'command' | 'tool_call' | 'error' | 'session_start' | 'session_clear'
+export type AuditEventType = 'command' | 'tool_call' | 'error' | 'session_start' | 'session_clear' | 'session_undo' | 'session_undo_clear'
 
 export function logAudit(chatId: string | null, eventType: AuditEventType, detail?: string): void {
   const now = Math.floor(Date.now() / 1000)
