@@ -48,7 +48,8 @@ fi
 
 # Prevent OOM on Node 25+ (use half of system RAM for V8 heap)
 if command -v node &>/dev/null; then
-  MEM_MB=$(node -e "console.log(Math.floor(require('os').totalmem()/1024/1024/2))")
+  MEM_MB=$(FORCE_COLOR= NO_COLOR=1 node -e "process.stdout.write(String(Math.floor(require('os').totalmem()/1024/1024/2)))")
+  [[ "$MEM_MB" =~ ^[0-9]+$ ]] || MEM_MB=4096
   export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=$MEM_MB"
 fi
 
