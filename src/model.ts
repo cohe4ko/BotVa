@@ -7,6 +7,7 @@ export interface ModelInfo {
 }
 
 export const MODELS: ModelInfo[] = [
+  { id: 'fable', label: 'Fable 5', description: 'Most capable' },
   { id: 'opus-1m', label: 'Opus 1M', description: 'Most capable, 1M context' },
   { id: 'opus', label: 'Opus 200k', description: 'Most capable' },
   { id: 'sonnet-1m', label: 'Sonnet 1M', description: 'Balanced, 1M context' },

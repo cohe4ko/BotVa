@@ -21,6 +21,7 @@ import { getChatSetting, setChatSetting } from './db.js'
 
 describe('getModelLabel', () => {
   it('returns label for known model', () => {
+    expect(getModelLabel('fable')).toBe('Fable 5')
     expect(getModelLabel('opus')).toBe('Opus 200k')
     expect(getModelLabel('opus-1m')).toBe('Opus 1M')
     expect(getModelLabel('sonnet')).toBe('Sonnet 200k')
@@ -34,8 +35,8 @@ describe('getModelLabel', () => {
 })
 
 describe('MODELS', () => {
-  it('has 5 models', () => {
-    expect(MODELS).toHaveLength(5)
+  it('has 6 models', () => {
+    expect(MODELS).toHaveLength(6)
   })
 
   it('each model has id, label, description', () => {
@@ -54,6 +55,7 @@ describe('parseModelConfig', () => {
   })
 
   it('parses regular model', () => {
+    expect(parseModelConfig('fable')).toEqual({ model: 'fable', use1m: false })
     expect(parseModelConfig('sonnet')).toEqual({ model: 'sonnet', use1m: false })
     expect(parseModelConfig('opus')).toEqual({ model: 'opus', use1m: false })
     expect(parseModelConfig('haiku')).toEqual({ model: 'haiku', use1m: false })

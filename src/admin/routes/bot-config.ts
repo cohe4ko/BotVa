@@ -57,6 +57,7 @@ import { getRolesDir } from '../../bot-manager.js'
 
 function getModelLabels(t: TFunc) {
   return [
+    { id: 'fable', label: t('config.fableDesc') },
     { id: 'opus-1m', label: t('config.opus1mDesc') },
     { id: 'opus', label: t('config.opusDesc') },
     { id: 'sonnet-1m', label: t('config.sonnet1mDesc') },
@@ -65,7 +66,7 @@ function getModelLabels(t: TFunc) {
   ]
 }
 
-const MODEL_IDS = ['opus-1m', 'opus', 'sonnet-1m', 'sonnet', 'haiku']
+const MODEL_IDS = ['fable', 'opus-1m', 'opus', 'sonnet-1m', 'sonnet', 'haiku']
 const EFFORT_IDS = ['', 'low', 'medium', 'high', 'max']
 
 function getAgentSettings(name: string): { model: string; backgroundModel: string; effort: string } {
