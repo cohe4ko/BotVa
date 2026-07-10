@@ -65,5 +65,13 @@ export const GUEST_MODE_ENABLED = (env['GUEST_MODE_ENABLED'] ?? 'true') === 'tru
 // Default enabled; set RICH_MESSAGES_ENABLED=0 to disable and keep the HTML/chunked path.
 export const RICH_MESSAGES_ENABLED = (env['RICH_MESSAGES_ENABLED'] ?? '1') !== '0'
 
+// Full process log — chained progress messages without eviction.
+// When enabled, the progress reporter never drops lines: once a message
+// approaches the Telegram limit it is frozen and a fresh linked message
+// continues the log, so the entire thinking/tool/stage process stays visible.
+// Default enabled; set PROGRESS_FULL_LOG=0 for the legacy single-message
+// (20-line eviction) behaviour.
+export const PROGRESS_FULL_LOG = (env['PROGRESS_FULL_LOG'] ?? '1') !== '0'
+
 // Debug
 export const DEBUG_CONTEXT = (env['DEBUG_CONTEXT'] ?? '') === 'true'

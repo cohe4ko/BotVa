@@ -7,6 +7,12 @@ import { draftRichMessage } from './rich-message.js'
 
 const THROTTLE_MS = 1500
 const MAX_LINES = 20
+// Full-log mode (PROGRESS_FULL_LOG): no eviction. Instead the message is frozen
+// and a new linked message continues the log once it approaches these bounds.
+const MAX_LINES_FULL = 40
+// Safety threshold below the Telegram hard limit (4096) — roll over before the
+// rendered snapshot can overflow.
+const ROLLOVER_CHARS = 3500
 const TEXT_PREVIEW_LEN = 200
 // Стрімінг у прогрес-вікні: скільки останніх символів показувати
 const STREAM_PREVIEW_LEN = 600
@@ -220,6 +226,10 @@ export class ProgressReporter {
   private chatId: number
   private api: Api
   private messageId: number | null = null
+  // Full process log: never evict — freeze the message and continue in a new one.
+  private fullLog: boolean
+  // message_ids of frozen (rolled-over) links — they persist in the chat as the log.
+  private chainIds: number[] = []
   private lines: string[] = []
   private toolLines = new Map<string, number>()
   private toolNames = new Map<string, string>()
@@ -251,13 +261,14 @@ export class ProgressReporter {
   private lastDraftTime = 0
   private lastDraftText = ''
 
-  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang, richDraft?: boolean) {
+  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang, richDraft?: boolean, fullLog?: boolean) {
     this.chatId = chatId
     this.api = api
     this.cleanupDelayMs = cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS
     this.cuteMode = cuteMode ?? false
     this.t = createBotT(lang ?? 'uk')
     this.richDraft = richDraft ?? false
+    this.fullLog = fullLog ?? false
     // draft_id має бути ненульовим і стабільним у межах одного ходу
     this.draftId = Math.floor(Math.random() * 2_000_000_000) + 1
   }
@@ -487,14 +498,7 @@ export class ProgressReporter {
         this.streamingText += chunk
         // Стрімимо ефемерну Rich-чернетку з часткової відповіді (тільки приватні чати)
         this.scheduleDraftFlush()
-        // Show last STREAM_PREVIEW_LEN chars of streaming text
-        const display = this.streamingText.replace(/\n/g, ' ').trim()
-        const preview = display.length > STREAM_PREVIEW_LEN
-          ? '...' + display.slice(-(STREAM_PREVIEW_LEN - 3))
-          : display
-
-        const streamEmoji = this.cuteMode ? '💭' : '✍️'
-        const streamLine = `<blockquote expandable>${indent}${streamEmoji} <i>${mdToHtml(preview)}</i></blockquote>`
+        const streamLine = this.streamLineString(indent)
         if (this.streamingLineIdx !== null && this.streamingLineIdx < this.lines.length) {
           this.lines[this.streamingLineIdx] = streamLine
         } else {
@@ -757,14 +761,29 @@ export class ProgressReporter {
     return false
   }
 
-  /** Оновити/додати рядок трансляції мислення (повністю розгорнутий blockquote) */
-  private setThinkingLine(text: string): void {
+  /** Рядок трансляції мислення: розгорнутий blockquote з хвостом процесу (🧠) */
+  private thinkingLineString(text: string): string {
     const display = text.trim()
-    if (display.length === 0) return
     const preview = display.length > THINKING_PREVIEW_LEN
       ? '...' + display.slice(-(THINKING_PREVIEW_LEN - 3))
       : display
-    const line = `<blockquote>🧠 <i>${escapeHtml(preview)}</i></blockquote>`
+    return `<blockquote>🧠 <i>${escapeHtml(preview)}</i></blockquote>`
+  }
+
+  /** Рядок стрімінгу відповіді: expandable blockquote з хвостом тексту (✍️/💭) */
+  private streamLineString(indent = ''): string {
+    const display = this.streamingText.replace(/\n/g, ' ').trim()
+    const preview = display.length > STREAM_PREVIEW_LEN
+      ? '...' + display.slice(-(STREAM_PREVIEW_LEN - 3))
+      : display
+    const streamEmoji = this.cuteMode ? '💭' : '✍️'
+    return `<blockquote expandable>${indent}${streamEmoji} <i>${mdToHtml(preview)}</i></blockquote>`
+  }
+
+  /** Оновити/додати рядок трансляції мислення (повністю розгорнутий blockquote) */
+  private setThinkingLine(text: string): void {
+    if (text.trim().length === 0) return
+    const line = this.thinkingLineString(text)
     if (this.thinkingLineIdx !== null && this.thinkingLineIdx < this.lines.length) {
       this.lines[this.thinkingLineIdx] = line
     } else {
@@ -802,6 +821,8 @@ export class ProgressReporter {
 
   private addLine(line: string): void {
     this.lines.push(line)
+    // Full-log mode never evicts — rollover (at flush time) bounds the message.
+    if (this.fullLog) return
     while (this.lines.length > MAX_LINES) {
       this.lines.shift()
       // Fix streaming line index
@@ -879,21 +900,101 @@ export class ProgressReporter {
     }, delay)
   }
 
+  /** Build the Stop / Interrupt inline keyboard for the active progress message. */
+  private buildKeyboard(): InlineKeyboard {
+    const stopLabel = this.cuteMode ? this.t('progress.cute.stop') : this.t('progress.stop')
+    const interruptLabel = this.cuteMode ? this.t('progress.cute.interrupt') : this.t('progress.interrupt')
+    // Two buttons side-by-side: soft Stop (ESC — keeps partial) + hard Interrupt (kills process)
+    return new InlineKeyboard()
+      .text(stopLabel, `stop:${this.chatId}`)
+      .text(interruptLabel, `intr:${this.chatId}`)
+  }
+
+  /** Full-log: does the current message need to roll over into a fresh link? */
+  private shouldRollover(): boolean {
+    if (!this.fullLog || !this.messageId) return false
+    if (this.lines.length > MAX_LINES_FULL) return true
+    return this.buildDisplayText().length > ROLLOVER_CHARS
+  }
+
+  /**
+   * Freeze the current message and continue the log in a new linked message.
+   * Sends the new link FIRST (with the current, up-to-date content + buttons);
+   * only on success does it strip the old message's buttons and archive it.
+   * If the send fails we keep editing the old message. Active streaming/thinking
+   * migrate into the new link (their tails continue there); the frozen message
+   * keeps the last rendered snapshot of everything before the rollover.
+   * @returns true if the rollover happened (new link already sent).
+   */
+  private async rollover(keyboard: InlineKeyboard): Promise<boolean> {
+    const oldId = this.messageId
+    if (oldId === null) return false
+    const snapshot = this.buildDisplayText()
+
+    // Build the migrated state for the new link without committing it yet.
+    const newLines: string[] = []
+    let newThinkingIdx: number | null = null
+    let newStreamingIdx: number | null = null
+    if (this.thinkingLineIdx !== null && this.thinkingText.trim().length > 0) {
+      newThinkingIdx = newLines.length
+      newLines.push(this.thinkingLineString(this.thinkingText))
+    }
+    if (this.streamingLineIdx !== null && this.streamingText.trim().length > 0) {
+      newStreamingIdx = newLines.length
+      newLines.push(this.streamLineString())
+    }
+    const newText = newLines.join('\n') || '...'
+
+    let sent
+    try {
+      sent = await this.api.sendMessage(this.chatId, newText, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard,
+      })
+    } catch (err) {
+      // New link failed — keep the old message (with its buttons) as the live one.
+      logger.debug({ err }, 'Progress rollover: new link send failed, keeping old message')
+      return false
+    }
+
+    // New link is live → freeze the old one (final edit, no reply_markup = buttons gone).
+    try {
+      await this.api.editMessageText(this.chatId, oldId, snapshot, { parse_mode: 'HTML' })
+    } catch { /* ignore — the old message keeps whatever it last showed */ }
+    this.chainIds.push(oldId)
+
+    // Commit the migrated state. Old tool references belong to the frozen snapshot.
+    this.lines = newLines
+    this.toolLines.clear()
+    this.toolNames.clear()
+    this.subagentTools.clear()
+    this.retryLineIdx = null
+    this.thinkingLineIdx = newThinkingIdx
+    this.streamingLineIdx = newStreamingIdx
+    this.messageId = sent.message_id
+    this.lastEditTime = Date.now()
+    return true
+  }
+
   private async flush(): Promise<void> {
     if (this.stopped || !this.dirty || this.flushing) return
     this.flushing = true
     this.dirty = false
 
-    const text = this.buildDisplayText()
-    const stopLabel = this.cuteMode ? this.t('progress.cute.stop') : this.t('progress.stop')
-    const interruptLabel = this.cuteMode ? this.t('progress.cute.interrupt') : this.t('progress.interrupt')
-    // Two buttons side-by-side: soft Stop (ESC — keeps partial) + hard Interrupt (kills process)
-    const keyboard = new InlineKeyboard()
-      .text(stopLabel, `stop:${this.chatId}`)
-      .text(interruptLabel, `intr:${this.chatId}`)
+    const keyboard = this.buildKeyboard()
 
     try {
       if (this.stopped) return
+
+      // Full-log: freeze the current message and continue in a fresh link. The
+      // rollover already sends the new link with current content — nothing more
+      // to do this cycle.
+      if (this.shouldRollover()) {
+        const rolled = await this.rollover(keyboard)
+        if (rolled) return
+      }
+
+      const text = this.buildDisplayText()
       if (!this.messageId) {
         const sent = await this.api.sendMessage(this.chatId, text, {
           parse_mode: 'HTML',
