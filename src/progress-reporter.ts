@@ -3,6 +3,7 @@ import { InlineKeyboard } from 'grammy'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { logger } from './logger.js'
 import { createBotT, type BotLang, type BotT } from './bot-i18n.js'
+import { draftRichMessage } from './rich-message.js'
 
 const THROTTLE_MS = 1500
 const MAX_LINES = 20
@@ -236,13 +237,23 @@ export class ProgressReporter {
   private cleanupDelayMs: number
   private cuteMode: boolean
   private t: BotT
+  // Rich Message draft streaming (Bot API 10.1) — ефемерний preview відповіді
+  private richDraft: boolean
+  private draftId: number
+  private draftDisabled = false
+  private draftTimer: ReturnType<typeof setTimeout> | null = null
+  private lastDraftTime = 0
+  private lastDraftText = ''
 
-  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang) {
+  constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang, richDraft?: boolean) {
     this.chatId = chatId
     this.api = api
     this.cleanupDelayMs = cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS
     this.cuteMode = cuteMode ?? false
     this.t = createBotT(lang ?? 'uk')
+    this.richDraft = richDraft ?? false
+    // draft_id має бути ненульовим і стабільним у межах одного ходу
+    this.draftId = Math.floor(Math.random() * 2_000_000_000) + 1
   }
 
   handleEvent = (event: SDKMessage): void => {
@@ -281,6 +292,10 @@ export class ProgressReporter {
       clearTimeout(this.editTimer)
       this.editTimer = null
     }
+    if (this.draftTimer) {
+      clearTimeout(this.draftTimer)
+      this.draftTimer = null
+    }
     if (!this.messageId) return
     const msgId = this.messageId
     this.messageId = null
@@ -297,6 +312,10 @@ export class ProgressReporter {
     if (this.editTimer) {
       clearTimeout(this.editTimer)
       this.editTimer = null
+    }
+    if (this.draftTimer) {
+      clearTimeout(this.draftTimer)
+      this.draftTimer = null
     }
 
     if (!this.messageId) return
@@ -443,6 +462,8 @@ export class ProgressReporter {
 
         this.hasStreaming = true
         this.streamingText += chunk
+        // Стрімимо ефемерну Rich-чернетку з часткової відповіді (тільки приватні чати)
+        this.scheduleDraftFlush()
         // Show last 300 chars of streaming text
         const display = this.streamingText.replace(/\n/g, ' ').trim()
         const preview = display.length > 300 ? '...' + display.slice(-297) : display
@@ -758,6 +779,33 @@ export class ProgressReporter {
       parts.push(this.lines[this.streamingLineIdx])
     }
     return parts.join('\n') || '...'
+  }
+
+  /** Заплановане (throttled) надсилання Rich-чернетки під час стрімінгу. */
+  private scheduleDraftFlush(): void {
+    if (!this.richDraft || this.draftDisabled || this.stopped) return
+    if (this.draftTimer) return
+    const elapsed = Date.now() - this.lastDraftTime
+    const delay = Math.max(0, THROTTLE_MS - elapsed)
+    this.draftTimer = setTimeout(() => {
+      this.draftTimer = null
+      this.flushDraft().catch(() => {})
+    }, delay)
+  }
+
+  private async flushDraft(): Promise<void> {
+    if (this.draftDisabled || this.stopped) return
+    const partial = this.streamingText.trim()
+    if (!partial || partial === this.lastDraftText) return
+    this.lastDraftText = partial
+    try {
+      await this.api.sendRichMessageDraft(this.chatId, this.draftId, draftRichMessage(partial))
+      this.lastDraftTime = Date.now()
+    } catch (err) {
+      // Помилка чернетки не критична — вимикаємо стрімінг чернеток на цей хід
+      this.draftDisabled = true
+      logger.warn({ err }, 'Rich draft streaming disabled for this turn')
+    }
   }
 
   private scheduleFlush(): void {

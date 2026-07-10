@@ -61,5 +61,9 @@ export const MAX_ASSISTANT_MEMORY_LEN = parseInt(env['MAX_ASSISTANT_MEMORY_LEN']
 // Guest mode (Bot API 10.0)
 export const GUEST_MODE_ENABLED = (env['GUEST_MODE_ENABLED'] ?? 'true') === 'true'
 
+// Rich messages (Bot API 10.1) — structured answers + draft streaming in private chats.
+// Default enabled; set RICH_MESSAGES_ENABLED=0 to disable and keep the HTML/chunked path.
+export const RICH_MESSAGES_ENABLED = (env['RICH_MESSAGES_ENABLED'] ?? '1') !== '0'
+
 // Debug
 export const DEBUG_CONTEXT = (env['DEBUG_CONTEXT'] ?? '') === 'true'

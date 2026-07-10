@@ -7,6 +7,7 @@ import {
   BOT_DIR,
   DEBUG_CONTEXT,
   GUEST_MODE_ENABLED,
+  RICH_MESSAGES_ENABLED,
 } from './config.js'
 import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup } from './db.js'
 import { runAgent, type UsageStats } from './agent.js'
@@ -34,6 +35,7 @@ import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './g
 import { isGuestAuthorised, cleanGuestText, buildGuestContext, checkGuestRateLimit, GUEST_ALLOWED_TOOLS, GUEST_MCP_ALLOW_LIST, type GuestMessage } from './guest-mode.js'
 import { appendGroupContext, readGroupContext, clearGroupContext } from './group-context.js'
 import { escapeHtml, formatForTelegram, splitMessage, formatUsageStats, sendChunked } from './message-format.js'
+import { markdownToRichMessages } from './rich-message.js'
 import { handleSettingsCallback, handleModelCallback, handleSessionCallback, registerSettingsCommands } from './bot-settings.js'
 import { loadCatalog, buildAgentDefinitions } from './agent-catalog.js'
 import { matchAgents } from './agent-matcher.js'
@@ -431,6 +433,27 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
   }
 }
 
+/**
+ * Надсилає фінальну відповідь як Rich Message (Bot API 10.1) у приватний чат.
+ * Повертає true, якщо все надіслано успішно. За будь-якої помилки (конвертація
+ * або API) — лог warn + повернення false, після чого викликач падає назад на
+ * старий HTML/chunked шлях, щоб користувач ніколи не втратив відповідь.
+ */
+async function trySendRich(ctx: Context, text: string): Promise<boolean> {
+  try {
+    const messages = markdownToRichMessages(text)
+    if (messages.length === 0) return false
+    for (const rich of messages) {
+      if (!rich.html && !rich.markdown) return false
+      await ctx.api.sendRichMessage(ctx.chat!.id, rich)
+    }
+    return true
+  } catch (err) {
+    logger.warn({ err: String(err) }, 'Rich message send failed, falling back to HTML')
+    return false
+  }
+}
+
 // --- Main handler ---
 
 async function handleMessage(
@@ -606,7 +629,8 @@ async function handleMessage(
     const delayMs = delaySetting === 'inf' ? Infinity : delaySetting ? parseInt(delaySetting, 10) * 1000 : undefined
     const cuteMode = getChatSetting(chatIdStr, 'progress_style') === 'blonde'
     const lang = getChatLang(chatIdStr)
-    const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang)
+    const richDraft = RICH_MESSAGES_ENABLED && ctx.chat?.type === 'private'
+    const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang, richDraft)
 
     // Loop: run agent, check for follow-up messages (like typing in CLI while agent runs)
     while (true) {
@@ -937,7 +961,13 @@ async function handleMessage(
             await sendChunked(ctx, text)
           }
         } else {
-          await sendChunked(ctx, text)
+          // Rich Messages (Bot API 10.1) — структуровані відповіді у приватних чатах.
+          // За вимкненого прапорця або будь-якої помилки — старий HTML/chunked шлях.
+          const isPrivate = ctx.chat?.type === 'private'
+          const sentRich = RICH_MESSAGES_ENABLED && isPrivate && await trySendRich(ctx, text)
+          if (!sentRich) {
+            await sendChunked(ctx, text)
+          }
         }
       }
 
