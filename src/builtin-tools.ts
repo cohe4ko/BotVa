@@ -5,6 +5,7 @@ import { InputFile, InputMediaBuilder } from 'grammy'
 import { readEnvFile } from './env.js'
 import { logger } from './logger.js'
 import { TELEGRAPH_ENABLED, PROJECT_ROOT } from './config.js'
+import { escapeHtml } from './message-format.js'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { resolve } from 'path'
 
@@ -99,6 +100,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'SendEmail', icon: 'mail', category: 'communication', description: 'Send email via SMTP', condition: 'SMTP_HOST + SMTP_USER + SMTP_PASS', available: hasSmtp },
     // Telegram media
     { name: 'SendMedia', icon: 'send', category: 'telegram', description: 'Send photo/document/voice/video or album (2-10 files)', available: true },
+    { name: 'SendChecklist', icon: 'list-checks', category: 'telegram', description: 'Send a checklist (shopping/task list) as a message with checkboxes', available: true },
     // Telegram reactions
     { name: 'SetReaction', icon: 'heart', category: 'telegram', description: 'React to user message with emoji', available: true },
     { name: 'PinMessage', icon: 'pin', category: 'telegram', description: 'Pin/unpin messages in chat', available: true },
@@ -137,7 +139,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
 
 export type AskUserCallback = (
   question: string,
-  options: { label: string; description?: string }[],
+  options: { label: string; description?: string; image?: string }[],
   keyboard: 'inline' | 'reply' | 'poll',  // reply kept for legacy bot CLAUDE.md compatibility (converted to inline at runtime)
   text?: string,
   parseMode?: 'HTML' | 'MarkdownV2' | 'Markdown',
@@ -806,6 +808,42 @@ For albums: "надішли останні 5 фото з галереї", "ві�
     )
   )
 
+  // --- Telegram checklist ---
+
+  if (isOn('SendChecklist')) tools.push(
+    tool(
+      'SendChecklist',
+      `Send a standalone checklist to the chat: a title plus a list of tasks/items shown as checkboxes.
+
+Use when the user asks to build a shopping list, to-do list, task list, packing list, etc. ("склади список покупок", "зроби чеклист", "список задач на день", "make a checklist").
+NOT for a plain enumeration inside a normal text answer — only when the user wants a separate checklist message.`,
+      {
+        title: z.string().describe('Checklist title (1-255 characters)'),
+        tasks: z.array(z.string()).min(1).max(30).describe('List of 1-30 task/item texts (each 1-100 chars)'),
+      },
+      async ({ title, tasks }) => {
+        usedTools.add('SendChecklist')
+        try {
+          const cleaned = tasks.map(t => t.trim()).filter(Boolean).slice(0, 30)
+          if (cleaned.length === 0) {
+            return { content: [{ type: 'text' as const, text: 'Error: at least one non-empty task is required' }], isError: true }
+          }
+          // Native Telegram checklists (Bot API 9.1) are scoped to business accounts:
+          // sendChecklist REQUIRES business_connection_id. Regular bots have no business
+          // connection, so we render a markdown-style checklist message instead.
+          const lines = cleaned.map(t => `- [ ] ${escapeHtml(t.slice(0, 100))}`)
+          const text = `📋 <b>${escapeHtml(title.slice(0, 255))}</b>\n\n${lines.join('\n')}`
+          await ctx.reply(text, { parse_mode: 'HTML' })
+          return { content: [{ type: 'text' as const, text: `Checklist "${title}" sent with ${cleaned.length} item(s)` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'SendChecklist tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
   // --- Telegram reactions ---
 
   if (isOn('SetReaction')) tools.push(
@@ -820,16 +858,27 @@ Use this tool ONLY when:
 
 Do NOT use for: simple acknowledgment, thanks, lol, cool, ok — those are auto-reacted already.
 
-Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 🎉 🤩 🤮 💩 🙏 👌 🕊 🤡 🥱 🥴 😍 🐳 ❤️‍🔥 🌚 🌭 💯 🤣 ⚡️ 🍌 🏆 💔 🤨 😐 🍓 🍾 💋 🖕 😈 😴 😭 🤓 👻 👨‍💻 👀 🎃 🙈 😇 😨 🤝 ✍️ 🤗 🫡 🎅 🎄 ☃️ 💅 🤪 🗿 🆒 💘 🙉 🦄 😘 💊 🙊 😎 👾 🤷‍♂️ 🤷 🤷‍♀️ 😡`,
+Available emoji: 👍 👎 ❤️ 🔥 🥰 👏 😁 🤔 🤯 😱 🤬 😢 🎉 🤩 🤮 💩 🙏 👌 🕊 🤡 🥱 🥴 😍 🐳 ❤️‍🔥 🌚 🌭 💯 🤣 ⚡️ 🍌 🏆 💔 🤨 😐 🍓 🍾 💋 🖕 😈 😴 😭 🤓 👻 👨‍💻 👀 🎃 🙈 😇 😨 🤝 ✍️ 🤗 🫡 🎅 🎄 ☃️ 💅 🤪 🗿 🆒 💘 🙉 🦄 😘 💊 🙊 😎 👾 🤷‍♂️ 🤷 🤷‍♀️ 😡
+
+To REMOVE the bot's reaction from the message, set remove=true (emoji is then ignored). Use when the reaction no longer fits or the user asks to take it back ("прибери реакцію", "зніми лайк").`,
       {
-        emoji: z.string().describe('Single emoji to react with'),
+        emoji: z.string().optional().describe('Single emoji to react with (required unless remove=true)'),
+        remove: z.boolean().default(false).describe('true = clear the bot\'s reaction from the message (Bot API 10.0). emoji is ignored.'),
       },
-      async ({ emoji }) => {
+      async ({ emoji, remove }) => {
         usedTools.add('SetReaction')
         try {
           const messageId = ctx.message?.message_id
           if (!messageId) {
             return { content: [{ type: 'text' as const, text: 'No message to react to' }], isError: true }
+          }
+          if (remove) {
+            // Clearing = setMessageReaction with an empty reaction list (removes bot's own reaction)
+            await ctx.api.setMessageReaction(chatId, messageId, [])
+            return { content: [{ type: 'text' as const, text: 'Reaction removed' }] }
+          }
+          if (!emoji?.trim()) {
+            return { content: [{ type: 'text' as const, text: 'Error: emoji is required unless remove=true' }], isError: true }
           }
           await ctx.api.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji: emoji as any }])
           return { content: [{ type: 'text' as const, text: `Reacted with ${emoji}` }] }
@@ -1257,6 +1306,7 @@ EXAMPLES:
         options: z.array(z.object({
           label: z.string().describe('Button/option label'),
           description: z.string().optional().describe('Brief explanation shown under the question (not used in poll mode)'),
+          image: z.string().optional().describe('POLL MODE ONLY (Bot API 10.0): absolute path to an image file (e.g. a generated or gallery image) to show next to this option. Ignored in inline mode.'),
         })).min(2).max(10).describe('Available choices (2-10 options)'),
         keyboard: z.enum(['inline', 'poll']).default('inline').describe(
           'inline = buttons under message (default, use for everything), poll = native Telegram poll (multi-select with checkboxes)'

@@ -32,7 +32,7 @@ import { createBuiltinMcpServer } from './builtin-tools.js'
 import { hasSessionTitle } from './session-titles.js'
 import { getUserNudge } from './workspace-files.js'
 import { classifyReaction } from './auto-react.js'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 import { resolve as pathResolve } from 'node:path'
 import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './group-relay.js'
 import { isGuestAuthorised, cleanGuestText, buildGuestContext, checkGuestRateLimit, GUEST_ALLOWED_TOOLS, GUEST_MCP_ALLOW_LIST, type GuestMessage } from './guest-mode.js'
@@ -728,7 +728,7 @@ async function handleMessage(
       await sendTyping()
 
       // Create askUser callback for AskUser builtin tool
-      const askUserCallback = async (question: string, options: { label: string; description?: string }[], keyboardMode: 'inline' | 'reply' | 'poll', customText?: string, customParseMode?: 'HTML' | 'MarkdownV2' | 'Markdown', multiple?: boolean) => {
+      const askUserCallback = async (question: string, options: { label: string; description?: string; image?: string }[], keyboardMode: 'inline' | 'reply' | 'poll', customText?: string, customParseMode?: 'HTML' | 'MarkdownV2' | 'Markdown', multiple?: boolean) => {
         // Send accumulated streaming text as context message before the question
         // (the model's reasoning/explanation that was shown in the stream but lost on clearStreamingLine)
         const pendingText = reporter.getAndClearPendingText()
@@ -744,7 +744,17 @@ async function handleMessage(
         // Poll mode: native Telegram poll
         if (keyboardMode === 'poll') {
           const pollOptions = options.map(o => o.label)
-          const msg = await ctx.api.sendPoll(chatId, question, pollOptions, {
+          // Bot API 10.0: poll options can carry media. Attach a photo to any option
+          // whose `image` points to an existing file; plain options stay as strings.
+          const hasMedia = options.some(o => o.image && existsSync(o.image))
+          const inputOptions = hasMedia
+            ? options.map(o => (
+                o.image && existsSync(o.image)
+                  ? { text: o.label, media: { type: 'photo' as const, media: new InputFile(o.image) } }
+                  : { text: o.label }
+              ))
+            : pollOptions
+          const msg = await ctx.api.sendPoll(chatId, question, inputOptions, {
             is_anonymous: false,
             allows_multiple_answers: multiple ?? false,
           })

@@ -103,7 +103,7 @@
 ### Каталог доступних інструментів
 
 **Builtin tools** (src/builtin-tools.ts):
-GenerateImage, EditImage, TextToSpeech, TranscribeAudio, SendMedia, SetReaction, ForwardMessage, PublishTelegraph, ShareFile,
+GenerateImage, EditImage, TextToSpeech, TranscribeAudio, SendMedia, SendChecklist, SetReaction, ForwardMessage, PublishTelegraph, ShareFile,
 ListGalleryImages, SendGalleryImage, DeleteGalleryImage,
 CreateBackup, ListBackups, VerifyBackup, RestoreBackup, DeleteBackup, SendEmail,
 SaveFact, SearchMemory, DeleteFact, BoostFact,

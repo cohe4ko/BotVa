@@ -159,7 +159,7 @@ Cron-задачі: `/schedule 0 9 * * * Що в мене на сьогодні?`
 
 ### Telegram
 
-SendMedia (фото, документи, альбоми), ForwardMessage, SetReaction, PinMessage, OpenWebApp (Mini App), AskUser (кнопки, poll).
+SendMedia (фото, документи, альбоми), SendChecklist (список задач/покупок з чекбоксами), ForwardMessage, SetReaction (реакція emoji + зняття реакції), PinMessage, OpenWebApp (Mini App), AskUser (кнопки, poll із зображеннями в опціях).
 
 ### Утиліти
 
