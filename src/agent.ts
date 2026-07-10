@@ -246,6 +246,9 @@ async function runAgentOnce(
         mcpServers,
         includePartialMessages: true,
         agentProgressSummaries: true,
+        // Adaptive thinking з summarized-текстом: сире мислення нові моделі редагують
+        // (порожні thinking-блоки), а summarized-резюме стрімиться і показується юзеру
+        thinking: { type: 'adaptive', display: 'summarized' } as any,
         ...planHooks,
         ...debateHooks,
         ...(askCanUseTool ? { canUseTool: askCanUseTool } : {}),

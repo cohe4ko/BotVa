@@ -245,6 +245,8 @@ export class ProgressReporter {
   private streamingLineIdx: number | null = null
   private thinkingText = ''
   private thinkingLineIdx: number | null = null
+  // Чи стрімилось мислення дельтами цього ходу (щоб не дублювати готовий блок)
+  private thinkingStreamed = false
   // Index of the transient api_retry line, updated in place to avoid one line per retry
   private retryLineIdx: number | null = null
   private hasStreaming = false // true if stream_events are active (skip text in assistant)
@@ -456,11 +458,15 @@ export class ProgressReporter {
           }
           hadContent = true
         } else if (block.type === 'thinking' && (block as any).thinking) {
-          // Готовий thinking-блок (коли дельти не стрімились, напр. summarized display)
-          if (this.thinkingText.length === 0) {
+          // Готовий thinking-блок (коли дельти не стрімились цього ходу)
+          if (!this.thinkingStreamed) {
             this.setThinkingLine(String((block as any).thinking))
             hadContent = true
           }
+          // Хід завершено — наступне мислення піде новим 🧠-блоком у лозі
+          this.thinkingStreamed = false
+          this.thinkingText = ''
+          this.thinkingLineIdx = null
         } else if (block.type === 'text' && block.text) {
           // Skip text blocks if streaming already showed them
           if (this.hasStreaming) continue
@@ -486,6 +492,7 @@ export class ProgressReporter {
         const chunk = streamEvent.delta.thinking ?? ''
         if (!chunk) return false
         this.thinkingText += chunk
+        this.thinkingStreamed = true
         this.setThinkingLine(this.thinkingText)
         return true
       }
@@ -510,6 +517,12 @@ export class ProgressReporter {
 
       // content_block_stop: finalize streaming
       if (streamEvent.type === 'content_block_stop') {
+        // Мислення ходу завершилось — заморожуємо його рядок; наступний хід
+        // почне новий 🧠-блок, щоб у повному лозі було мислення КОЖНОГО ходу
+        if (this.thinkingText.trim().length > 0) {
+          this.thinkingText = ''
+          this.thinkingLineIdx = null
+        }
         this.clearStreamingLine()
         return false
       }
@@ -803,8 +816,10 @@ export class ProgressReporter {
       // Replace streaming preview with final text block
       const display = this.streamingText.replace(/\n/g, ' ').trim()
       if (display.length > 0) {
-        const preview = display.slice(0, TEXT_PREVIEW_LEN)
-        this.lines[this.streamingLineIdx] = `<blockquote>💬 <i>${mdToHtml(preview)}${display.length > TEXT_PREVIEW_LEN ? '...' : ''}</i></blockquote>`
+        // У повному лозі зберігаємо суттєво довший слід кожного ходу
+        const cap = this.fullLog ? STREAM_PREVIEW_LEN : TEXT_PREVIEW_LEN
+        const preview = display.slice(0, cap)
+        this.lines[this.streamingLineIdx] = `<blockquote>💬 <i>${mdToHtml(preview)}${display.length > cap ? '...' : ''}</i></blockquote>`
       } else {
         this.lines.splice(this.streamingLineIdx, 1)
         // Fix indexes
