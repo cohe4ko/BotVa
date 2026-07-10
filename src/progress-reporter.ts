@@ -895,10 +895,23 @@ export class ProgressReporter {
   private async flushDraft(): Promise<void> {
     if (this.draftDisabled || this.stopped) return
     const partial = this.streamingText.trim()
-    if (!partial || partial === this.lastDraftText) return
-    this.lastDraftText = partial
+    if (!partial) return
+    // Блочні оновлення замість потоку: клієнт анімує зміни чернетки з тим самим
+    // draft_id ПОБУКВЕНО, і ця анімація крашить десктопні клієнти (07.2026).
+    // Тому: (1) шлемо лише до останньої завершеної межі (абзац або речення),
+    // (2) щоразу з НОВИМ draft_id — заміна блоку миттєва, без анімації.
+    const boundary = Math.max(
+      partial.lastIndexOf('\n\n'),
+      partial.lastIndexOf('. '),
+      partial.lastIndexOf('.\n'),
+    )
+    if (boundary < 1) return // ще немає завершеного блоку
+    const chunk = partial.slice(0, boundary + 1)
+    if (chunk === this.lastDraftText) return
+    this.lastDraftText = chunk
     try {
-      await this.api.sendRichMessageDraft(this.chatId, this.draftId, draftRichMessage(partial))
+      this.draftId = Math.floor(Math.random() * 2_000_000_000) + 1
+      await this.api.sendRichMessageDraft(this.chatId, this.draftId, draftRichMessage(chunk))
       this.lastDraftTime = Date.now()
     } catch (err) {
       // Помилка чернетки не критична — вимикаємо стрімінг чернеток на цей хід
