@@ -1,6 +1,6 @@
 import { query, type SDKMessage, type McpSdkServerConfigWithInstance, type AgentDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS } from './config.js'
-import { parseModelConfig } from './model.js'
+import { parseModelConfig, getFallbackModel } from './model.js'
 import { buildMcpServers } from './mcp-config.js'
 import { refreshClaudeMd } from './workspace-files.js'
 import { readEnvFile } from './env.js'
@@ -224,6 +224,9 @@ async function runAgentOnce(
     } : {}
 
     const { model: baseModel } = model ? parseModelConfig(model) : { model: undefined as string | undefined }
+    // Resilience: let the SDK auto-demote to a lower tier if the primary model
+    // is overloaded/unavailable (re-tried at the start of each user turn).
+    const fallbackModel = baseModel ? getFallbackModel(baseModel) : undefined
 
     const conversation = query({
       prompt: stripLoneSurrogates(message),
@@ -240,6 +243,7 @@ async function runAgentOnce(
         ...debateHooks,
         ...permissionHooks,
         ...(baseModel ? { model: baseModel } : {}),
+        ...(fallbackModel ? { fallbackModel } : {}),
         ...(effort ? { effort } : {}),
         ...(sessionId ? { resume: sessionId } : {}),
         ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),

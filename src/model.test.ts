@@ -14,6 +14,7 @@ import {
   getEffort,
   setEffort,
   parseModelConfig,
+  getFallbackModel,
   MODELS,
   EFFORTS,
 } from './model.js'
@@ -59,6 +60,29 @@ describe('parseModelConfig', () => {
     expect(parseModelConfig('sonnet')).toEqual({ model: 'sonnet', use1m: false })
     expect(parseModelConfig('opus')).toEqual({ model: 'opus', use1m: false })
     expect(parseModelConfig('haiku')).toEqual({ model: 'haiku', use1m: false })
+  })
+})
+
+describe('getFallbackModel', () => {
+  it('maps each tier to the next lower one by availability', () => {
+    expect(getFallbackModel('fable')).toBe('sonnet')
+    expect(getFallbackModel('opus')).toBe('sonnet')
+    expect(getFallbackModel('sonnet')).toBe('haiku')
+  })
+
+  it('returns undefined for the lowest tier', () => {
+    expect(getFallbackModel('haiku')).toBeUndefined()
+  })
+
+  it('strips [1m] and -1m suffixes — fallback keeps plain name', () => {
+    expect(getFallbackModel('opus[1m]')).toBe('sonnet')
+    expect(getFallbackModel('opus-1m')).toBe('sonnet')
+    expect(getFallbackModel('sonnet[1m]')).toBe('haiku')
+    expect(getFallbackModel('sonnet-1m')).toBe('haiku')
+  })
+
+  it('returns undefined for unknown models', () => {
+    expect(getFallbackModel('unknown-model')).toBeUndefined()
   })
 })
 

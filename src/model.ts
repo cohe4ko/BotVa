@@ -87,3 +87,23 @@ export function parseModelConfig(modelId: string): { model: string; use1m: boole
   }
   return { model: modelId, use1m: false }
 }
+
+/**
+ * Resilience fallback for the SDK `fallbackModel` query option: the model to
+ * try when the primary one is overloaded or unavailable. Returns a plain model
+ * name (no `[1m]`/`-1m` suffix) so the fallback runs at standard context, or
+ * undefined when there is no lower tier to fall back to.
+ *
+ * Chain: fable → sonnet, opus → sonnet, sonnet → haiku, haiku → (none).
+ * Accepts any form of the primary name (`opus`, `opus-1m`, `opus[1m]`).
+ */
+export function getFallbackModel(model: string): string | undefined {
+  const base = model.replace(/\[1m\]$/, '').replace(/-1m$/, '')
+  const chain: Record<string, string | undefined> = {
+    fable: 'sonnet',
+    opus: 'sonnet',
+    sonnet: 'haiku',
+    haiku: undefined,
+  }
+  return chain[base]
+}

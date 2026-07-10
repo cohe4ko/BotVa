@@ -228,6 +228,8 @@ export class ProgressReporter {
   // Streaming text accumulator
   private streamingText = ''
   private streamingLineIdx: number | null = null
+  // Index of the transient api_retry line, updated in place to avoid one line per retry
+  private retryLineIdx: number | null = null
   private hasStreaming = false // true if stream_events are active (skip text in assistant)
   // Last cleared streaming text (for AskUser pre-message)
   private _lastClearedStreamingText = ''
@@ -257,6 +259,7 @@ export class ProgressReporter {
   addFollowupMarker(message: string): void {
     this.clearStreamingLine()
     this.hasStreaming = false
+    this.retryLineIdx = null // new turn — don't reuse a previous turn's retry line
     const preview = message.replace(/\n/g, ' ').trim().slice(0, 100)
     this.addLine(`\n💬 <b>→ ${escapeHtml(preview)}${message.length > 100 ? '...' : ''}</b>`)
     this.dirty = true
@@ -552,6 +555,35 @@ export class ProgressReporter {
         }
       }
 
+      // Model fallback: primary model overloaded/refused → swapped to a lower tier.
+      // (SDKModelRefusalFallbackMessage is the only "switched fallback model" signal
+      // this SDK emits; the overload/rate-limit distinction lives on api_retry below.)
+      if (sys.subtype === 'model_refusal_fallback' && sys.direction === 'retry') {
+        const fallback = String(sys.fallback_model ?? '')
+        this.addLine(this.cuteMode
+          ? `<i>${this.t('progress.cute.modelFallback')}</i>`
+          : this.t('progress.modelFallback', { model: escapeHtml(fallback) }))
+        return true
+      }
+
+      // API retry: overloaded (529) or rate_limit (429). Update one line in place
+      // instead of appending a fresh line per retry.
+      if (sys.subtype === 'api_retry') {
+        const attempt = Number(sys.attempt ?? 0)
+        const max = Number(sys.max_retries ?? 0)
+        const key = sys.error === 'rate_limit' ? 'progress.apiRetryRateLimit' : 'progress.apiRetryOverloaded'
+        const line = this.cuteMode
+          ? `<i>${this.t('progress.cute.rateLimit')}</i>`
+          : this.t(key, { n: attempt, m: max })
+        if (this.retryLineIdx !== null && this.retryLineIdx < this.lines.length) {
+          this.lines[this.retryLineIdx] = line
+        } else {
+          this.retryLineIdx = this.lines.length
+          this.addLine(line)
+        }
+        return true
+      }
+
       // Init: skip — same every message, just noise
     }
 
@@ -700,6 +732,10 @@ export class ProgressReporter {
       if (this.streamingLineIdx !== null) {
         this.streamingLineIdx--
         if (this.streamingLineIdx < 0) this.streamingLineIdx = null
+      }
+      if (this.retryLineIdx !== null) {
+        this.retryLineIdx--
+        if (this.retryLineIdx < 0) this.retryLineIdx = null
       }
       for (const [id, idx] of this.toolLines) {
         if (idx <= 0) {
