@@ -256,8 +256,8 @@ async function main(): Promise<void> {
   const runner = run(bot, {
     runner: {
       fetch: {
-        // guest_message: Bot API 10.0 guest mode (обробник у bot.ts); cast бо @grammyjs/types < 3.27 його ще не знає
-        allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer', 'guest_message'] as any,
+        // guest_message: Bot API 10.0 guest mode (обробник у bot.ts)
+        allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer', 'guest_message'],
       },
     },
   })
