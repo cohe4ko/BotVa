@@ -10,8 +10,8 @@ const MAX_LINES = 20
 const TEXT_PREVIEW_LEN = 200
 // Стрімінг у прогрес-вікні: скільки останніх символів показувати
 const STREAM_PREVIEW_LEN = 600
-// Трансляція мислення (thinking_delta): розгортуваний blockquote з хвостом процесу
-const THINKING_PREVIEW_LEN = 1200
+// Трансляція мислення (thinking_delta): повністю розгорнутий blockquote з хвостом процесу
+const THINKING_PREVIEW_LEN = 2000
 const DEFAULT_CLEANUP_DELAY_MS = 18_000
 
 function escapeHtml(s: string): string {
@@ -444,6 +444,12 @@ export class ProgressReporter {
             this.addLine(`<code>${indent}${toolIcon(name)} ${escapeHtml(shortToolName(name))}${detailStr}</code>`)
           }
           hadContent = true
+        } else if (block.type === 'thinking' && (block as any).thinking) {
+          // Готовий thinking-блок (коли дельти не стрімились, напр. summarized display)
+          if (this.thinkingText.length === 0) {
+            this.setThinkingLine(String((block as any).thinking))
+            hadContent = true
+          }
         } else if (block.type === 'text' && block.text) {
           // Skip text blocks if streaming already showed them
           if (this.hasStreaming) continue
@@ -464,23 +470,12 @@ export class ProgressReporter {
       const streamEvent = raw.event
       if (!streamEvent) return false
 
-      // Мислення агента: стрімимо повний процес розгортуваним блоком (🧠)
+      // Мислення агента: стрімимо повний процес розгорнутим блоком (🧠)
       if (streamEvent.type === 'content_block_delta' && streamEvent.delta?.type === 'thinking_delta') {
         const chunk = streamEvent.delta.thinking ?? ''
         if (!chunk) return false
         this.thinkingText += chunk
-        const display = this.thinkingText.trim()
-        if (display.length === 0) return false
-        const preview = display.length > THINKING_PREVIEW_LEN
-          ? '...' + display.slice(-(THINKING_PREVIEW_LEN - 3))
-          : display
-        const thinkingLine = `<blockquote expandable>${indent}🧠 <i>${escapeHtml(preview)}</i></blockquote>`
-        if (this.thinkingLineIdx !== null && this.thinkingLineIdx < this.lines.length) {
-          this.lines[this.thinkingLineIdx] = thinkingLine
-        } else {
-          this.thinkingLineIdx = this.lines.length
-          this.addLine(thinkingLine)
-        }
+        this.setThinkingLine(this.thinkingText)
         return true
       }
 
@@ -579,6 +574,20 @@ export class ProgressReporter {
       const sys = event as any
 
       // Compacting
+      // Redacted-фаза мислення: текст ще не стрімиться, показуємо живий лічильник
+      if (sys.subtype === 'thinking_tokens') {
+        if (this.thinkingText.length > 0) return false
+        const tok = Number(sys.estimated_tokens ?? 0)
+        const line = `<blockquote>🧠 <i>${this.cuteMode ? 'думає-думає' : 'думає'}… ~${tok} ток.</i></blockquote>`
+        if (this.thinkingLineIdx !== null && this.thinkingLineIdx < this.lines.length) {
+          this.lines[this.thinkingLineIdx] = line
+        } else {
+          this.thinkingLineIdx = this.lines.length
+          this.addLine(line)
+        }
+        return true
+      }
+
       if (sys.subtype === 'status' && sys.status === 'compacting') {
         this.addLine(this.cuteMode ? `<i>${this.t('progress.cute.compacting')}</i>` : this.t('progress.compacting'))
         return true
@@ -746,6 +755,22 @@ export class ProgressReporter {
     }
 
     return false
+  }
+
+  /** Оновити/додати рядок трансляції мислення (повністю розгорнутий blockquote) */
+  private setThinkingLine(text: string): void {
+    const display = text.trim()
+    if (display.length === 0) return
+    const preview = display.length > THINKING_PREVIEW_LEN
+      ? '...' + display.slice(-(THINKING_PREVIEW_LEN - 3))
+      : display
+    const line = `<blockquote>🧠 <i>${escapeHtml(preview)}</i></blockquote>`
+    if (this.thinkingLineIdx !== null && this.thinkingLineIdx < this.lines.length) {
+      this.lines[this.thinkingLineIdx] = line
+    } else {
+      this.thinkingLineIdx = this.lines.length
+      this.addLine(line)
+    }
   }
 
   private clearStreamingLine(): void {

@@ -32,6 +32,21 @@ function applyInlineExtras(escaped: string): string {
     .replace(/==(.+?)==/g, '<mark>$1</mark>')
 }
 
+/**
+ * Боти історично пишуть Telegram-HTML теги напряму (<b>, <i>, <code>, <blockquote>…) —
+ * старий шлях надсилав їх з parse_mode: HTML. Екрануємо все, а потім розекрануємо
+ * whitelisted теги, щоб вони рендерились і в Rich HTML. Все інше лишається текстом.
+ */
+function sanitizeRawHtml(raw: string): string {
+  return escapeHtml(raw)
+    .replace(/&lt;(\/?)(b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|tg-spoiler|mark)&gt;/gi, '<$1$2>')
+    .replace(/&lt;span class="tg-spoiler"&gt;/gi, '<span class="tg-spoiler">')
+    .replace(/&lt;\/span&gt;/gi, '</span>')
+    .replace(/&lt;a href="(https?:\/\/[^"]*)"&gt;/gi, '<a href="$1">')
+    .replace(/&lt;\/a&gt;/gi, '</a>')
+    .replace(/&lt;br\s*\/?&gt;/gi, '<br>')
+}
+
 /** Рендер масиву inline-токенів marked у Rich HTML. */
 function renderInline(tokens: Token[] | undefined): string {
   if (!tokens || tokens.length === 0) return ''
@@ -79,7 +94,8 @@ function renderInline(tokens: Token[] | undefined): string {
         out += '<br>'
         break
       case 'html':
-        out += escapeHtml(String(t.text ?? t.raw ?? ''))
+        // Телеграм-HTML теги від моделі пропускаємо, решту екрануємо
+        out += sanitizeRawHtml(String(t.raw ?? t.text ?? ''))
         break
       default:
         out += applyInlineExtras(escapeHtml(String(t.text ?? '')))
@@ -177,9 +193,13 @@ function renderBlock(token: Token): string {
       return renderList(t as Tokens.List)
     case 'table':
       return renderTable(t as Tokens.Table)
-    case 'html':
-      // Сирий HTML від агента не очікується; екрануємо як параграф.
-      return `<p>${escapeHtml(String(t.text ?? t.raw ?? ''))}</p>`
+    case 'html': {
+      // Телеграм-HTML від моделі (блочний): whitelisted теги пропускаємо, решту екрануємо.
+      const sanitized = sanitizeRawHtml(String(t.raw ?? t.text ?? '')).trim()
+      if (!sanitized) return ''
+      // Блочні теги (pre/blockquote) не загортаємо в <p>
+      return /^<(pre|blockquote)/i.test(sanitized) ? sanitized : `<p>${sanitized}</p>`
+    }
     default:
       return t.text ? `<p>${applyInlineExtras(escapeHtml(String(t.text)))}</p>` : ''
   }
