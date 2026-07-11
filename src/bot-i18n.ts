@@ -119,6 +119,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cb.unknownModel': 'Unknown model',
     'cb.askSkip': '✏️ Other (skip)',
     'cb.userSkipped': 'User skipped the question',
+    'cb.toTelegraph': '📰 To Telegraph',
+    'cb.telegraphExpired': '⚠️ Text unavailable (bot was restarted)',
+    'cb.telegraphFailed': 'Failed to publish',
 
     // Media
     'media.photoFail': 'Failed to process photo.',
@@ -460,6 +463,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cb.unknownModel': 'Невідома модель',
     'cb.askSkip': '✏️ Інше (пропустити)',
     'cb.userSkipped': 'Користувач пропустив питання',
+    'cb.toTelegraph': '📰 В Telegraph',
+    'cb.telegraphExpired': '⚠️ Текст недоступний (був рестарт)',
+    'cb.telegraphFailed': 'Не вдалося опублікувати',
 
     // Media
     'media.photoFail': 'Не вдалося обробити фото.',

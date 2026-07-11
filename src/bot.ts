@@ -1,4 +1,4 @@
-import { Bot, Context, InputFile } from 'grammy'
+import { Bot, Context, InputFile, InlineKeyboard } from 'grammy'
 import {
   TELEGRAM_BOT_TOKEN,
   ALLOWED_CHAT_ID,
@@ -38,7 +38,8 @@ import { resolve as pathResolve } from 'node:path'
 import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './group-relay.js'
 import { isGuestAuthorised, cleanGuestText, buildGuestContext, checkGuestRateLimit, GUEST_ALLOWED_TOOLS, GUEST_MCP_ALLOW_LIST, type GuestMessage } from './guest-mode.js'
 import { appendGroupContext, readGroupContext, clearGroupContext } from './group-context.js'
-import { escapeHtml, formatForTelegram, splitMessage, formatUsageStats, sendChunked } from './message-format.js'
+import { escapeHtml, formatForTelegram, splitMessage, formatUsageStats, sendChunked, shouldOfferTelegraphButton } from './message-format.js'
+import { BoundedMap } from './bounded-map.js'
 import { markdownToRichMessages } from './rich-message.js'
 import { handleSettingsCallback, handleModelCallback, handleSessionCallback, registerSettingsCommands } from './bot-settings.js'
 import { loadCatalog, buildAgentDefinitions } from './agent-catalog.js'
@@ -75,6 +76,15 @@ const pendingVoiceConfirms = new Map<string, {
   messageId: number
   timeout: ReturnType<typeof setTimeout>
 }>()
+
+// --- Pending «В Telegraph» button texts ---
+// Зберігаємо повний markdown довгих відповідей, щоб опублікувати в Telegraph
+// за натиском інлайн-кнопки. Обмежено ~50 останніми, старі витісняються.
+const pendingTelegraphTexts = new BoundedMap<string, { text: string }>(50)
+
+function makeTelegraphId(): string {
+  return Math.random().toString(36).slice(2, 10)
+}
 
 // --- Pending TTS provider prompts (for long texts in auto mode) ---
 let ttsPromptCounter = 0
@@ -443,13 +453,21 @@ async function sendGroupChunked(ctx: Context, text: string): Promise<void> {
  * або API) — лог warn + повернення false, після чого викликач падає назад на
  * старий HTML/chunked шлях, щоб користувач ніколи не втратив відповідь.
  */
-async function trySendRich(ctx: Context, text: string): Promise<boolean> {
+async function trySendRich(
+  ctx: Context,
+  text: string,
+  lastReplyMarkup?: InlineKeyboard
+): Promise<boolean> {
   try {
     const messages = markdownToRichMessages(text)
     if (messages.length === 0) return false
-    for (const rich of messages) {
+    for (let i = 0; i < messages.length; i++) {
+      const rich = messages[i]
       if (!rich.html && !rich.markdown) return false
-      await ctx.api.sendRichMessage(ctx.chat!.id, rich)
+      const isLast = i === messages.length - 1
+      await ctx.api.sendRichMessage(ctx.chat!.id, rich, {
+        reply_markup: isLast ? lastReplyMarkup : undefined,
+      })
     }
     return true
   } catch (err) {
@@ -996,9 +1014,20 @@ async function handleMessage(
           // Rich Messages (Bot API 10.1) — структуровані відповіді у приватних чатах.
           // За вимкненого прапорця або будь-якої помилки — старий HTML/chunked шлях.
           const isPrivate = ctx.chat?.type === 'private'
-          const sentRich = RICH_MESSAGES_ENABLED && isPrivate && await trySendRich(ctx, text)
+          // Дуже довгі відповіді (> порогу, але нижче Telegraph-ліміту) отримують
+          // інлайн-кнопку «В Telegraph» на ОСТАННЄ повідомлення. Тільки приватні чати.
+          let telegraphMarkup: InlineKeyboard | undefined
+          if (isPrivate && TELEGRAPH_ENABLED && shouldOfferTelegraphButton(text)) {
+            const id = makeTelegraphId()
+            pendingTelegraphTexts.set(id, { text })
+            telegraphMarkup = new InlineKeyboard().text(
+              chatT(chatIdStr)('cb.toTelegraph'),
+              `tg2ph:${id}`
+            )
+          }
+          const sentRich = RICH_MESSAGES_ENABLED && isPrivate && await trySendRich(ctx, text, telegraphMarkup)
           if (!sentRich) {
-            await sendChunked(ctx, text)
+            await sendChunked(ctx, text, telegraphMarkup)
           }
         }
       }
@@ -1108,6 +1137,34 @@ export function createBot(): Bot {
         } catch { /* ignore */ }
       } else {
         await ctx.answerCallbackQuery({ text: chatT(chatIdStr)('cb.questionExpired') })
+      }
+      return
+    }
+    // «В Telegraph» button callback — публікуємо збережений markdown відповіді
+    if (ctx.callbackQuery?.data?.startsWith('tg2ph:')) {
+      const chatIdStr = String(ctx.chat?.id)
+      const _t = chatT(chatIdStr)
+      const id = ctx.callbackQuery.data.slice('tg2ph:'.length)
+      const pending = pendingTelegraphTexts.get(id)
+      if (!pending) {
+        await ctx.answerCallbackQuery({ text: _t('cb.telegraphExpired') })
+        return
+      }
+      try {
+        const url = await createTelegraphPage(BOT_NAME, pending.text)
+        if (!url) {
+          await ctx.answerCallbackQuery({ text: _t('cb.telegraphFailed') })
+          return
+        }
+        pendingTelegraphTexts.delete(id)
+        await ctx.answerCallbackQuery()
+        await ctx.reply(url)
+        try {
+          await ctx.editMessageReplyMarkup({ reply_markup: undefined })
+        } catch { /* ignore */ }
+      } catch (err) {
+        logger.warn({ err: String(err) }, 'Telegraph publish (button) failed')
+        await ctx.answerCallbackQuery({ text: _t('cb.telegraphFailed') })
       }
       return
     }

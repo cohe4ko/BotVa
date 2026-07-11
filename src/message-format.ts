@@ -1,6 +1,6 @@
 import { MAX_MESSAGE_LENGTH } from './config.js'
 import type { UsageStats } from './agent.js'
-import type { Context } from 'grammy'
+import type { Context, InlineKeyboard } from 'grammy'
 
 // --- HTML escaping ---
 
@@ -219,16 +219,33 @@ export function formatUsageStats(u: UsageStats): string {
   return `<i>${cost} | ctx: ${contextPct}% (${k(u.lastTurnContextTokens)}/${k(u.contextWindow)}) | in: ${k(u.inputTokens)} out: ${k(u.outputTokens)}</i>`
 }
 
+// --- Telegraph button threshold ---
+
+/** Довгі відповіді (> цього ліміту символів) отримують інлайн-кнопку «В Telegraph». */
+export const TELEGRAPH_BUTTON_THRESHOLD = 5000
+
+/** Чи пропонувати кнопку «В Telegraph» під відповіддю такої довжини. */
+export function shouldOfferTelegraphButton(text: string): boolean {
+  return text.length > TELEGRAPH_BUTTON_THRESHOLD
+}
+
 // --- Send chunked message ---
 
-export async function sendChunked(ctx: Context, text: string): Promise<void> {
+export async function sendChunked(
+  ctx: Context,
+  text: string,
+  lastReplyMarkup?: InlineKeyboard
+): Promise<void> {
   const formatted = formatForTelegram(text)
   const chunks = splitMessage(formatted)
-  for (const chunk of chunks) {
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]
+    const isLast = i === chunks.length - 1
+    const markup = isLast ? lastReplyMarkup : undefined
     try {
-      await ctx.reply(chunk, { parse_mode: 'HTML' })
+      await ctx.reply(chunk, { parse_mode: 'HTML', reply_markup: markup })
     } catch {
-      await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
+      await ctx.reply(chunk.replace(/<[^>]+>/g, ''), { reply_markup: markup })
     }
   }
 }
