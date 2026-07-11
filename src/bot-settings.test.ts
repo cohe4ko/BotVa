@@ -70,7 +70,7 @@ vi.mock('./disk-sessions.js', () => ({
   getSessionDetail: () => null,
 }))
 
-import { buildProjectsMessage, buildSessionMessage } from './bot-settings.js'
+import { buildProjectsMessage, buildSessionMessage, buildSettingsMessage } from './bot-settings.js'
 
 function assertAllCallbacksUnder64Bytes(replyMarkup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }) {
   for (const row of replyMarkup.inline_keyboard) {
@@ -102,6 +102,20 @@ describe('buildProjectsMessage', () => {
       // Raw keys must not leak into callbacks
       expect(btn.callback_data).not.toContain('-Users-ivan-')
     }
+  })
+})
+
+describe('buildSettingsMessage', () => {
+  it('includes a rich-draft toggle button; OFF when setting unset', () => {
+    // getChatSetting mock returns undefined → draft defaults to OFF
+    const { reply_markup, text } = buildSettingsMessage('12345')
+    const draftBtn = reply_markup.inline_keyboard
+      .flat()
+      .find(b => b.callback_data === 'settings:draft')
+    expect(draftBtn).toBeDefined()
+    // chatT mock echoes the key back, so OFF state resolves to the .off key
+    expect(draftBtn!.text).toBe('settings.draft.off')
+    expect(text).toContain('settings.desc.draft')
   })
 })
 

@@ -39,6 +39,7 @@ export function buildSettingsMessage(chatId: string) {
   const voiceConfirmOn = getChatSetting(chatId, 'voice_confirm') === '1'
   const statsOn = getChatSetting(chatId, 'stats') === '1'
   const factsOn = getChatSetting(chatId, 'fact_notify') !== '0' // ON by default
+  const draftOn = getChatSetting(chatId, 'rich_draft') === '1' // OFF by default
   const lang = getChatLang(chatId)
   const style = getChatSetting(chatId, 'progress_style') ?? 'brunette'
   const delay = getChatSetting(chatId, 'progress_delay') ?? '0'
@@ -70,6 +71,9 @@ export function buildSettingsMessage(chatId: string) {
     ],
     [
       { text: t('settings.team', { label: teamLabel }), callback_data: 'settings:team' },
+      { text: t(draftOn ? 'settings.draft.on' : 'settings.draft.off'), callback_data: 'settings:draft' },
+    ],
+    [
       { text: '❌ ' + t('settings.close'), callback_data: 'settings:close' },
     ],
   ]
@@ -86,6 +90,7 @@ export function buildSettingsMessage(chatId: string) {
     `🎨 <b>${styleLabel}</b> — ${t('settings.desc.style')}`,
     `⏱ <b>${delayLabel}</b> — ${t('settings.desc.delay')}`,
     `👥 <b>${teamLabel}</b> — ${t('settings.desc.team')}`,
+    `✍️ <b>${draftOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.draft')}`,
   ]
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
@@ -253,6 +258,10 @@ export async function handleSettingsCallback(
     case 'facts':
       if (getChatSetting(chatIdStr, 'fact_notify') === '0') deleteChatSetting(chatIdStr, 'fact_notify')
       else setChatSetting(chatIdStr, 'fact_notify', '0')
+      break
+    case 'draft':
+      if (getChatSetting(chatIdStr, 'rich_draft') === '1') setChatSetting(chatIdStr, 'rich_draft', '0')
+      else setChatSetting(chatIdStr, 'rich_draft', '1')
       break
     case 'lang': {
       const cur = getChatLang(chatIdStr)

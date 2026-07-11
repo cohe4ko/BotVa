@@ -65,10 +65,10 @@ export const GUEST_MODE_ENABLED = (env['GUEST_MODE_ENABLED'] ?? 'true') === 'tru
 // Default enabled; set RICH_MESSAGES_ENABLED=0 to disable and keep the HTML/chunked path.
 export const RICH_MESSAGES_ENABLED = (env['RICH_MESSAGES_ENABLED'] ?? '1') !== '0'
 // Draft-стрімінг (sendRichMessageDraft). Десктопні клієнти Telegram (07.2026)
-// крашились при швидких оновленнях rich-чернетки, тому оновлення тротлиться
-// окремим інтервалом (RICH_DRAFT_THROTTLE_MS, default 2000, мінімум 1000).
-// Повністю вимкнути: RICH_DRAFT_ENABLED=0.
-export const RICH_DRAFT_ENABLED = (env['RICH_DRAFT_ENABLED'] ?? '1') !== '0'
+// крашились при швидких оновленнях rich-чернетки, тому дефолт off —
+// вся відповідь надсилається в кінці, як і без стрімінгу. Вмикається per-chat
+// у /settings (setting `rich_draft`) або цим env: RICH_DRAFT_ENABLED=1.
+export const RICH_DRAFT_ENABLED = env['RICH_DRAFT_ENABLED'] === '1'
 export const RICH_DRAFT_THROTTLE_MS = Math.max(1000, Number(env['RICH_DRAFT_THROTTLE_MS'] ?? 2000) || 2000)
 
 // Full process log — chained progress messages without eviction.
