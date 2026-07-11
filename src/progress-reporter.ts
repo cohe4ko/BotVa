@@ -274,8 +274,8 @@ export class ProgressReporter {
     this.t = createBotT(lang ?? 'uk')
     this.richDraft = richDraft ?? false
     this.fullLog = fullLog ?? false
-    // Повільніший тротлінг чернеток: швидкі оновлення крашили десктопні клієнти
-    this.draftThrottleMs = Math.max(1000, draftThrottleMs ?? 2000)
+    // Тротлінг чернеток вимкнено (0 мс): стрімимо кожен завершений блок одразу
+    this.draftThrottleMs = Math.max(0, draftThrottleMs ?? 0)
     // draft_id має бути ненульовим і стабільним у межах одного ходу
     this.draftId = Math.floor(Math.random() * 2_000_000_000) + 1
   }

@@ -69,7 +69,9 @@ export const RICH_MESSAGES_ENABLED = (env['RICH_MESSAGES_ENABLED'] ?? '1') !== '
 // вся відповідь надсилається в кінці, як і без стрімінгу. Вмикається per-chat
 // у /settings (setting `rich_draft`) або цим env: RICH_DRAFT_ENABLED=1.
 export const RICH_DRAFT_ENABLED = env['RICH_DRAFT_ENABLED'] === '1'
-export const RICH_DRAFT_THROTTLE_MS = Math.max(1000, Number(env['RICH_DRAFT_THROTTLE_MS'] ?? 2000) || 2000)
+// Тротлінг чернеток вимкнено: кожен завершений блок стрімиться одразу (0 мс).
+// За потреби можна повернути затримку через env RICH_DRAFT_THROTTLE_MS.
+export const RICH_DRAFT_THROTTLE_MS = Math.max(0, Number(env['RICH_DRAFT_THROTTLE_MS'] ?? 0) || 0)
 
 // Full process log — chained progress messages without eviction.
 // When enabled, the progress reporter never drops lines: once a message
