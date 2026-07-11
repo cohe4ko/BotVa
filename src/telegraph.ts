@@ -13,9 +13,12 @@ interface TelegraphAccount {
 let telegraphAccount: TelegraphAccount | null = null
 
 const TELEGRAPH_THRESHOLD = 2000
+// У приватних чатах з rich messages (ліміт 32768 символів) Telegraph потрібен
+// значно пізніше — середні відповіді краще читаються нативно в чаті.
+const TELEGRAPH_RICH_THRESHOLD = 12000
 
-export function shouldUseTelegraph(content: string): boolean {
-  return content.length > TELEGRAPH_THRESHOLD
+export function shouldUseTelegraph(content: string, richAvailable = false): boolean {
+  return content.length > (richAvailable ? TELEGRAPH_RICH_THRESHOLD : TELEGRAPH_THRESHOLD)
 }
 
 export async function initTelegraph(): Promise<void> {

@@ -21,7 +21,7 @@ import { getProvider as getTtsProvider } from './tts-providers/index.js'
 import { isLongText } from './tts-providers/chunking.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
 import { logger } from './logger.js'
-import { queueRequest, cancelRequest, interruptRequest, clearQueue, isProcessing, addFollowup, getAndClearFollowup, clearCancelled } from './request-queue.js'
+import { queueRequest, cancelRequest, interruptRequest, clearQueue, isProcessing, addFollowup, getAndClearFollowup, clearCancelled, isInterrupted } from './request-queue.js'
 import { ProgressReporter } from './progress-reporter.js'
 import { isStaleMessage } from './stale-filter.js'
 import { isDuplicate, markProcessed } from './deduplication.js'
@@ -951,7 +951,9 @@ async function handleMessage(
 
       // No follow-up — send the result
       if (!text) {
-        await ctx.reply(chatT(chatIdStr)('auth.noReply'))
+        // Юзер зупинив агента до появи тексту — «⏹ Зупинено», не «(без відповіді)»
+        const wasStopped = isInterrupted(chatIdStr)
+        await ctx.reply(wasStopped ? '⏹ Зупинено' : chatT(chatIdStr)('auth.noReply'))
         return
       }
 
@@ -975,8 +977,9 @@ async function handleMessage(
         await sendGroupChunked(ctx, text)
       } else {
         // Private chat: telegraph for long messages
+        // (з rich messages поріг вищий — середні відповіді лишаються в чаті)
         const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
-        const shouldTelegraph = TELEGRAPH_ENABLED && shouldUseTelegraph(text) && !agentUsedTelegraph
+        const shouldTelegraph = TELEGRAPH_ENABLED && shouldUseTelegraph(text, RICH_MESSAGES_ENABLED) && !agentUsedTelegraph
         if (shouldTelegraph) {
           const url = await createTelegraphPage(BOT_NAME, text)
           if (url) {

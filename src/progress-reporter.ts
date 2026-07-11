@@ -3,6 +3,7 @@ import { InlineKeyboard } from 'grammy'
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { logger } from './logger.js'
 import { createBotT, type BotLang, type BotT } from './bot-i18n.js'
+import { isInterrupted } from './request-queue.js'
 import { draftRichMessage } from './rich-message.js'
 
 const THROTTLE_MS = 1500
@@ -766,7 +767,12 @@ export class ProgressReporter {
       }
 
       if (res.subtype !== 'success' && res.subtype !== undefined) {
-        parts.push(`⚠️ ${res.subtype}`)
+        // Перерваний користувачем хід (Stop/follow-up) — не помилка, а зупинка
+        if (res.subtype === 'error_during_execution' && isInterrupted(String(this.chatId))) {
+          parts.push('⏹ зупинено')
+        } else {
+          parts.push(`⚠️ ${res.subtype}`)
+        }
       }
 
       if (parts.length > 0) {
