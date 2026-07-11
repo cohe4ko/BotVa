@@ -266,7 +266,18 @@ export function markdownToRichMessages(
   return splitMarkdown(md, maxChars).map(markdownToRichMessage)
 }
 
-/** Простий InputRichMessage для стрімінгу чернетки (partial markdown, як є). */
+/**
+ * InputRichMessage для стрімінгу чернетки. Рендеримо той самий Rich HTML, що й
+ * фінал (markdownToRichHtml), а не сирий `{ markdown }` — Telegram-івський
+ * rich-markdown не розуміє GitHub-діалект (## заголовки, **жирний**, ``` блоки)
+ * і показує їх сирими символами. flushDraft() ріже chunk по межах абзацу/речення,
+ * тож розмітка вже закрита і HTML коректний. За порожнього результату (напр.
+ * chunk без завершених блоків) відкочуємось на сирий markdown, щоб прев'ю не зникло.
+ */
 export function draftRichMessage(partial: string): InputRichMessage {
+  try {
+    const html = markdownToRichHtml(partial)
+    if (html) return { html }
+  } catch { /* fall through to raw markdown */ }
   return { markdown: partial }
 }
