@@ -2034,7 +2034,10 @@ export function createBot(): Bot {
     try {
       const file = await ctx.getFile()
       const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, file.file_id, 'voice.oga')
-      const transcript = await transcribeAudio(localPath)
+      // STT language from /settings (default 'uk'; 'auto' -> let Whisper detect)
+      const sttPref = getChatSetting(String(chatId), 'stt_lang') ?? 'uk'
+      const sttLanguage = sttPref === 'auto' ? undefined : sttPref
+      const transcript = await transcribeAudio(localPath, { language: sttLanguage })
 
       // Voice confirm mode: show transcript with confirm/cancel buttons
       if (getChatSetting(String(chatId), 'voice_confirm') === '1') {
@@ -2103,7 +2106,10 @@ export function createBot(): Bot {
       const audio = ctx.message.audio
       const ext = audio.file_name?.match(/\.[^.]+$/)?.[0] ?? '.mp3'
       const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, audio.file_id, `audio${ext}`)
-      const { text: transcript } = await transcribeAudioLong(localPath)
+      // STT language from /settings (default 'uk'; 'auto' -> let Whisper detect)
+      const sttPref = getChatSetting(String(chatId), 'stt_lang') ?? 'uk'
+      const sttLanguage = sttPref === 'auto' ? undefined : sttPref
+      const { text: transcript } = await transcribeAudioLong(localPath, { language: sttLanguage })
       const preview = transcript.length > 3800 ? transcript.slice(0, 3800) + '…' : transcript
       await ctx.reply(`🎙️ ${preview}`)
       await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true)

@@ -30,6 +30,14 @@ export const AGENT_MODE_OPTIONS = [
   { id: 'ask', labelKey: 'agent.ask' },
   { id: 'plan', labelKey: 'agent.plan' },
 ]
+// Voice recognition (STT) language. 'uk' is the default (fixes Whisper
+// auto-detect mistaking Ukrainian for Russian); 'auto' lets Whisper decide.
+export const STT_LANG_OPTIONS = [
+  { id: 'uk', labelKey: 'stt.uk' },
+  { id: 'ru', labelKey: 'stt.ru' },
+  { id: 'en', labelKey: 'stt.en' },
+  { id: 'auto', labelKey: 'stt.auto' },
+]
 
 // --- Settings message builder ---
 
@@ -51,6 +59,8 @@ export function buildSettingsMessage(chatId: string) {
   const agentMode = getChatSetting(chatId, 'agent_mode') ?? 'full'
   const agentLabel = t(AGENT_MODE_OPTIONS.find(o => o.id === agentMode)?.labelKey ?? 'agent.full')
   const langLabel = t(`lang.${lang}`)
+  const sttLang = getChatSetting(chatId, 'stt_lang') ?? 'uk'
+  const sttLangLabel = t(STT_LANG_OPTIONS.find(o => o.id === sttLang)?.labelKey ?? 'stt.uk')
 
   const keyboard = [
     [
@@ -74,6 +84,9 @@ export function buildSettingsMessage(chatId: string) {
       { text: t(draftOn ? 'settings.draft.on' : 'settings.draft.off'), callback_data: 'settings:draft' },
     ],
     [
+      { text: t('settings.stt_lang', { label: sttLangLabel }), callback_data: 'settings:stt_lang' },
+    ],
+    [
       { text: '❌ ' + t('settings.close'), callback_data: 'settings:close' },
     ],
   ]
@@ -91,6 +104,7 @@ export function buildSettingsMessage(chatId: string) {
     `⏱ <b>${delayLabel}</b> — ${t('settings.desc.delay')}`,
     `👥 <b>${teamLabel}</b> — ${t('settings.desc.team')}`,
     `✍️ <b>${draftOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.draft')}`,
+    `🎙 <b>${sttLangLabel}</b> — ${t('settings.desc.stt_lang')}`,
   ]
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
@@ -298,6 +312,14 @@ export async function handleSettingsCallback(
       if (next === 'full') deleteChatSetting(chatIdStr, 'agent_mode')
       else setChatSetting(chatIdStr, 'agent_mode', next)
       clearPlanState(chatIdStr)  // Reset plan phase on mode switch
+      break
+    }
+    case 'stt_lang': {
+      const cur = getChatSetting(chatIdStr, 'stt_lang') ?? 'uk'
+      const ids = STT_LANG_OPTIONS.map(o => o.id)  // uk -> ru -> en -> auto -> uk
+      const next = ids[(ids.indexOf(cur) + 1) % ids.length]
+      if (next === 'uk') deleteChatSetting(chatIdStr, 'stt_lang')  // uk is the default
+      else setChatSetting(chatIdStr, 'stt_lang', next)
       break
     }
     case 'close': {
