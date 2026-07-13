@@ -36,6 +36,8 @@ export interface SynthesizeOptions {
    * Only Gemini honours it; Edge/ElevenLabs ignore.
    */
   styleOverride?: string
+  /** Per-message Gemini voice override (one of 30 prebuilt names), e.g. "Puck". */
+  voiceOverride?: string
 }
 
 /**
@@ -78,7 +80,7 @@ export async function synthesize(text: string, opts: SynthesizeOptions = {}): Pr
   const runGemini = async (): Promise<string[]> => {
     const chunks = capChunks(chunkText(clean, MAX_GEMINI_CHUNK))
     const paths: string[] = []
-    for (const c of chunks) paths.push(await synthGemini(c, lang, { style: opts.styleOverride }))
+    for (const c of chunks) paths.push(await synthGemini(c, lang, { style: opts.styleOverride, voice: opts.voiceOverride }))
     return paths
   }
 

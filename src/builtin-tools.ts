@@ -317,13 +317,14 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
       {
         text: z.string().describe('Text to synthesize into speech'),
         tone: z.string().optional().describe('Speaking-style instruction for the voice: emotion, pace, mood. E.g. "радісно і енергійно", "співчутливо, м\'яко і повільно", "urgently, like breaking news". Match the emotional content of the text.'),
+        voice: z.string().optional().describe('Gemini voice name override, one of 30 prebuilt: Charon, Kore, Puck, Zephyr, Fenrir, Leda, Orus, Aoede, Sulafat (warm F), Achird (friendly M), Gacrux (mature F), Sadaltager (expert M), Vindemiatrix (gentle F), etc. Omit to use the configured default. Use when the user asks for a specific voice or voice character (male/female, warm/strict...).'),
       },
       async (args) => {
         usedTools.add('TextToSpeech')
         try {
           await ctx.replyWithChatAction('upload_voice')
           const { synthesizeSpeech } = await import('./voice.js')
-          const audioPaths = await synthesizeSpeech(args.text, { useCase: 'tool', styleOverride: args.tone })
+          const audioPaths = await synthesizeSpeech(args.text, { useCase: 'tool', styleOverride: args.tone, voiceOverride: args.voice })
           for (const p of audioPaths) {
             await ctx.replyWithVoice(new InputFile(p))
             if (audioPaths.length > 1) await new Promise(res => setTimeout(res, 400))

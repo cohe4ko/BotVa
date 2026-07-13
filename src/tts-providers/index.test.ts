@@ -80,10 +80,10 @@ describe('extractToneMarker', () => {
 })
 
 describe('synthesize', () => {
-  it('passes styleOverride to gemini', async () => {
+  it('passes styleOverride and voiceOverride to gemini', async () => {
     readEnvMock.mockReturnValue({})
-    await synthesize('Привіт світ', { styleOverride: 'радісно' })
-    expect(synthGeminiMock).toHaveBeenCalledWith(expect.any(String), expect.any(String), { style: 'радісно' })
+    await synthesize('Привіт світ', { styleOverride: 'радісно', voiceOverride: 'Puck' })
+    expect(synthGeminiMock).toHaveBeenCalledWith(expect.any(String), expect.any(String), { style: 'радісно', voice: 'Puck' })
   })
 
   it('throws on empty text', async () => {
