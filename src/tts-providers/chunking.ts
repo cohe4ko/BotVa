@@ -7,6 +7,7 @@
 
 export const MAX_EL_CHUNK = 4500     // ElevenLabs safe limit (API accepts ~5000)
 export const MAX_EDGE_CHUNK = 8000   // edge-tts tolerates more but keep chunks manageable
+export const MAX_GEMINI_CHUNK = 3000 // TTS model context is small (~8k tokens incl. audio out)
 export const MAX_CHUNKS = 20         // hard cap to prevent 50-message spam
 export const LONG_TEXT_THRESHOLD = 1500 // above this, bot asks user which provider to use
 

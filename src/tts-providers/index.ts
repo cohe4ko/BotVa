@@ -2,16 +2,17 @@ import { readEnvFile } from '../env.js'
 import { logger } from '../logger.js'
 import { detectLanguage, cleanForSpeech, synthEdge } from './edge.js'
 import { synthElevenLabs, hasActiveKey } from './elevenlabs.js'
-import { chunkText, capChunks, MAX_EDGE_CHUNK, MAX_EL_CHUNK } from './chunking.js'
+import { synthGemini, hasGeminiKey } from './gemini.js'
+import { chunkText, capChunks, MAX_EDGE_CHUNK, MAX_EL_CHUNK, MAX_GEMINI_CHUNK } from './chunking.js'
 
-export type TtsProvider = 'edge' | 'elevenlabs' | 'auto'
+export type TtsProvider = 'edge' | 'elevenlabs' | 'gemini' | 'auto'
 export type TtsUseCase = 'reply' | 'tool'
 
 /**
  * Resolve the TTS provider for a given use case:
  *   - 'reply'  → bot's automatic voice replies (TTS_PROVIDER_REPLY)
  *   - 'tool'   → agent-invoked TextToSpeech tool   (TTS_PROVIDER_TOOL)
- * Falls back to legacy `TTS_PROVIDER`, then to 'edge'.
+ * Falls back to legacy `TTS_PROVIDER`, then to 'gemini' (free tier, Ukrainian support).
  */
 export function getProvider(useCase?: TtsUseCase): TtsProvider {
   const env = readEnvFile()
@@ -19,9 +20,9 @@ export function getProvider(useCase?: TtsUseCase): TtsProvider {
     useCase === 'reply' ? env['TTS_PROVIDER_REPLY'] :
     useCase === 'tool'  ? env['TTS_PROVIDER_TOOL']  :
     undefined
-  const v = (specific ?? env['TTS_PROVIDER'] ?? 'edge').toLowerCase()
-  if (v === 'elevenlabs' || v === 'auto') return v
-  return 'edge'
+  const v = (specific ?? env['TTS_PROVIDER'] ?? 'gemini').toLowerCase()
+  if (v === 'elevenlabs' || v === 'auto' || v === 'edge') return v
+  return 'gemini'
 }
 
 export interface SynthesizeOptions {
@@ -32,7 +33,7 @@ export interface SynthesizeOptions {
 }
 
 /**
- * Synthesize text to one or more mp3 files.
+ * Synthesize text to one or more audio files (mp3 for edge/elevenlabs, ogg for gemini).
  * Long texts are split on sentence boundaries and returned as multiple paths,
  * so the caller (bot.ts or TextToSpeech tool) can send them as sequential voice messages.
  */
@@ -56,13 +57,35 @@ export async function synthesize(text: string, opts: SynthesizeOptions = {}): Pr
     return paths
   }
 
+  const runGemini = async (): Promise<string[]> => {
+    const chunks = capChunks(chunkText(clean, MAX_GEMINI_CHUNK))
+    const paths: string[] = []
+    for (const c of chunks) paths.push(await synthGemini(c, lang))
+    return paths
+  }
+
   if (provider === 'edge') return runEdge()
+
+  if (provider === 'gemini') {
+    if (!hasGeminiKey()) {
+      logger.warn('No GOOGLE_API_KEY, falling back to edge')
+      return runEdge()
+    }
+    try {
+      return await runGemini()
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'gemini failed, falling back to edge')
+      return runEdge()
+    }
+  }
 
   // elevenlabs or auto
   if (!hasActiveKey()) {
     if (provider === 'auto') {
-      logger.warn('No active ElevenLabs key, falling back to edge')
-      return runEdge()
+      logger.warn('No active ElevenLabs key, falling back to gemini/edge')
+      return hasGeminiKey()
+        ? runGemini().catch(() => runEdge())
+        : runEdge()
     }
     throw new Error('No active ElevenLabs key — add one in admin Audio tab')
   }
@@ -71,8 +94,10 @@ export async function synthesize(text: string, opts: SynthesizeOptions = {}): Pr
     return await runElevenLabs()
   } catch (err) {
     if (provider === 'auto') {
-      logger.warn({ err: (err as Error).message }, 'elevenlabs failed, falling back to edge')
-      return runEdge()
+      logger.warn({ err: (err as Error).message }, 'elevenlabs failed, falling back to gemini/edge')
+      return hasGeminiKey()
+        ? runGemini().catch(() => runEdge())
+        : runEdge()
     }
     throw err
   }

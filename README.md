@@ -32,7 +32,7 @@
 - **14 готових ролей** -- від персонального асистента до автономного агента
 - **Пам'ять** -- факти з dedup по content-hash, FTS5-пошуком та usefulness-трекінгом, щоденні diary-логи з консолідацією
 - **Workspace files** -- 8-шарова збірка CLAUDE.md (SOUL/TOOLS глобальні, BOT_SOUL/BOT_TOOLS/IDENTITY/ROLE/USER/MEMORY per-bot) з feature-flag блоками
-- **Голос** -- голосові повідомлення та відповіді (Groq STT + Edge TTS / ElevenLabs з ротацією ключів)
+- **Голос** -- голосові повідомлення та відповіді (Groq STT + Gemini TTS / Edge TTS / ElevenLabs з ротацією ключів)
 - **Зображення** -- генерація та редагування через Gemini з авто-галереєю
 - **Gemini AI** -- друга думка (AskGemini) та пошук з цитатами (GeminiSearch)
 - **Команда ботів** -- спілкування через Unix-сокети, делегування задач, каталог агентів-спеціалістів з keyword matcher
@@ -133,7 +133,7 @@ npm run new-bot -- <slug> <роль> [--emoji 🤖] [--name "Назва"]
 
 ### Голос
 
-Бот розуміє голосові повідомлення та може відповідати голосом. STT через Groq Whisper (потрібен `GROQ_API_KEY`). Інструмент `TranscribeAudio` дає боту самостійно транскрибувати локальні файли — якщо файл понад 24 MB або в неприйнятному форматі, ffmpeg автоматично перекодовує в 16 kHz mono FLAC і ріже на 25-хвилинні чанки, транскрипти склеюються. Два TTS-провайдери: Edge-TTS (безкоштовно, дефолт) та ElevenLabs (вища якість, локальний JSON-стор ключів з ручною ротацією, відстеженням ліміту/помилок, fallback на Edge при вичерпанні квоти). Провайдери конфігуруються окремо для автовідповідей (`TTS_PROVIDER_REPLY`) та tool-синтезу (`TTS_PROVIDER_TOOL`). Sentence-aware чанкування довгих текстів (до 20 фрагментів) з надсиланням послідовних voice-повідомлень. Голоси, швидкість, stability/similarity — через вкладку `/audio` в адмінці. Команда `/voice` вмикає/вимикає голосові відповіді, `/usage` показує статус ключів ElevenLabs.
+Бот розуміє голосові повідомлення та може відповідати голосом. STT через Groq Whisper (потрібен `GROQ_API_KEY`). Інструмент `TranscribeAudio` дає боту самостійно транскрибувати локальні файли — якщо файл понад 24 MB або в неприйнятному форматі, ffmpeg автоматично перекодовує в 16 kHz mono FLAC і ріже на 25-хвилинні чанки, транскрипти склеюються. Три TTS-провайдери: Gemini TTS (безкоштовно, дефолт — виразні мультимовні голоси через `GOOGLE_API_KEY`, стиль керується промптом, fallback на Edge при помилці/квоті), Edge-TTS (безкоштовно, без лімітів) та ElevenLabs (вища якість, локальний JSON-стор ключів з ручною ротацією, відстеженням ліміту/помилок, fallback на Gemini/Edge при вичерпанні квоти). Провайдери конфігуруються окремо для автовідповідей (`TTS_PROVIDER_REPLY`) та tool-синтезу (`TTS_PROVIDER_TOOL`). Sentence-aware чанкування довгих текстів (до 20 фрагментів) з надсиланням послідовних voice-повідомлень. Голоси, швидкість, stability/similarity — через вкладку `/audio` в адмінці. Команда `/voice` вмикає/вимикає голосові відповіді, `/usage` показує статус ключів ElevenLabs.
 
 ### Зображення
 
@@ -246,7 +246,7 @@ Env: `GROQ_API_KEY` (або `GROQ_API_KEYS`), `LISTENER_PORT=3847`, `ANTHROPIC_A
 | Tasks | Нагадування та cron-задачі з повним редагуванням (текст, розклад, runAgent) |
 | Settings | Налаштування чатів, сесії |
 | Usage | Аналітика токенів та витрат |
-| Audio | TTS-провайдери (Edge / ElevenLabs), вибір голосів, параметри швидкості/якості, ключі ElevenLabs з лічильниками |
+| Audio | TTS-провайдери (Gemini / Edge / ElevenLabs), вибір голосів, стиль Gemini, параметри швидкості/якості, ключі ElevenLabs з лічильниками |
 | System | Builtin tools, MCP servers, skills on/off |
 | Images | Галерея згенерованих зображень |
 | Logs | Аудит подій |
@@ -338,7 +338,7 @@ BotVa/
 - **AI**: Anthropic Claude Agent SDK
 - **Database**: SQLite (вбудований в Node.js)
 - **Web**: Hono
-- **Voice**: Edge-TTS / ElevenLabs (синтез), Groq Whisper (розпізнавання)
+- **Voice**: Gemini TTS / Edge-TTS / ElevenLabs (синтез), Groq Whisper (розпізнавання)
 - **Images**: Google Gemini
 - **Browser**: Stagehand / Playwright
 - **Тести**: Vitest 4.x

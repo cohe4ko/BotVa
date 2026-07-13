@@ -196,7 +196,10 @@ describe('markdownToRichMessages — splitting & limits', () => {
 })
 
 describe('draftRichMessage', () => {
-  it('wraps partial text as a markdown InputRichMessage', () => {
-    expect(draftRichMessage('partial **ans')).toEqual({ markdown: 'partial **ans' })
+  it('renders partial text as rich HTML (same as final)', () => {
+    expect(draftRichMessage('partial **ans')).toEqual({ html: '<p>partial **ans</p>' })
+  })
+  it('falls back to raw markdown when HTML render is empty', () => {
+    expect(draftRichMessage('')).toEqual({ markdown: '' })
   })
 })

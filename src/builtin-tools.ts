@@ -76,7 +76,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'AskGemini', icon: 'sparkles', category: 'ai', description: 'Ask Gemini (second opinion, brainstorm)', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
     { name: 'GeminiSearch', icon: 'search-check', category: 'ai', description: 'Gemini + Google Search with citations', condition: 'GOOGLE_API_KEY', available: hasGoogleApi },
     // Voice
-    { name: 'TextToSpeech', icon: 'volume-2', category: 'voice', description: 'Text to voice message (Edge-TTS)', available: true },
+    { name: 'TextToSpeech', icon: 'volume-2', category: 'voice', description: 'Text to voice message (Gemini/Edge TTS)', available: true },
     { name: 'TranscribeAudio', icon: 'mic', category: 'voice', description: 'Transcribe a local audio file (Groq Whisper, auto-chunk for long files)', condition: 'GROQ_API_KEY', available: hasGroq },
     // Publishing
     { name: 'PublishTelegraph', icon: 'newspaper', category: 'publish', description: 'Publish long text to Telegraph', condition: 'TELEGRAPH_ENABLED', available: TELEGRAPH_ENABLED },

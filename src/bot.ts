@@ -1056,6 +1056,7 @@ async function handleMessage(
               reply_markup: {
                 inline_keyboard: [[
                   { text: '🎙 ElevenLabs', callback_data: `tts:el:${id}` },
+                  { text: '✨ Gemini', callback_data: `tts:gem:${id}` },
                   { text: '🤖 Edge', callback_data: `tts:edge:${id}` },
                   { text: '❌', callback_data: `tts:skip:${id}` },
                 ]],
@@ -1220,7 +1221,7 @@ export function createBot(): Bot {
         if (msg) await ctx.api.deleteMessage(msg.chat.id, msg.message_id).catch(() => {})
       } catch { /* ignore */ }
       if (choice === 'skip') return
-      const forceProvider = choice === 'el' ? 'elevenlabs' : 'edge'
+      const forceProvider = choice === 'el' ? 'elevenlabs' : choice === 'gem' ? 'gemini' : 'edge'
       synthesizeSpeech(pending.text, { forceProvider })
         .then(async (paths) => {
           for (const p of paths) {

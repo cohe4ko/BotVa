@@ -41,6 +41,41 @@ const EDGE_DEFAULTS: Record<'uk' | 'ru' | 'en', string> = {
   en: 'en-US-AndrewNeural',
 }
 
+// Gemini TTS prebuilt voices (30, multilingual — same voice speaks any language).
+// Gender per AI Studio, characteristics translated from the official docs.
+const GEMINI_VOICES: { id: string; label: string }[] = [
+  { id: 'Zephyr', label: 'Zephyr (Ж) — яскравий' },
+  { id: 'Puck', label: 'Puck (Ч) — бадьорий' },
+  { id: 'Charon', label: 'Charon (Ч) — інформативний' },
+  { id: 'Kore', label: 'Kore (Ж) — впевнений' },
+  { id: 'Fenrir', label: 'Fenrir (Ч) — запальний' },
+  { id: 'Leda', label: 'Leda (Ж) — юний' },
+  { id: 'Orus', label: 'Orus (Ч) — впевнений' },
+  { id: 'Aoede', label: 'Aoede (Ж) — легкий' },
+  { id: 'Callirrhoe', label: 'Callirrhoe (Ж) — невимушений' },
+  { id: 'Autonoe', label: 'Autonoe (Ж) — яскравий' },
+  { id: 'Enceladus', label: 'Enceladus (Ч) — з придихом' },
+  { id: 'Iapetus', label: 'Iapetus (Ч) — чистий' },
+  { id: 'Umbriel', label: 'Umbriel (Ч) — невимушений' },
+  { id: 'Algieba', label: 'Algieba (Ч) — плавний' },
+  { id: 'Despina', label: 'Despina (Ж) — плавний' },
+  { id: 'Erinome', label: 'Erinome (Ж) — чистий' },
+  { id: 'Algenib', label: 'Algenib (Ч) — хриплуватий' },
+  { id: 'Rasalgethi', label: 'Rasalgethi (Ч) — інформативний' },
+  { id: 'Laomedeia', label: 'Laomedeia (Ж) — бадьорий' },
+  { id: 'Achernar', label: 'Achernar (Ж) — м\'який' },
+  { id: 'Alnilam', label: 'Alnilam (Ч) — впевнений' },
+  { id: 'Schedar', label: 'Schedar (Ч) — рівний' },
+  { id: 'Gacrux', label: 'Gacrux (Ж) — зрілий' },
+  { id: 'Pulcherrima', label: 'Pulcherrima (Ж) — напористий' },
+  { id: 'Achird', label: 'Achird (Ч) — дружній' },
+  { id: 'Zubenelgenubi', label: 'Zubenelgenubi (Ч) — розмовний' },
+  { id: 'Vindemiatrix', label: 'Vindemiatrix (Ж) — лагідний' },
+  { id: 'Sadachbia', label: 'Sadachbia (Ч) — жвавий' },
+  { id: 'Sadaltager', label: 'Sadaltager (Ч) — експертний' },
+  { id: 'Sulafat', label: 'Sulafat (Ж) — теплий' },
+]
+
 const app = new Hono<I18nEnv>()
 
 // --- Page ---
@@ -49,9 +84,9 @@ app.get('/audio', async (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
   const env = readRootEnv()
-  const legacy = env['TTS_PROVIDER'] ?? 'edge'
-  const providerReply = (env['TTS_PROVIDER_REPLY'] ?? legacy) as 'edge' | 'elevenlabs' | 'auto'
-  const providerTool  = (env['TTS_PROVIDER_TOOL']  ?? legacy) as 'edge' | 'elevenlabs' | 'auto'
+  const legacy = env['TTS_PROVIDER'] ?? 'gemini'
+  const providerReply = (env['TTS_PROVIDER_REPLY'] ?? legacy) as 'edge' | 'elevenlabs' | 'gemini' | 'auto'
+  const providerTool  = (env['TTS_PROVIDER_TOOL']  ?? legacy) as 'edge' | 'elevenlabs' | 'gemini' | 'auto'
 
   // Pre-load voices server-side if we have an active key, so <select>s are in
   // the initial DOM when htmx binds the form submit.
@@ -142,6 +177,7 @@ app.get('/audio', async (c) => {
               <div>
                 <div style="font-weight:600;font-size:0.8rem;margin-bottom:0.3rem">${t('audio.providerReply')}</div>
                 <div style="display:flex;flex-direction:column;gap:0.25rem">
+                  ${compactRadio('provider_reply', 'gemini',     providerReply, 'Gemini')}
                   ${compactRadio('provider_reply', 'edge',       providerReply, 'Edge')}
                   ${compactRadio('provider_reply', 'elevenlabs', providerReply, 'ElevenLabs')}
                   ${compactRadio('provider_reply', 'auto',       providerReply, 'Auto')}
@@ -150,13 +186,14 @@ app.get('/audio', async (c) => {
               <div>
                 <div style="font-weight:600;font-size:0.8rem;margin-bottom:0.3rem">${t('audio.providerTool')}</div>
                 <div style="display:flex;flex-direction:column;gap:0.25rem">
+                  ${compactRadio('provider_tool', 'gemini',     providerTool, 'Gemini')}
                   ${compactRadio('provider_tool', 'edge',       providerTool, 'Edge')}
                   ${compactRadio('provider_tool', 'elevenlabs', providerTool, 'ElevenLabs')}
                   ${compactRadio('provider_tool', 'auto',       providerTool, 'Auto')}
                 </div>
               </div>
             </div>
-            <div style="font-size:0.7rem;color:var(--mc-text-dim);margin-bottom:0.75rem">Edge — безкоштовно · ElevenLabs — кредити · Auto — ElevenLabs з fallback на Edge</div>
+            <div style="font-size:0.7rem;color:var(--mc-text-dim);margin-bottom:0.75rem">Gemini — безкоштовно, виразний, fallback на Edge · Edge — безкоштовно · ElevenLabs — кредити · Auto — ElevenLabs з fallback на Gemini/Edge</div>
           `
         })()}
 
@@ -180,6 +217,21 @@ app.get('/audio', async (c) => {
           })}
           <label style="margin:0;font-size:0.75rem">${t('audio.edgeRate')}
             <input type="text" name="edge_rate" value="${env['TTS_RATE'] ?? '+30%'}" placeholder="+30%" style="width:100%">
+          </label>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--mc-border);margin:0.75rem 0">
+
+        <!-- Gemini subsection -->
+        <div style="font-weight:600;margin-bottom:0.4rem">✨ Gemini</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.5rem 1rem;margin-bottom:0.75rem">
+          <label style="margin:0;font-size:0.75rem">${t('audio.geminiVoice')}
+            <select name="gemini_voice" style="width:100%">
+              ${GEMINI_VOICES.map(v => html`<option value="${v.id}" ${v.id === (env['TTS_VOICE_GEMINI'] ?? 'Charon') ? 'selected' : ''}>${v.label}</option>`)}
+            </select>
+          </label>
+          <label style="margin:0;font-size:0.75rem" title="${t('audio.geminiStyleHint')}">${t('audio.geminiStyle')}
+            <input type="text" name="gemini_style" value="${env['TTS_GEMINI_STYLE'] ?? ''}" placeholder="Говори тепло і спокійно:" style="width:100%">
           </label>
         </div>
 
@@ -447,10 +499,13 @@ app.post('/audio/settings', async (c) => {
   const t: TFunc = c.get('t')
   const body = await c.req.parseBody()
   const updates: Record<string, string> = {
-    TTS_PROVIDER_REPLY: String(body['provider_reply'] ?? 'edge'),
-    TTS_PROVIDER_TOOL:  String(body['provider_tool']  ?? 'edge'),
+    TTS_PROVIDER_REPLY: String(body['provider_reply'] ?? 'gemini'),
+    TTS_PROVIDER_TOOL:  String(body['provider_tool']  ?? 'gemini'),
     // Clear legacy single var to avoid stale fallback
     TTS_PROVIDER: '',
+    // Gemini
+    TTS_VOICE_GEMINI:  String(body['gemini_voice'] ?? ''),
+    TTS_GEMINI_STYLE:  String(body['gemini_style'] ?? ''),
     // Edge
     TTS_VOICE_EDGE_UK: String(body['voice_edge_uk'] ?? ''),
     TTS_VOICE_EDGE_RU: String(body['voice_edge_ru'] ?? ''),
