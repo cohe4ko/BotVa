@@ -20,7 +20,7 @@ import { readEnvFile } from '../env.js'
 import { synthEdge } from './edge.js'
 import { synthElevenLabs, hasActiveKey } from './elevenlabs.js'
 import { synthGemini, hasGeminiKey } from './gemini.js'
-import { synthesize, getProvider } from './index.js'
+import { synthesize, getProvider, extractToneMarker } from './index.js'
 
 const readEnvMock = readEnvFile as unknown as ReturnType<typeof vi.fn>
 const synthEdgeMock = synthEdge as unknown as ReturnType<typeof vi.fn>
@@ -57,7 +57,35 @@ describe('getProvider', () => {
   })
 })
 
+describe('extractToneMarker', () => {
+  it('returns text unchanged when no marker', () => {
+    expect(extractToneMarker('Просто відповідь.')).toEqual({ text: 'Просто відповідь.' })
+  })
+  it('extracts tone and strips marker at end', () => {
+    const r = extractToneMarker('Вітаю, все добре!\n\n[[tone: радісно, з полегшенням]]')
+    expect(r.tone).toBe('радісно, з полегшенням')
+    expect(r.text).toBe('Вітаю, все добре!')
+  })
+  it('strips all markers but keeps first tone', () => {
+    const r = extractToneMarker('[[tone: сумно]] Текст. [[tone: весело]]')
+    expect(r.tone).toBe('сумно')
+    expect(r.text).not.toContain('[[')
+    expect(r.text).toContain('Текст.')
+  })
+  it('is case-insensitive and tolerates spaces', () => {
+    const r = extractToneMarker('Ок.\n[[ TONE:  спокійно і чітко ]]')
+    expect(r.tone).toBe('спокійно і чітко')
+    expect(r.text).toBe('Ок.')
+  })
+})
+
 describe('synthesize', () => {
+  it('passes styleOverride to gemini', async () => {
+    readEnvMock.mockReturnValue({})
+    await synthesize('Привіт світ', { styleOverride: 'радісно' })
+    expect(synthGeminiMock).toHaveBeenCalledWith(expect.any(String), expect.any(String), { style: 'радісно' })
+  })
+
   it('throws on empty text', async () => {
     await expect(synthesize('   ')).rejects.toThrow(/Nothing to synthesize/)
   })

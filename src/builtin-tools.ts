@@ -313,14 +313,17 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
   if (isOn('TextToSpeech')) tools.push(
     tool(
       'TextToSpeech',
-      'Convert text to speech and send as a voice message. Use when user says "озвуч", "прочитай вголос", "надішли голосовим", "зроби аудіо", or when a voice response would be more convenient (e.g. long text user will listen to while driving). NOT for transcribing voice — that is VoiceSTT (automatic).',
-      { text: z.string().describe('Text to synthesize into speech') },
+      'Convert text to speech and send as a voice message. Use when user says "озвуч", "прочитай вголос", "надішли голосовим", "зроби аудіо", or when a voice response would be more convenient (e.g. long text user will listen to while driving). Pass `tone` to control emotional delivery (Gemini TTS). NOT for transcribing voice — that is VoiceSTT (automatic).',
+      {
+        text: z.string().describe('Text to synthesize into speech'),
+        tone: z.string().optional().describe('Speaking-style instruction for the voice: emotion, pace, mood. E.g. "радісно і енергійно", "співчутливо, м\'яко і повільно", "urgently, like breaking news". Match the emotional content of the text.'),
+      },
       async (args) => {
         usedTools.add('TextToSpeech')
         try {
           await ctx.replyWithChatAction('upload_voice')
           const { synthesizeSpeech } = await import('./voice.js')
-          const audioPaths = await synthesizeSpeech(args.text, { useCase: 'tool' })
+          const audioPaths = await synthesizeSpeech(args.text, { useCase: 'tool', styleOverride: args.tone })
           for (const p of audioPaths) {
             await ctx.replyWithVoice(new InputFile(p))
             if (audioPaths.length > 1) await new Promise(res => setTimeout(res, 400))

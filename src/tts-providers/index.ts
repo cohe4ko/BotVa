@@ -30,6 +30,24 @@ export interface SynthesizeOptions {
   forceProvider?: TtsProvider
   /** Which env-var slot to read provider from. Defaults to legacy TTS_PROVIDER. */
   useCase?: TtsUseCase
+  /**
+   * Per-message speaking-style instruction (emotional tone), e.g. "радісно і енергійно".
+   * Agent-provided via [[tone: ...]] marker or the TextToSpeech tool's `tone` param.
+   * Only Gemini honours it; Edge/ElevenLabs ignore.
+   */
+  styleOverride?: string
+}
+
+/**
+ * Extract the agent-provided voice tone marker `[[tone: ...]]` from a reply.
+ * Returns the text with ALL markers stripped and the first marker's value.
+ * The marker is TTS metadata — it must never reach the user or memory.
+ */
+export function extractToneMarker(raw: string): { text: string; tone?: string } {
+  const m = raw.match(/\[\[\s*tone:\s*([^\]]+?)\s*\]\]/i)
+  if (!m) return { text: raw }
+  const text = raw.replace(/[ \t]*\[\[\s*tone:[^\]]*\]\][ \t]*/gi, '').replace(/\n{3,}/g, '\n\n').trim()
+  return { text, tone: m[1].trim() }
 }
 
 /**
@@ -60,7 +78,7 @@ export async function synthesize(text: string, opts: SynthesizeOptions = {}): Pr
   const runGemini = async (): Promise<string[]> => {
     const chunks = capChunks(chunkText(clean, MAX_GEMINI_CHUNK))
     const paths: string[] = []
-    for (const c of chunks) paths.push(await synthGemini(c, lang))
+    for (const c of chunks) paths.push(await synthGemini(c, lang, { style: opts.styleOverride }))
     return paths
   }
 

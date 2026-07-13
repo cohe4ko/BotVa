@@ -17,7 +17,7 @@ import { computeUndoAnchor } from './disk-sessions.js'
 import { runAgent, type UsageStats } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, transcribeAudioLong, voiceCapabilities, synthesizeSpeech } from './voice.js'
-import { getProvider as getTtsProvider } from './tts-providers/index.js'
+import { getProvider as getTtsProvider, extractToneMarker } from './tts-providers/index.js'
 import { isLongText } from './tts-providers/chunking.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
 import { logger } from './logger.js'
@@ -92,6 +92,7 @@ const pendingTtsPrompts = new Map<string, {
   text: string
   chatId: number
   timeout: ReturnType<typeof setTimeout>
+  tone?: string
 }>()
 
 // --- Pending group approvals ---
@@ -984,6 +985,12 @@ async function handleMessage(
       const t = chatT(chatIdStr)
       text = text.replace(/\{\{([a-z._]+)\}\}/g, (_, key) => t(key))
 
+      // Extract agent-provided voice tone marker ([[tone: ...]]) — TTS-only
+      // metadata, stripped before display/memory, applied to Gemini synthesis
+      const toneExtract = extractToneMarker(text)
+      text = toneExtract.text
+      const voiceTone = toneExtract.tone
+
       // Save memory
       await saveConversationTurn(chatIdStr, currentMessage, text)
 
@@ -1048,7 +1055,7 @@ async function handleMessage(
           const id = String(++ttsPromptCounter)
           const chatIdNum = ctx.chat!.id
           const timeout = setTimeout(() => pendingTtsPrompts.delete(id), 10 * 60 * 1000)
-          pendingTtsPrompts.set(id, { text, chatId: chatIdNum, timeout })
+          pendingTtsPrompts.set(id, { text, chatId: chatIdNum, timeout, tone: voiceTone })
           const _t = chatT(chatIdStr)
           ctx.reply(
             _t('tts.longPrompt', { chars: String(text.length) }),
@@ -1064,7 +1071,7 @@ async function handleMessage(
             },
           ).catch(err => logger.error({ err }, 'tts prompt failed'))
         } else {
-          synthesizeSpeech(text, { useCase: 'reply' })
+          synthesizeSpeech(text, { useCase: 'reply', styleOverride: voiceTone })
             .then(async (paths) => {
               for (const p of paths) {
                 await ctx.replyWithVoice(new InputFile(p))
@@ -1222,7 +1229,7 @@ export function createBot(): Bot {
       } catch { /* ignore */ }
       if (choice === 'skip') return
       const forceProvider = choice === 'el' ? 'elevenlabs' : choice === 'gem' ? 'gemini' : 'edge'
-      synthesizeSpeech(pending.text, { forceProvider })
+      synthesizeSpeech(pending.text, { forceProvider, styleOverride: pending.tone })
         .then(async (paths) => {
           for (const p of paths) {
             await ctx.replyWithVoice(new InputFile(p))

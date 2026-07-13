@@ -49,6 +49,7 @@
 | Tool routing master table | `_tools.md → ## Tool routing` | role TOOLS — лише role-specific рядки |
 | Workspace files механіка | `_tools.md → ## Workspace` | none |
 | Команда / ask_manager | `_tools.md → ## Команда` | none |
+| Голосовий тон TTS (`[[tone: ...]]`) | `_tools.md → ## Голосові відповіді` | none |
 | Group chat protocol | `_soul.md` всередині `<!-- IF GROUP_CHAT_ENABLED -->` | none |
 | Git workflow | `_soul.md` всередині `<!-- IF GIT_ACCESS_ENABLED -->` | none |
 | Dev planning procedure | `_soul.md` всередині `<!-- IF DEV_MODE_ENABLED -->` | none |
