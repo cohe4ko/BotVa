@@ -1,3 +1,4 @@
+import { readFileSync, unlinkSync } from 'fs'
 import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout } from '../views/layout.js'
@@ -234,6 +235,17 @@ app.get('/audio', async (c) => {
             <input type="text" name="gemini_style" value="${env['TTS_GEMINI_STYLE'] ?? ''}" placeholder="Говори тепло і спокійно:" style="width:100%">
           </label>
         </div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:0.5rem;align-items:end;margin-bottom:0.5rem">
+          <label style="margin:0;font-size:0.75rem">${t('audio.geminiPreviewText')}
+            <input type="text" name="preview_text" value="Привіт! Це перевірка голосу для БотВи. Як тобі звучання?" maxlength="300" style="width:100%">
+          </label>
+          <button type="button"
+            hx-post="/audio/gemini-preview" hx-include="closest form" hx-target="#gemini-preview-result" hx-swap="innerHTML"
+            hx-indicator="#gemini-preview-spinner"
+            style="white-space:nowrap">▶ ${t('audio.geminiPreview')}</button>
+        </div>
+        <div id="gemini-preview-spinner" class="htmx-indicator" style="font-size:0.75rem;color:var(--mc-text-dim)">${t('audio.geminiPreviewWait')}</div>
+        <div id="gemini-preview-result" style="margin-bottom:0.75rem"></div>
 
         <hr style="border:none;border-top:1px solid var(--mc-border);margin:0.75rem 0">
 
@@ -490,6 +502,32 @@ app.post('/audio/reconcile', async (c) => {
     return c.html(renderKeysTable(t, adminListKeys()))
   } catch (err) {
     return c.html(html`<p style="color:#c33">${(err as Error).message}</p>`)
+  }
+})
+
+// --- Gemini voice preview ---
+
+app.post('/audio/gemini-preview', async (c) => {
+  const t: TFunc = c.get('t')
+  const body = await c.req.parseBody()
+  const voice = String(body['gemini_voice'] ?? '').trim()
+  const style = String(body['gemini_style'] ?? '').trim()
+  const text = String(body['preview_text'] ?? '').trim().slice(0, 300)
+  if (!text) return c.html(html`<p style="color:#c33;font-size:0.85rem">${t('audio.geminiPreviewNoText')}</p>`)
+  try {
+    const { synthGemini } = await import('../../tts-providers/gemini.js')
+    const path = await synthGemini(text, undefined, { voice, style })
+    const buf = readFileSync(path)
+    try { unlinkSync(path) } catch { /* ignore */ }
+    const mime = path.endsWith('.ogg') ? 'audio/ogg' : 'audio/wav'
+    return c.html(html`
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <audio controls autoplay src="data:${mime};base64,${buf.toString('base64')}" style="height:32px"></audio>
+        <small style="color:var(--mc-text-dim)">${voice}${style ? html` · «${style}»` : ''}</small>
+      </div>
+    `)
+  } catch (err) {
+    return c.html(html`<p style="color:#c33;font-size:0.85rem">${(err as Error).message}</p>`)
   }
 })
 

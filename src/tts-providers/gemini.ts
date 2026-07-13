@@ -64,20 +64,31 @@ async function pcmToOgg(pcm: Buffer, outPath: string): Promise<void> {
   }
 }
 
+export interface GeminiSynthOverrides {
+  /** Voice name override (admin preview). Falls back to TTS_VOICE_GEMINI. */
+  voice?: string
+  /** Style instruction override (admin preview). Falls back to TTS_GEMINI_STYLE. */
+  style?: string
+}
+
 /**
  * Synthesize a single chunk via Gemini TTS. Returns path to an ogg (or wav) file.
  * Throws on any error — orchestrator decides whether to fall back to Edge.
  * `lang` is unused: Gemini auto-detects language from the text itself.
  */
-export async function synthGemini(text: string, _lang?: 'uk' | 'ru' | 'en'): Promise<string> {
+export async function synthGemini(
+  text: string,
+  _lang?: 'uk' | 'ru' | 'en',
+  overrides: GeminiSynthOverrides = {},
+): Promise<string> {
   const env = readEnvFile()
   const apiKey = env['GOOGLE_API_KEY'] || env['GEMINI_API_KEY']
   if (!apiKey) throw new Error('GOOGLE_API_KEY not set — Gemini TTS unavailable')
 
   const model = env['TTS_MODEL_GEMINI'] ?? DEFAULT_MODEL
-  const voice = env['TTS_VOICE_GEMINI'] ?? DEFAULT_VOICE
+  const voice = overrides.voice || (env['TTS_VOICE_GEMINI'] ?? DEFAULT_VOICE)
   // Optional style instruction prepended to the text, e.g. "Говори тепло і спокійно:"
-  const style = env['TTS_GEMINI_STYLE']
+  const style = overrides.style ?? env['TTS_GEMINI_STYLE']
   const prompt = style ? `${style} ${text}` : text
 
   const r = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${apiKey}`, {
