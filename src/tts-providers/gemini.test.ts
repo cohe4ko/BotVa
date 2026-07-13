@@ -25,6 +25,10 @@ describe('hasGeminiKey', () => {
     readEnvMock.mockReturnValue({ GEMINI_API_KEY: 'k' })
     expect(hasGeminiKey()).toBe(true)
   })
+  it('true with dedicated TTS_GEMINI_API_KEY', () => {
+    readEnvMock.mockReturnValue({ TTS_GEMINI_API_KEY: 'k' })
+    expect(hasGeminiKey()).toBe(true)
+  })
 })
 
 describe('pcmToWav', () => {

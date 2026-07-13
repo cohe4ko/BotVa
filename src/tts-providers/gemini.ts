@@ -22,9 +22,13 @@ const DEFAULT_MODEL = 'gemini-2.5-flash-preview-tts'
 const DEFAULT_VOICE = 'Charon'
 const PCM_SAMPLE_RATE = 24000
 
+/** Dedicated TTS key first — keeps voice quota separate from images/AskGemini. */
+function resolveApiKey(env: Record<string, string>): string | undefined {
+  return env['TTS_GEMINI_API_KEY'] || env['GOOGLE_API_KEY'] || env['GEMINI_API_KEY'] || undefined
+}
+
 export function hasGeminiKey(): boolean {
-  const env = readEnvFile()
-  return !!(env['GOOGLE_API_KEY'] || env['GEMINI_API_KEY'])
+  return !!resolveApiKey(readEnvFile())
 }
 
 /** Wrap raw s16le mono PCM into a WAV container (44-byte RIFF header). */
@@ -82,7 +86,7 @@ export async function synthGemini(
   overrides: GeminiSynthOverrides = {},
 ): Promise<string> {
   const env = readEnvFile()
-  const apiKey = env['GOOGLE_API_KEY'] || env['GEMINI_API_KEY']
+  const apiKey = resolveApiKey(env)
   if (!apiKey) throw new Error('GOOGLE_API_KEY not set — Gemini TTS unavailable')
 
   const model = env['TTS_MODEL_GEMINI'] ?? DEFAULT_MODEL
