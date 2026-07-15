@@ -758,9 +758,14 @@ async function handleMessage(
         // (the model's reasoning/explanation that was shown in the stream but lost on clearStreamingLine)
         const pendingText = reporter.getAndClearPendingText()
         if (pendingText.length > 0) {
-          try {
-            await ctx.api.sendMessage(chatId, pendingText)
-          } catch { /* non-critical, continue with the question */ }
+          // Render the pre-question context through the same rich pipeline as
+          // final answers, so markdown (bold, tables, headings) isn't shown raw.
+          const sentRich = await trySendRich(ctx, pendingText)
+          if (!sentRich) {
+            try {
+              await ctx.api.sendMessage(chatId, pendingText)
+            } catch { /* non-critical, continue with the question */ }
+          }
         }
 
         // Legacy: reply keyboard breaks agent flow, convert to inline
