@@ -1,5 +1,28 @@
-import { tool, createSdkMcpServer, type McpSdkServerConfigWithInstance, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
+import { tool as sdkTool, createSdkMcpServer, type McpSdkServerConfigWithInstance, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { builtinInFlight } from './builtin-inflight.js'
+
+// Wrap the SDK's tool() so every builtin handler bumps the in-flight counter.
+// One central point → all builtin tools are tracked without touching each
+// tool() call site. The request queue drains this counter before a soft
+// interrupt so slow builtin calls (SendMedia, PublishTelegraph, SaveFact with
+// embedding) aren't killed mid-flight with "Stream closed by consumer".
+const tool = ((name: any, description: any, shape: any, handler: any, opts?: any) => {
+  const wrapped = async (args: any, extra: any) => {
+    builtinInFlight.enter()
+    try {
+      return await handler(args, extra)
+    } finally {
+      builtinInFlight.exit()
+    }
+  }
+  return opts === undefined
+    ? sdkTool(name, description, shape, wrapped)
+    : sdkTool(name, description, shape, wrapped, opts)
+}) as typeof sdkTool
+
+// Monotonic id for each builtin MCP instance created (one per message turn).
+let builtinInstanceSeq = 0
 import type { Context } from 'grammy'
 import { InputFile, InputMediaBuilder } from 'grammy'
 import { readEnvFile } from './env.js'
@@ -1797,12 +1820,19 @@ animation parameter accepts:
     tools,
   })
 
+  // Instance-lifecycle trace: a fresh builtin instance is created per message
+  // (bot.ts handleMessage) and cleaned up when the turn ends. Logging create +
+  // cleanup with a monotonic id lets us tell whether the harness's
+  // "disconnected/reconnected" churn lines up with these boundaries (expected)
+  // or fires mid-turn while one instance is alive (points at the SDK layer).
+  const instanceId = ++builtinInstanceSeq
+  logger.info({ chatId, instanceId, pid: process.pid, toolCount: tools.length }, 'Builtin MCP instance created')
+
   const cleanup = () => {
     sandbox?.kill()
     sandbox = null
+    logger.info({ chatId, instanceId }, 'Builtin MCP instance cleanup')
   }
-
-  logger.debug({ toolCount: tools.length, tools: tools.map(t => t.name) }, 'Builtin MCP server created')
 
   return { server, usedTools, cleanup }
 }

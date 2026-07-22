@@ -1,4 +1,17 @@
 import type { Query } from '@anthropic-ai/claude-agent-sdk'
+import { builtinInFlight } from './builtin-inflight.js'
+
+// Wait for in-flight builtin tool calls to finish before a soft interrupt, so
+// their results are delivered instead of dying with "Stream closed by consumer"
+// when q.interrupt() closes the consumer stream. Bounded so a stuck handler
+// can't block the interrupt indefinitely.
+const DRAIN_TIMEOUT_MS = 3000
+async function drainBuiltinInFlight(timeoutMs = DRAIN_TIMEOUT_MS): Promise<void> {
+  const start = Date.now()
+  while (builtinInFlight.count() > 0 && Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 50))
+  }
+}
 
 type QueuedRequest<T> = {
   handler: () => Promise<T>
@@ -122,6 +135,10 @@ export async function interruptRequest(sessionKey: string): Promise<InterruptRes
 
   if (q) {
     interruptedChats.add(sessionKey)
+    // Let slow builtin tool calls (SendMedia, PublishTelegraph, SaveFact) land
+    // before we close the stream — otherwise they fail with "Stream closed by
+    // consumer" and the model retries already-applied side effects.
+    await drainBuiltinInFlight()
     let stillQueued = 0
     try {
       const receipt = await q.interrupt()
