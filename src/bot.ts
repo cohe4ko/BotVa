@@ -50,6 +50,11 @@ const pendingQuestions = new Map<string, {
   resolve: (answer: string) => void
   reject: (err: Error) => void
   timeout: ReturnType<typeof setTimeout>
+  // Option labels indexed by position. callback_data carries the index
+  // (ask:0, ask:1, ...), not the label — Telegram caps callback_data at 64
+  // bytes, so long/Cyrillic labels would overflow and make the whole message
+  // fail to send. We resolve the index back to the label here.
+  labels: string[]
 }>()
 
 const pendingPolls = new Map<string, {
@@ -816,21 +821,39 @@ async function handleMessage(
             : `❓ <b>${escapeHtml(question)}</b>`
         }
 
-        // Inline keyboard (default)
-        const inlineKeyboard = options.map(o => [{ text: o.label, callback_data: `ask:${o.label}` }])
+        // Inline keyboard (default). callback_data carries the option INDEX,
+        // never the label: Telegram caps callback_data at 64 bytes, and a long
+        // or Cyrillic label (2 bytes/char) overflows it, which makes Telegram
+        // reject the entire sendMessage (BUTTON_DATA_INVALID) — the user then
+        // sees neither the question nor the buttons.
+        const inlineKeyboard = options.map((o, i) => [{ text: o.label, callback_data: `ask:${i}` }])
         inlineKeyboard.push([{ text: chatT(chatIdStr)('cb.askSkip'), callback_data: 'ask:__skip__' }])
 
-        await ctx.api.sendMessage(chatId, msgText, {
-          ...(parseMode ? { parse_mode: parseMode } : {}),
-          reply_markup: { inline_keyboard: inlineKeyboard },
-        })
+        try {
+          await ctx.api.sendMessage(chatId, msgText, {
+            ...(parseMode ? { parse_mode: parseMode } : {}),
+            reply_markup: { inline_keyboard: inlineKeyboard },
+          })
+        } catch (err) {
+          // Never let the question vanish silently. If the rich send fails
+          // (bad markup, parse error), retry once as plain text with buttons,
+          // then as a last resort without buttons so the user at least sees it.
+          logger.warn({ err: String(err), chatId }, 'AskUser sendMessage failed, retrying plain')
+          try {
+            await ctx.api.sendMessage(chatId, msgText, { reply_markup: { inline_keyboard: inlineKeyboard } })
+          } catch (err2) {
+            logger.error({ err: String(err2), chatId }, 'AskUser buttons unsendable, sending text-only')
+            const numbered = options.map((o, i) => `${i + 1}. ${o.label}`).join('\n')
+            await ctx.api.sendMessage(chatId, `${msgText}\n\n${numbered}`).catch(() => {})
+          }
+        }
 
         return new Promise<string>((resolve, reject) => {
           const timeout = setTimeout(() => {
             pendingQuestions.delete(chatIdStr)
             reject(new Error('timeout'))
           }, ASK_USER_TIMEOUT_MS)
-          pendingQuestions.set(chatIdStr, { resolve, reject, timeout })
+          pendingQuestions.set(chatIdStr, { resolve, reject, timeout, labels: options.map(o => o.label) })
         })
       }
 
@@ -1109,9 +1132,20 @@ export function createBot(): Bot {
     // AskUserQuestion answer callback
     if (ctx.callbackQuery?.data?.startsWith('ask:')) {
       const chatIdStr = String(ctx.chat?.id)
-      const answer = ctx.callbackQuery.data.slice(4) // remove 'ask:'
+      const raw = ctx.callbackQuery.data.slice(4) // remove 'ask:'
       const pending = pendingQuestions.get(chatIdStr)
       if (pending) {
+        // callback_data carries the option index (or __skip__). Resolve it back
+        // to the label; guard against a stale index from an older message shape.
+        let answer: string
+        if (raw === '__skip__') {
+          answer = '__skip__'
+        } else {
+          const idx = Number(raw)
+          answer = Number.isInteger(idx) && idx >= 0 && idx < pending.labels.length
+            ? pending.labels[idx]
+            : raw // legacy fallback: data was the label itself
+        }
         clearTimeout(pending.timeout)
         pendingQuestions.delete(chatIdStr)
         pending.resolve(answer)
