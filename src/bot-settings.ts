@@ -48,6 +48,7 @@ export function buildSettingsMessage(chatId: string) {
   const statsOn = getChatSetting(chatId, 'stats') === '1'
   const factsOn = getChatSetting(chatId, 'fact_notify') !== '0' // ON by default
   const draftOn = getChatSetting(chatId, 'rich_draft') === '1' // OFF by default
+  const protectSubagentsOn = getChatSetting(chatId, 'protect_subagents') !== '0' // ON by default
   const lang = getChatLang(chatId)
   const style = getChatSetting(chatId, 'progress_style') ?? 'brunette'
   const delay = getChatSetting(chatId, 'progress_delay') ?? '0'
@@ -85,6 +86,7 @@ export function buildSettingsMessage(chatId: string) {
     ],
     [
       { text: t('settings.stt_lang', { label: sttLangLabel }), callback_data: 'settings:stt_lang' },
+      { text: t(protectSubagentsOn ? 'settings.protect_subagents.on' : 'settings.protect_subagents.off'), callback_data: 'settings:protect_subagents' },
     ],
     [
       { text: '❌ ' + t('settings.close'), callback_data: 'settings:close' },
@@ -105,6 +107,7 @@ export function buildSettingsMessage(chatId: string) {
     `👥 <b>${teamLabel}</b> — ${t('settings.desc.team')}`,
     `✍️ <b>${draftOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.draft')}`,
     `🎙 <b>${sttLangLabel}</b> — ${t('settings.desc.stt_lang')}`,
+    `🛡 <b>${protectSubagentsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.protect_subagents')}`,
   ]
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
@@ -276,6 +279,11 @@ export async function handleSettingsCallback(
     case 'draft':
       if (getChatSetting(chatIdStr, 'rich_draft') === '1') setChatSetting(chatIdStr, 'rich_draft', '0')
       else setChatSetting(chatIdStr, 'rich_draft', '1')
+      break
+    case 'protect_subagents':
+      // ON by default; store '0' to disable (revert to interrupt-always behaviour)
+      if (getChatSetting(chatIdStr, 'protect_subagents') === '0') deleteChatSetting(chatIdStr, 'protect_subagents')
+      else setChatSetting(chatIdStr, 'protect_subagents', '0')
       break
     case 'lang': {
       const cur = getChatLang(chatIdStr)

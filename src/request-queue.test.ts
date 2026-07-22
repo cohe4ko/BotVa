@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Query } from '@anthropic-ai/claude-agent-sdk'
-import { setActiveQuery, interruptRequest } from './request-queue.js'
+import { setActiveQuery, interruptRequest, addFollowup, subagentStarted, subagentFinished, hasSubagentsInFlight, clearActiveQuery } from './request-queue.js'
 
 function makeQuery(interruptImpl: () => Promise<unknown>): Query {
   return { interrupt: vi.fn(interruptImpl) } as unknown as Query
@@ -45,5 +45,58 @@ describe('interruptRequest', () => {
     setActiveQuery(key, makeQuery(async () => ({ still_queued: 'oops' })))
     const r = await interruptRequest(key)
     expect(r).toEqual({ interrupted: true, stillQueued: 0 })
+  })
+})
+
+describe('subagent in-flight tracking', () => {
+  it('tracks started/finished task ids per session', () => {
+    const key = 'sub-1'
+    expect(hasSubagentsInFlight(key)).toBe(false)
+    subagentStarted(key, 't1')
+    subagentStarted(key, 't2')
+    expect(hasSubagentsInFlight(key)).toBe(true)
+    subagentFinished(key, 't1')
+    expect(hasSubagentsInFlight(key)).toBe(true)
+    subagentFinished(key, 't2')
+    expect(hasSubagentsInFlight(key)).toBe(false)
+  })
+
+  it('clearActiveQuery drops any leftover subagents', () => {
+    const key = 'sub-2'
+    subagentStarted(key, 't1')
+    expect(hasSubagentsInFlight(key)).toBe(true)
+    clearActiveQuery(key)
+    expect(hasSubagentsInFlight(key)).toBe(false)
+  })
+})
+
+describe('addFollowup interrupt gating', () => {
+  it('skips interrupt while a subagent runs and protectSubagents is on', async () => {
+    const key = 'fu-1'
+    const q = makeQuery(async () => undefined)
+    setActiveQuery(key, q)
+    subagentStarted(key, 't1')
+    await addFollowup(key, 'hi', true)
+    expect(q.interrupt).not.toHaveBeenCalled()
+    clearActiveQuery(key)
+  })
+
+  it('interrupts when no subagent is running even with protection on', async () => {
+    const key = 'fu-2'
+    const q = makeQuery(async () => undefined)
+    setActiveQuery(key, q)
+    await addFollowup(key, 'hi', true)
+    expect(q.interrupt).toHaveBeenCalledOnce()
+    clearActiveQuery(key)
+  })
+
+  it('interrupts despite a running subagent when protection is off', async () => {
+    const key = 'fu-3'
+    const q = makeQuery(async () => undefined)
+    setActiveQuery(key, q)
+    subagentStarted(key, 't1')
+    await addFollowup(key, 'hi', false)
+    expect(q.interrupt).toHaveBeenCalledOnce()
+    clearActiveQuery(key)
   })
 })

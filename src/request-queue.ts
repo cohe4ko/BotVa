@@ -26,6 +26,32 @@ const processingFlags: Map<string, boolean> = new Map()
 const cancelledChats: Set<string> = new Set()
 const interruptedChats: Set<string> = new Set()
 const followupMessages: Map<string, string[]> = new Map()
+// Task (subagent) ids currently running inside a session's query. Subagents live
+// inside the parent query, so a session-wide q.interrupt() would tear them down
+// mid-work. We track them per session so addFollowup can skip the interrupt while
+// any subagent is in flight (Variant 2 / protect_subagents setting).
+const subagentsInFlight: Map<string, Set<string>> = new Map()
+
+export function subagentStarted(sessionKey: string, taskId: string): void {
+  let set = subagentsInFlight.get(sessionKey)
+  if (!set) {
+    set = new Set()
+    subagentsInFlight.set(sessionKey, set)
+  }
+  set.add(taskId)
+}
+
+export function subagentFinished(sessionKey: string, taskId: string): void {
+  const set = subagentsInFlight.get(sessionKey)
+  if (!set) return
+  set.delete(taskId)
+  if (set.size === 0) subagentsInFlight.delete(sessionKey)
+}
+
+export function hasSubagentsInFlight(sessionKey: string): boolean {
+  const set = subagentsInFlight.get(sessionKey)
+  return !!set && set.size > 0
+}
 
 export function createAbortController(sessionKey: string): AbortController {
   const controller = new AbortController()
@@ -40,6 +66,7 @@ export function setActiveQuery(sessionKey: string, q: Query): void {
 export function clearActiveQuery(sessionKey: string): void {
   activeQueries.delete(sessionKey)
   abortControllers.delete(sessionKey)
+  subagentsInFlight.delete(sessionKey)
 }
 
 export function isCancelled(sessionKey: string): boolean {
@@ -158,7 +185,11 @@ export async function interruptRequest(sessionKey: string): Promise<InterruptRes
 
 // Queue a follow-up message and interrupt agent so it picks up the message
 // Agent finishes current tool call, then resumes with the follow-up in same session
-export async function addFollowup(sessionKey: string, text: string): Promise<void> {
+export async function addFollowup(
+  sessionKey: string,
+  text: string,
+  protectSubagents = false
+): Promise<void> {
   let msgs = followupMessages.get(sessionKey)
   if (!msgs) {
     msgs = []
@@ -166,8 +197,16 @@ export async function addFollowup(sessionKey: string, text: string): Promise<voi
   }
   msgs.push(text)
 
-  // Interrupt only on first followup — agent wraps up current step
+  // Interrupt only on first followup — agent wraps up current step.
   if (msgs.length === 1) {
+    // Variant 2: while a subagent is in flight, skip the interrupt — a
+    // session-wide q.interrupt() would tear the subagent down and discard its
+    // work. The followup stays queued and is picked up at the natural end of the
+    // current turn. With no subagent running, interrupt as before for
+    // responsiveness (only a cheap top-level tool call is lost).
+    if (protectSubagents && hasSubagentsInFlight(sessionKey)) {
+      return
+    }
     await interruptRequest(sessionKey)
   }
 }

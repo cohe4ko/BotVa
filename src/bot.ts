@@ -1277,7 +1277,8 @@ export function createBot(): Bot {
         } catch {}
         // If agent is currently processing, inject as follow-up instead of new request
         if (isProcessing(chatIdStr)) {
-          await addFollowup(chatIdStr, `[Voice transcribed]: ${pending.transcript}`)
+          const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
+          await addFollowup(chatIdStr, `[Voice transcribed]: ${pending.transcript}`, protectSubagents)
         } else {
           await handleMessage(ctx, `[Voice transcribed]: ${pending.transcript}`, true)
         }
@@ -1519,7 +1520,8 @@ export function createBot(): Bot {
           }
         }
         if (followupText) {
-          await addFollowup(chatIdStr, followupText)
+          const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
+          await addFollowup(chatIdStr, followupText, protectSubagents)
           // Visual feedback: react with 👀 so user knows it was captured
           await ctx.react('👀').catch(() => {})
         }

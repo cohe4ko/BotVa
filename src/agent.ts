@@ -7,7 +7,7 @@ import { refreshClaudeMd } from './workspace-files.js'
 import { readEnvFile } from './env.js'
 import { isManager } from './team.js'
 import { logger } from './logger.js'
-import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted } from './request-queue.js'
+import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted, subagentStarted, subagentFinished } from './request-queue.js'
 import { AgentWatchdog } from './agent-watchdog.js'
 import { getClaudeProjectDir } from './disk-sessions.js'
 import { existsSync, openSync, readSync, closeSync } from 'fs'
@@ -295,8 +295,10 @@ async function runAgentOnce(
       if (event.type === 'system') {
         const sys = event as any
         if (sys.subtype === 'task_started') {
+          if (sys.task_id) subagentStarted(chatId, String(sys.task_id))
           logger.info({ chatId, taskId: sys.task_id, description: sys.description }, 'Subtask started')
         } else if (sys.subtype === 'task_notification') {
+          if (sys.task_id) subagentFinished(chatId, String(sys.task_id))
           logger.info({ chatId, taskId: sys.task_id, status: sys.status }, 'Subtask finished')
         }
       }
