@@ -19,7 +19,7 @@ import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, transcribeAudioLong, voiceCapabilities, synthesizeSpeech } from './voice.js'
 import { getProvider as getTtsProvider, extractToneMarker } from './tts-providers/index.js'
 import { isLongText } from './tts-providers/chunking.js'
-import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
+import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage, buildAlbumMessage, type AlbumItem } from './media.js'
 import { logger } from './logger.js'
 import { queueRequest, cancelRequest, interruptRequest, clearQueue, isProcessing, addFollowup, getAndClearFollowup, clearCancelled, isInterrupted } from './request-queue.js'
 import { ProgressReporter } from './progress-reporter.js'
@@ -129,6 +129,131 @@ function clearPasteBuffer(chatIdStr: string): void {
   if (buf) {
     clearTimeout(buf.timer)
     pasteBuffers.delete(chatIdStr)
+  }
+}
+
+// --- Album (media_group) aggregation ---
+// Telegram delivers an album (5-6 photos/files sent as one message) as N
+// separate updates sharing one media_group_id, with the caption attached to
+// only one of them. Without aggregation each item is processed on its own
+// (first -> request, rest -> followups) and the caption rides only one item.
+// We buffer all items of a group, download them in parallel, and dispatch ONCE:
+//   - agent idle  -> a single handleMessage() (one request, one prompt)
+//   - agent busy  -> a single addFollowup()   (one followup for the whole album)
+// The idle/busy decision is made at flush time for the album as a whole, so an
+// album never splits across the two paths.
+const ALBUM_COALESCE_MS = 1200
+type AlbumBuffer = {
+  ctx: Context
+  items: (AlbumItem | null)[] // indexed by arrival order; nulls = failed downloads
+  caption: string
+  seq: number // next arrival index
+  pending: number // downloads still in flight
+  flushArmed: boolean // debounce elapsed, waiting for downloads to finish
+  timer: ReturnType<typeof setTimeout> | null
+}
+// key = `${chatIdStr}:${media_group_id}`
+const albumBuffers = new Map<string, AlbumBuffer>()
+
+function clearAlbumBuffers(chatIdStr: string): void {
+  const prefix = `${chatIdStr}:`
+  for (const [key, buf] of albumBuffers) {
+    if (key.startsWith(prefix)) {
+      if (buf.timer) clearTimeout(buf.timer)
+      albumBuffers.delete(key)
+    }
+  }
+}
+
+async function downloadAlbumMedia(ctx: Context): Promise<AlbumItem | null> {
+  const m = ctx.message
+  if (!m) return null
+  if (m.photo) {
+    const largest = m.photo[m.photo.length - 1]
+    const path = await downloadMedia(TELEGRAM_BOT_TOKEN, largest.file_id, 'photo.jpg')
+    return { path, kind: 'photo' }
+  }
+  if (m.document) {
+    const path = await downloadMedia(TELEGRAM_BOT_TOKEN, m.document.file_id, m.document.file_name)
+    return { path, kind: 'document', filename: m.document.file_name }
+  }
+  if (m.video) {
+    const path = await downloadMedia(TELEGRAM_BOT_TOKEN, m.video.file_id, 'video.mp4')
+    return { path, kind: 'video' }
+  }
+  return null
+}
+
+// Buffer one item of an album and (re)arm the debounce timer. Each new item of
+// the same group pushes the flush deadline out, so the whole album is collected
+// before dispatch.
+async function bufferAlbumItem(ctx: Context, chatIdStr: string): Promise<void> {
+  const groupId = ctx.message?.media_group_id
+  if (!groupId) return
+  const key = `${chatIdStr}:${groupId}`
+  let buf = albumBuffers.get(key)
+  if (!buf) {
+    buf = { ctx, items: [], caption: '', seq: 0, pending: 0, flushArmed: false, timer: null }
+    albumBuffers.set(key, buf)
+  }
+  buf.ctx = ctx
+  const cap = ctx.message?.caption
+  if (cap && !buf.caption) buf.caption = cap
+
+  // (re)arm debounce
+  if (buf.timer) clearTimeout(buf.timer)
+  buf.timer = setTimeout(() => tryFlushAlbum(key), ALBUM_COALESCE_MS)
+
+  const idx = buf.seq++
+  buf.pending++
+  try {
+    buf.items[idx] = await downloadAlbumMedia(ctx)
+  } catch (err) {
+    logger.error({ err }, 'Album item download failed')
+    buf.items[idx] = null
+  } finally {
+    buf.pending--
+    // If the debounce already elapsed while we were downloading and this was the
+    // last file in flight, flush now.
+    if (buf.pending === 0 && buf.flushArmed) {
+      albumBuffers.delete(key)
+      void dispatchAlbum(buf)
+    }
+  }
+}
+
+// Debounce fired: dispatch if all downloads are done, otherwise wait for the
+// last download to trigger the flush.
+function tryFlushAlbum(key: string): void {
+  const buf = albumBuffers.get(key)
+  if (!buf) return
+  buf.timer = null
+  if (buf.pending > 0) {
+    buf.flushArmed = true
+    return
+  }
+  albumBuffers.delete(key)
+  void dispatchAlbum(buf)
+}
+
+// Route the collected album as ONE message. Idle -> request; busy -> followup.
+async function dispatchAlbum(buf: AlbumBuffer): Promise<void> {
+  const chatIdStr = String(buf.ctx.chat?.id)
+  const items = buf.items.filter((it): it is AlbumItem => it !== null)
+  if (items.length === 0) return
+  const message = buildAlbumMessage(items, buf.caption)
+  try {
+    if (isProcessing(chatIdStr)) {
+      // Scenario 2: agent busy -> a single followup for the whole album.
+      const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
+      await addFollowup(chatIdStr, message, protectSubagents)
+      await buf.ctx.react('👀').catch(() => {})
+    } else {
+      // Scenario 1: agent idle -> a single request with all files.
+      await handleMessage(buf.ctx, message)
+    }
+  } catch (err) {
+    logger.error({ err, chatIdStr }, 'Album dispatch failed')
   }
 }
 
@@ -1505,6 +1630,7 @@ export function createBot(): Bot {
       if (!isAuthorised(ctx.chat!.id)) return
       const _t = chatT(chatIdStr)
       clearPasteBuffer(chatIdStr)
+      clearAlbumBuffers(chatIdStr)
       const cancelled = await cancelRequest(chatIdStr)
       const cleared = clearQueue(chatIdStr)
       if (cancelled || cleared > 0) {
@@ -1515,6 +1641,21 @@ export function createBot(): Bot {
       } else {
         await ctx.reply(_t('cancel.nothing'))
       }
+      return
+    }
+    // Album (media_group) aggregation: intercept every item of a Telegram album
+    // BEFORE it splits across the follow-up path / per-type handlers, so the
+    // whole group is collected and dispatched once. Handles both scenarios
+    // (agent idle vs busy) at flush time — see bufferAlbumItem/dispatchAlbum.
+    if (ctx.message?.media_group_id && (ctx.message.photo || ctx.message.document || ctx.message.video)) {
+      const chatId = ctx.chat?.id
+      if (chatId == null) return
+      // Same auth gate as the concrete media handlers (handleMessage skips auth
+      // for private chats, trusting the handler to have checked).
+      if (isGroupChat(ctx)) {
+        if (!isAuthorised(chatId) || !shouldProcessGroupMessage(ctx)) return
+      } else if (!isAuthorised(chatId)) return
+      await bufferAlbumItem(ctx, String(chatId))
       return
     }
     // Follow-up: if agent is running and user sends a message,
@@ -1640,6 +1781,7 @@ export function createBot(): Bot {
   const clearSessionHandler = async (ctx: Context) => {
     const chatIdStr = String(ctx.chat!.id)
     clearPasteBuffer(chatIdStr)
+    clearAlbumBuffers(chatIdStr)
     const oldSessionId = getSession(chatIdStr)
     clearSession(chatIdStr)
     logAudit(chatIdStr, 'session_clear')

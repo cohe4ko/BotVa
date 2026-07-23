@@ -68,6 +68,35 @@ export function buildPhotoMessage(localPath: string, caption?: string): string {
   return parts.join('\n')
 }
 
+// One downloaded item of a Telegram album (media_group). Order matches the
+// order the messages arrived from Telegram.
+export type AlbumItem = {
+  path: string
+  kind: 'photo' | 'document' | 'video'
+  filename?: string
+}
+
+// Build a single prompt describing a whole album (5-6 photos + one caption)
+// so the agent sees one coherent block with one instruction instead of N
+// separate photo markers. Telegram attaches the caption to only one message
+// of the album, so `caption` is the single caption collected across the group.
+export function buildAlbumMessage(items: AlbumItem[], caption?: string): string {
+  const lines = [`[Album received: ${items.length} file(s).]`]
+  items.forEach((it, i) => {
+    const n = i + 1
+    if (it.kind === 'document') {
+      lines.push(`${n}. [Document: ${it.filename ?? 'file'}] File saved at: ${it.path}`)
+    } else if (it.kind === 'video') {
+      lines.push(`${n}. [Video] File saved at: ${it.path}`)
+    } else {
+      lines.push(`${n}. [Photo] File saved at: ${it.path}`)
+    }
+  })
+  if (caption) lines.push(`Caption: ${caption}`)
+  lines.push('Please analyze these files together as one album.')
+  return lines.join('\n')
+}
+
 export function buildDocumentMessage(localPath: string, filename: string, caption?: string): string {
   const parts = [`[Document received: ${filename}. File saved at: ${localPath}]`]
   if (caption) parts.push(`Caption: ${caption}`)
