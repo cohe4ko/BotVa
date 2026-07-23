@@ -9,6 +9,22 @@ interface PersistentServer {
   transport: StdioClientTransport
 }
 
+// Bound the connect/listTools handshake so a dead dependency (e.g. freecad-mcp
+// waiting on a FreeCAD GUI that isn't running) can't hang query initialization.
+// On timeout we tear the subprocess down and throw — the caller skips the server
+// for this turn instead of stalling the whole agent.
+const CONNECT_TIMEOUT_MS = Number(process.env['MCP_PERSISTENT_CONNECT_TIMEOUT_MS'] ?? 10000)
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    p.then(
+      v => { clearTimeout(timer); resolve(v) },
+      e => { clearTimeout(timer); reject(e) },
+    )
+  })
+}
+
 class PersistentMcpManager {
   private servers = new Map<string, PersistentServer>()
 
@@ -33,8 +49,10 @@ class PersistentMcpManager {
       this.servers.set(name, server)
     }
 
-    // 2. List tools from subprocess
-    const { tools: remoteTools } = await server.client.listTools()
+    // 2. List tools from subprocess (bounded — a wedged server must not hang init)
+    const { tools: remoteTools } = await withTimeout(
+      server.client.listTools(), CONNECT_TIMEOUT_MS, `${name} listTools`
+    )
     logger.debug({ name, toolCount: remoteTools.length }, 'Persistent MCP: listed tools')
 
     // 3. Create proxy tool definitions
@@ -129,7 +147,15 @@ class PersistentMcpManager {
       this.servers.delete(name)
     }
 
-    await client.connect(transport)
+    try {
+      await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `${name} connect`)
+    } catch (err) {
+      // Kill the half-started subprocess so we don't leak a hanging process
+      // (e.g. uvx freecad-mcp blocked on a missing FreeCAD GUI) each turn.
+      try { await transport.close() } catch { /* ignore */ }
+      logger.warn({ name, err: String(err) }, 'Persistent MCP: connect failed, subprocess killed')
+      throw err
+    }
     logger.info({ name, pid: transport.pid }, 'Persistent MCP: connected')
 
     return { client, transport }

@@ -206,11 +206,12 @@ export async function buildMcpServers(env: Record<string, string> = process.env 
         servers[name] = await persistentMcp.getServer(name, s.command, args, passEnv)
       } catch (err) {
         const { logger } = await import('./logger.js')
-        logger.error({ err, name }, 'Failed to start persistent MCP server, falling back to stdio')
-        // Fall through to stdio below
-        const entry: McpServerRuntime = { command: s.command, args: [...s.args] }
-        if (passEnv) entry.env = { ...env, ...passEnv }
-        servers[name] = entry
+        // Do NOT fall back to a raw stdio entry: that hands the flaky subprocess
+        // to the CLI's shared MCP manager, where its reconnect churn takes down
+        // the in-process builtin bridge with it (the whole point of persistent
+        // isolation). Skip the server for this turn instead — getServer retries
+        // the spawn next turn once the dependency (e.g. FreeCAD GUI) is back.
+        logger.warn({ err: String(err), name }, 'Persistent MCP server unavailable, skipping this turn (isolated from builtin)')
       }
       continue
     }
