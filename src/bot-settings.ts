@@ -38,6 +38,13 @@ export const STT_LANG_OPTIONS = [
   { id: 'en', labelKey: 'stt.en' },
   { id: 'auto', labelKey: 'stt.auto' },
 ]
+// Reasoning/thinking language. 'auto' (default) lets the model pick (reasoning
+// tends toward English); 'uk'/'en' steer the thinking and its shown summary.
+export const THINK_LANG_OPTIONS = [
+  { id: 'auto', labelKey: 'think.auto' },
+  { id: 'uk', labelKey: 'think.uk' },
+  { id: 'en', labelKey: 'think.en' },
+]
 
 // --- Settings message builder ---
 
@@ -62,6 +69,8 @@ export function buildSettingsMessage(chatId: string) {
   const langLabel = t(`lang.${lang}`)
   const sttLang = getChatSetting(chatId, 'stt_lang') ?? 'uk'
   const sttLangLabel = t(STT_LANG_OPTIONS.find(o => o.id === sttLang)?.labelKey ?? 'stt.uk')
+  const thinkLang = getChatSetting(chatId, 'think_lang') ?? 'auto'
+  const thinkLangLabel = t(THINK_LANG_OPTIONS.find(o => o.id === thinkLang)?.labelKey ?? 'think.auto')
 
   const keyboard = [
     [
@@ -89,6 +98,9 @@ export function buildSettingsMessage(chatId: string) {
       { text: t(protectSubagentsOn ? 'settings.protect_subagents.on' : 'settings.protect_subagents.off'), callback_data: 'settings:protect_subagents' },
     ],
     [
+      { text: t('settings.think_lang', { label: thinkLangLabel }), callback_data: 'settings:think_lang' },
+    ],
+    [
       { text: '❌ ' + t('settings.close'), callback_data: 'settings:close' },
     ],
   ]
@@ -108,6 +120,7 @@ export function buildSettingsMessage(chatId: string) {
     `✍️ <b>${draftOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.draft')}`,
     `🎙 <b>${sttLangLabel}</b> — ${t('settings.desc.stt_lang')}`,
     `🛡 <b>${protectSubagentsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.protect_subagents')}`,
+    `💭 <b>${thinkLangLabel}</b> — ${t('settings.desc.think_lang')}`,
   ]
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
@@ -328,6 +341,14 @@ export async function handleSettingsCallback(
       const next = ids[(ids.indexOf(cur) + 1) % ids.length]
       if (next === 'uk') deleteChatSetting(chatIdStr, 'stt_lang')  // uk is the default
       else setChatSetting(chatIdStr, 'stt_lang', next)
+      break
+    }
+    case 'think_lang': {
+      const cur = getChatSetting(chatIdStr, 'think_lang') ?? 'auto'
+      const ids = THINK_LANG_OPTIONS.map(o => o.id)  // auto -> uk -> en -> auto
+      const next = ids[(ids.indexOf(cur) + 1) % ids.length]
+      if (next === 'auto') deleteChatSetting(chatIdStr, 'think_lang')  // auto is the default
+      else setChatSetting(chatIdStr, 'think_lang', next)
       break
     }
     case 'close': {

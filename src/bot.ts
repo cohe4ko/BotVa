@@ -679,6 +679,16 @@ async function handleMessage(
         fullMessage = `[⚙️ User language preference: English. Respond in English.]\n\n${fullMessage}`
       }
 
+      // Inject thinking-language preference: steers the language of the model's
+      // reasoning (and the summarized thinking shown to the user). 'auto' → no
+      // injection (model default, which tends toward English for deep reasoning).
+      const thinkLang = getChatSetting(chatIdStr, 'think_lang') ?? 'auto'
+      if (thinkLang === 'uk') {
+        fullMessage = `[🧠 Reasoning language: Ukrainian. Conduct your internal reasoning (thinking) AND its summaries in Ukrainian, regardless of the response language.]\n\n${fullMessage}`
+      } else if (thinkLang === 'en') {
+        fullMessage = `[🧠 Reasoning language: English. Conduct your internal reasoning (thinking) in English, regardless of the response language.]\n\n${fullMessage}`
+      }
+
       // Inject user-added group context (human messages during debate)
       const groupCtx = inGroup ? readGroupContext(chatIdStr) : null
       if (groupCtx) {
