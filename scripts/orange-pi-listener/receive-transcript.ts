@@ -669,7 +669,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         stt: STT_PROVIDER,
         stt_language: sttLanguage || "auto",
         analysis: ANTHROPIC_API_KEY ? "enabled" : "disabled",
-        groqKeys: GROQ_API_KEYS.length,
+        groqKeys: groqLoadStore().keys.length,
         devices: deviceStatuses.size,
       })
     );
@@ -978,7 +978,7 @@ server.listen(PORT, () => {
   console.log(`Data: ${DATA_DIR}`);
   console.log(`STT: ${STT_PROVIDER}`);
   console.log(`STT language: ${sttLanguage || "auto-detect"}`);
-  console.log(`Groq keys: ${GROQ_API_KEYS.length}`);
+  console.log(`Groq keys: ${groqLoadStore().keys.length}`);
   console.log(`Auth: ${AUTH_TOKEN ? "enabled" : "disabled"}`);
   console.log(`LLM: ${ANTHROPIC_API_KEY ? "enabled" : "disabled"}`);
   console.log(`\nEndpoints:`);
