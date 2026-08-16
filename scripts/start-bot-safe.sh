@@ -102,7 +102,7 @@ if ! command -v node &>/dev/null; then
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
   [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
   command -v fnm &>/dev/null && eval "$(fnm env)"
-  for p in /usr/local/bin /usr/bin "$HOME/.local/bin" "$HOME/.volta/bin" "$HOME/.local/share/fnm/aliases/default/bin"; do
+  for p in "$HOME/.local/bin" /usr/local/bin /usr/bin "$HOME/.volta/bin" "$HOME/.local/share/fnm/aliases/default/bin"; do
     [ -x "$p/node" ] && export PATH="$p:$PATH" && break
   done
 fi

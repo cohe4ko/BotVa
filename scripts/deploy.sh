@@ -35,7 +35,7 @@ if ! command -v node &>/dev/null; then
   command -v fnm &>/dev/null && eval "$(fnm env)"
   [ -s "$HOME/.fnm/fnm" ] && eval "$($HOME/.fnm/fnm env)"
   # Try common paths
-  for p in /usr/local/bin /usr/bin "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/.volta/bin" "$HOME/.local/share/fnm/aliases/default/bin"; do
+  for p in "$HOME/.local/bin" /usr/local/bin /usr/bin "$HOME/.npm-global/bin" "$HOME/.volta/bin" "$HOME/.local/share/fnm/aliases/default/bin"; do
     [ -x "$p/node" ] && export PATH="$p:$PATH" && break
   done
 fi
@@ -634,7 +634,7 @@ do_launchd() {
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    <string>$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
