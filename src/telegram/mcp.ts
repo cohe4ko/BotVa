@@ -21,10 +21,10 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 import type { TelegramClient } from 'telegram'
 import { TG_SOCK_PATH } from './paths.js'
 import {
-  listChats, listUnreadChats, getChat, getMessages, searchMessages,
+  listChats, countChats, listUnreadChats, getChat, getMessages, searchMessages,
   recordOutbox, countOutboxSince, setChatUnread,
 } from './db.js'
-import { listDialogs, getHistory, sendText, sendFile, resolveChat, markRead } from './client.js'
+import { listDialogs, getHistory, sendText, sendFile, resolveChat, markRead, getPeerState } from './client.js'
 
 /** Outgoing action limits — a hard refusal, never a queue. */
 const SEND_LIMIT_HOUR = 10
@@ -93,12 +93,15 @@ function formatMessages(rows: { direction: string; sender_name: string | null; t
 const TOOLS = [
   {
     name: 'tg_list_chats',
-    description: 'Список Telegram-чатів акаунта власника: назва, тип, кількість непрочитаних, режим логування. Використовуй щоб знайти chat_id перед читанням або відправкою.',
+    description: 'Список Telegram-чатів акаунта власника: назва, тип, кількість непрочитаних, режим логування. Відсортовано за свіжістю. Акаунт може мати тисячі чатів — звужуй пошуком search, а не великим limit.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        live: { type: 'boolean', description: 'true — тягнути свіжий список з Telegram; false (типово) — з локального логу' },
-        limit: { type: 'number', description: 'Скільки чатів повернути (типово 50)' },
+        search: { type: 'string', description: 'Фільтр за назвою, @username або chat_id' },
+        active_days: { type: 'number', description: 'Тільки чати з активністю за останні N днів' },
+        live: { type: 'boolean', description: 'true — тягнути свіжий список з Telegram; false (типово) — з локального реєстру' },
+        limit: { type: 'number', description: 'Скільки чатів повернути (типово 30, максимум 100)' },
+        offset: { type: 'number', description: 'Зсув для гортання' },
       },
     },
   },
@@ -185,6 +188,15 @@ const TOOLS = [
       required: ['chat'],
     },
   },
+  {
+    name: 'tg_chat_state',
+    description: 'Живий стан чату з Telegram: скільки непрочитаних і до якого повідомлення власник дочитав. Питай перед тим, як писати від імені власника — локальний лічильник не бачить, що чат відкрили з телефона.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { chat: { type: 'string', description: 'chat_id або @username' } },
+      required: ['chat'],
+    },
+  },
 ]
 
 /**
@@ -242,15 +254,32 @@ async function callTool(
 
   switch (name) {
     case 'tg_list_chats': {
-      const limit = Math.min(Number(args['limit'] ?? 50), 200)
+      const limit = Math.min(Number(args['limit'] ?? 30), 100)
       if (args['live']) {
         const live = needsLive()
         if (!live) return fail('Telegram не підключений — живий список недоступний.')
         const dialogs = await listDialogs(live, limit)
         return ok(dialogs.map(d => formatChatLine({ ...d, mode: getChat(d.chat_id)?.mode ?? 'невідомо' })).join('\n') || 'Порожньо.')
       }
-      const chats = listChats({ limit })
-      return ok(chats.map(formatChatLine).join('\n') || 'Лог порожній — чати з\'являться після перших повідомлень.')
+
+      const activeDays = Number(args['active_days'] ?? 0) || 0
+      const filter = {
+        search: args['search'] ? String(args['search']) : undefined,
+        activeSince: activeDays > 0 ? Math.floor(Date.now() / 1000) - activeDays * 86400 : undefined,
+        limit,
+        offset: Math.max(0, Number(args['offset'] ?? 0) || 0),
+      }
+      const chats = listChats(filter)
+      if (chats.length === 0) {
+        return ok(filter.search
+          ? `Чатів за запитом "${filter.search}" не знайдено.`
+          : 'Реєстр порожній — чати з\'являться після запуску демона.')
+      }
+
+      const total = countChats(filter)
+      const shown = filter.offset + chats.length
+      const more = total > shown ? `\n\n(показано ${shown} з ${total} — використай offset щоб гортати далі)` : ''
+      return ok(chats.map(formatChatLine).join('\n') + more)
     }
 
     case 'tg_unread': {
@@ -363,6 +392,18 @@ async function callTool(
       await markRead(live, chat)
       setChatUnread(chat, 0)
       return ok('Позначено прочитаним.')
+    }
+
+    case 'tg_chat_state': {
+      const chat = String(args['chat'] ?? '')
+      if (!chat) return fail('Потрібен параметр chat')
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений.')
+      const state = await getPeerState(live, chat)
+      if (!state) return fail(`Не вдалось прочитати стан чату "${chat}".`)
+      // Keep the local counter honest while we have the truth in hand.
+      setChatUnread(state.chat_id, state.unread)
+      return ok(JSON.stringify(state))
     }
 
     default:

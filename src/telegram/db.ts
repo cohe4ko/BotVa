@@ -26,6 +26,17 @@ export interface TgChat {
   last_msg_ts: number | null
   created_at: number
   updated_at: number
+  /** Bot that answers unattended messages here. Empty string = nobody. */
+  auto_reply_bot: string
+  /** Silence required before the bot steps in, seconds. */
+  auto_reply_after_s: number
+  /** 1 = only act while the chat is genuinely unread in Telegram. */
+  auto_reply_require_unread: number
+  /** Highest incoming msg_id already answered, so one message is answered once. */
+  auto_reply_last_msg_id: number
+  auto_reply_last_ts: number | null
+  /** Free-form instruction for how to answer in this chat. */
+  auto_reply_prompt: string
 }
 
 export interface TgMessage {
@@ -49,7 +60,7 @@ export interface OutboxEntry {
   kind: string
   text: string
   file_path: string | null
-  status: 'sent' | 'failed'
+  status: 'sent' | 'failed' | 'skipped'
   error: string | null
   requested_by: string
   msg_id: number | null
@@ -105,7 +116,8 @@ function initTgSchema(d: DatabaseSync): void {
       ts INTEGER NOT NULL,
       edited_ts INTEGER,
       deleted_ts INTEGER,
-      UNIQUE(chat_id, msg_id)
+      owner_id TEXT NOT NULL DEFAULT 'legacy',
+      UNIQUE(owner_id, chat_id, msg_id)
     )
   `)
   d.exec('CREATE INDEX IF NOT EXISTS idx_tg_msg_chat_ts ON tg_messages(chat_id, ts DESC)')
@@ -123,8 +135,10 @@ function initTgSchema(d: DatabaseSync): void {
 
   d.exec(`
     CREATE TABLE IF NOT EXISTS tg_cursor (
-      chat_id TEXT PRIMARY KEY,
-      last_msg_id INTEGER NOT NULL
+      owner_id TEXT NOT NULL DEFAULT 'legacy',
+      chat_id TEXT NOT NULL,
+      last_msg_id INTEGER NOT NULL,
+      PRIMARY KEY (owner_id, chat_id)
     )
   `)
 
@@ -135,7 +149,7 @@ function initTgSchema(d: DatabaseSync): void {
       kind TEXT NOT NULL,
       text TEXT NOT NULL DEFAULT '',
       file_path TEXT,
-      status TEXT NOT NULL CHECK(status IN ('sent','failed')),
+      status TEXT NOT NULL CHECK(status IN ('sent','failed','skipped')),
       error TEXT,
       requested_by TEXT NOT NULL DEFAULT 'unknown',
       msg_id INTEGER,
@@ -143,9 +157,244 @@ function initTgSchema(d: DatabaseSync): void {
     )
   `)
   d.exec('CREATE INDEX IF NOT EXISTS idx_tg_outbox_created ON tg_outbox(created_at DESC)')
+
+  // Which account produced this data.
+  //
+  // `direction` is relative to the session owner: the same conversation logged
+  // from two accounts yields opposite in/out values under the same chat_id.
+  // Rows written before this column existed are marked 'legacy' — they cannot
+  // be attributed, and silently folding them into the current account would
+  // corrupt the record.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS tg_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `)
+  try {
+    d.exec("ALTER TABLE tg_chats ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'legacy'")
+  } catch { /* already exists */ }
+  try {
+    d.exec("ALTER TABLE tg_messages ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'legacy'")
+  } catch { /* already exists */ }
+  migrateMessageUniqueness(d)
+  d.exec('CREATE INDEX IF NOT EXISTS idx_tg_msg_owner ON tg_messages(owner_id, ts DESC)')
+
+  // Unattended-reply policy, per chat. Off unless a bot is named here.
+  for (const ddl of [
+    "ALTER TABLE tg_chats ADD COLUMN auto_reply_bot TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE tg_chats ADD COLUMN auto_reply_after_s INTEGER NOT NULL DEFAULT 300',
+    'ALTER TABLE tg_chats ADD COLUMN auto_reply_require_unread INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE tg_chats ADD COLUMN auto_reply_last_msg_id INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE tg_chats ADD COLUMN auto_reply_last_ts INTEGER',
+    "ALTER TABLE tg_chats ADD COLUMN auto_reply_prompt TEXT NOT NULL DEFAULT ''",
+  ]) {
+    try { d.exec(ddl) } catch { /* already exists */ }
+  }
+
+  // Lowercased "title + username" for search.
+  //
+  // SQLite's LOWER() only folds ASCII, so a Cyrillic query would silently match
+  // nothing. JS toLowerCase() is Unicode-aware, so the key is computed on write
+  // and matched verbatim on read.
+  try { d.exec('ALTER TABLE tg_chats ADD COLUMN search_key TEXT NOT NULL DEFAULT \'\'') } catch { /* already exists */ }
+  d.exec('CREATE INDEX IF NOT EXISTS idx_tg_chats_recent ON tg_chats(last_msg_ts DESC)')
+  backfillSearchKeys(d)
+}
+
+/**
+ * Widen the message uniqueness key to include the owner.
+ *
+ * The original constraint was UNIQUE(chat_id, msg_id). After an account switch
+ * the same pair legitimately occurs twice — chat 777000 message 5 exists for
+ * every account — and `INSERT OR IGNORE` would drop the newer row without a
+ * word. SQLite cannot alter a constraint in place, so the table is rebuilt.
+ * Row ids are copied verbatim: the FTS index addresses them as rowids.
+ */
+function migrateMessageUniqueness(d: DatabaseSync): void {
+  const row = d.prepare('SELECT value FROM tg_meta WHERE key = ?').get('schema_v') as { value: string } | undefined
+  if (row?.value === '3') return
+
+  const hasOwnerKey = (d.prepare(
+    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'tg_messages' AND sql LIKE '%UNIQUE(owner_id%'"
+  ).get() as { n: number }).n > 0
+
+  if (!hasOwnerKey) {
+    d.exec('DROP TRIGGER IF EXISTS tg_messages_ai')
+    d.exec(`
+      CREATE TABLE tg_messages_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT NOT NULL,
+        msg_id INTEGER NOT NULL,
+        direction TEXT NOT NULL CHECK(direction IN ('in','out')),
+        sender_id TEXT,
+        sender_name TEXT,
+        text TEXT NOT NULL DEFAULT '',
+        media_type TEXT,
+        reply_to INTEGER,
+        ts INTEGER NOT NULL,
+        edited_ts INTEGER,
+        deleted_ts INTEGER,
+        owner_id TEXT NOT NULL DEFAULT 'legacy',
+        UNIQUE(owner_id, chat_id, msg_id)
+      )
+    `)
+    d.exec(`
+      INSERT INTO tg_messages_v2
+        (id, chat_id, msg_id, direction, sender_id, sender_name, text, media_type,
+         reply_to, ts, edited_ts, deleted_ts, owner_id)
+      SELECT id, chat_id, msg_id, direction, sender_id, sender_name, text, media_type,
+             reply_to, ts, edited_ts, deleted_ts, owner_id
+      FROM tg_messages
+    `)
+    d.exec('DROP TABLE tg_messages')
+    d.exec('ALTER TABLE tg_messages_v2 RENAME TO tg_messages')
+    d.exec('CREATE INDEX IF NOT EXISTS idx_tg_msg_chat_ts ON tg_messages(chat_id, ts DESC)')
+    d.exec('CREATE INDEX IF NOT EXISTS idx_tg_msg_ts ON tg_messages(ts DESC)')
+    d.exec(`
+      CREATE TRIGGER IF NOT EXISTS tg_messages_ai AFTER INSERT ON tg_messages BEGIN
+        INSERT INTO tg_messages_fts(rowid, text) VALUES (new.id, new.text);
+      END
+    `)
+  }
+
+  // The read cursor is owner-relative for the same reason: msg_id sequences are
+  // per-chat, and one account's position says nothing about another's.
+  const cursorHasOwner = (d.prepare(
+    "SELECT COUNT(*) AS n FROM pragma_table_info('tg_cursor') WHERE name = 'owner_id'"
+  ).get() as { n: number }).n > 0
+
+  if (!cursorHasOwner) {
+    d.exec(`
+      CREATE TABLE tg_cursor_v2 (
+        owner_id TEXT NOT NULL DEFAULT 'legacy',
+        chat_id TEXT NOT NULL,
+        last_msg_id INTEGER NOT NULL,
+        PRIMARY KEY (owner_id, chat_id)
+      )
+    `)
+    d.exec("INSERT INTO tg_cursor_v2 (owner_id, chat_id, last_msg_id) SELECT 'legacy', chat_id, last_msg_id FROM tg_cursor")
+    d.exec('DROP TABLE tg_cursor')
+    d.exec('ALTER TABLE tg_cursor_v2 RENAME TO tg_cursor')
+  }
+
+  // A bot deciding to stay silent is an action worth showing, so the outbox
+  // records it too — but the original CHECK only allowed sent/failed, and a
+  // decline is neither.
+  const outboxSql = (d.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tg_outbox'"
+  ).get() as { sql: string } | undefined)?.sql ?? ''
+
+  if (!outboxSql.includes("'skipped'")) {
+    d.exec(`
+      CREATE TABLE tg_outbox_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        file_path TEXT,
+        status TEXT NOT NULL CHECK(status IN ('sent','failed','skipped')),
+        error TEXT,
+        requested_by TEXT NOT NULL DEFAULT 'unknown',
+        msg_id INTEGER,
+        created_at INTEGER NOT NULL
+      )
+    `)
+    d.exec(`
+      INSERT INTO tg_outbox_v2
+        (id, chat_id, kind, text, file_path, status, error, requested_by, msg_id, created_at)
+      SELECT id, chat_id, kind, text, file_path, status, error, requested_by, msg_id, created_at
+      FROM tg_outbox
+    `)
+    d.exec('DROP TABLE tg_outbox')
+    d.exec('ALTER TABLE tg_outbox_v2 RENAME TO tg_outbox')
+    d.exec('CREATE INDEX IF NOT EXISTS idx_tg_outbox_created ON tg_outbox(created_at DESC)')
+  }
+
+  d.prepare(
+    'INSERT INTO tg_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run('schema_v', '3')
+}
+
+function searchKeyFor(title: string, username?: string | null): string {
+  return `${title} ${username ?? ''}`.toLowerCase().trim()
+}
+
+/** One-time fill for rows written before search_key existed. */
+function backfillSearchKeys(d: DatabaseSync): void {
+  const rows = d.prepare("SELECT chat_id, title, username FROM tg_chats WHERE search_key = ''")
+    .all() as { chat_id: string; title: string; username: string | null }[]
+  if (rows.length === 0) return
+  const stmt = d.prepare('UPDATE tg_chats SET search_key = ? WHERE chat_id = ?')
+  for (const row of rows) stmt.run(searchKeyFor(row.title, row.username), row.chat_id)
 }
 
 const now = (): number => Math.floor(Date.now() / 1000)
+
+// --- Session owner ---
+
+const OWNER_KEY = 'owner_id'
+export const LEGACY_OWNER = 'legacy'
+
+let ownerCache: string | null = null
+
+export function getOwnerId(): string {
+  if (ownerCache !== null) return ownerCache
+  const row = getTgDb().prepare('SELECT value FROM tg_meta WHERE key = ?').get(OWNER_KEY) as { value: string } | undefined
+  // Before the daemon has ever logged in, everything on disk is legacy data —
+  // reading as LEGACY_OWNER keeps an existing installation visible instead of
+  // showing an empty database until the first successful connection.
+  ownerCache = row?.value ?? LEGACY_OWNER
+  return ownerCache
+}
+
+/**
+ * Record which account the daemon is logged in as.
+ * Returns the previous owner so the caller can warn about a switch.
+ */
+export function setOwnerId(id: string): { previous: string; changed: boolean } {
+  const previous = getOwnerId()
+  if (previous !== id) {
+    getTgDb().prepare(
+      'INSERT INTO tg_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(OWNER_KEY, id)
+    ownerCache = id
+  }
+  return { previous, changed: previous !== LEGACY_OWNER && previous !== id }
+}
+
+/** Rows that belong to no known account — from before owner tracking, or another login. */
+export function countForeignRows(): { chats: number; messages: number } {
+  const d = getTgDb()
+  const owner = getOwnerId()
+  const chats = d.prepare('SELECT COUNT(*) AS n FROM tg_chats WHERE owner_id != ?').get(owner) as { n: number }
+  const messages = d.prepare('SELECT COUNT(*) AS n FROM tg_messages WHERE owner_id != ?').get(owner) as { n: number }
+  return { chats: chats.n, messages: messages.n }
+}
+
+/** Remove everything not belonging to the current account. Irreversible. */
+export function purgeForeignRows(): { chats: number; messages: number } {
+  const d = getTgDb()
+  const owner = getOwnerId()
+  const before = countForeignRows()
+  d.exec('BEGIN')
+  try {
+    d.prepare('DELETE FROM tg_messages_fts WHERE rowid IN (SELECT id FROM tg_messages WHERE owner_id != ?)').run(owner)
+    d.prepare('DELETE FROM tg_messages WHERE owner_id != ?').run(owner)
+    d.prepare('DELETE FROM tg_cursor WHERE owner_id != ?').run(owner)
+    d.prepare('DELETE FROM tg_chats WHERE owner_id != ?').run(owner)
+    d.exec('COMMIT')
+  } catch (err) {
+    d.exec('ROLLBACK')
+    throw err
+  }
+  return before
+}
+
+/** Test seam: drop the cached owner so a fresh read hits the table. */
+export function resetOwnerCache(): void {
+  ownerCache = null
+}
 
 // --- Chats ---
 
@@ -160,14 +409,19 @@ export function upsertChat(chat: {
   const d = getTgDb()
   const ts = now()
   d.prepare(`
-    INSERT INTO tg_chats (chat_id, title, username, kind, mode, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tg_chats (chat_id, title, username, kind, mode, search_key, owner_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(chat_id) DO UPDATE SET
       title = excluded.title,
       username = excluded.username,
       kind = excluded.kind,
+      search_key = excluded.search_key,
+      owner_id = excluded.owner_id,
       updated_at = excluded.updated_at
-  `).run(chat.chat_id, chat.title, chat.username ?? null, chat.kind, chat.defaultMode, ts, ts)
+  `).run(
+    chat.chat_id, chat.title, chat.username ?? null, chat.kind, chat.defaultMode,
+    searchKeyFor(chat.title, chat.username), getOwnerId(), ts, ts,
+  )
   return getChat(chat.chat_id)!
 }
 
@@ -176,25 +430,213 @@ export function getChat(chatId: string): TgChat | null {
   return (d.prepare('SELECT * FROM tg_chats WHERE chat_id = ?').get(chatId) as unknown as TgChat) ?? null
 }
 
-export function listChats(opts?: { kind?: ChatKind; mode?: ChatMode; limit?: number }): TgChat[] {
-  const d = getTgDb()
-  const where: string[] = []
-  const args: unknown[] = []
-  if (opts?.kind) { where.push('kind = ?'); args.push(opts.kind) }
-  if (opts?.mode) { where.push('mode = ?'); args.push(opts.mode) }
-  const clause = where.length ? `WHERE ${where.join(' AND ')}` : ''
-  args.push(opts?.limit ?? 500)
-  return d.prepare(
-    `SELECT * FROM tg_chats ${clause} ORDER BY last_msg_ts DESC NULLS LAST, updated_at DESC LIMIT ?`
+export interface ListChatsOptions {
+  kind?: ChatKind
+  mode?: ChatMode
+  /** Exclude chats whose last activity is older than this unix timestamp. */
+  activeSince?: number
+  /** Case-insensitive substring match on title or username. */
+  search?: string
+  /** Only chats with pending unread messages. */
+  unreadOnly?: boolean
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Build the shared WHERE clause for chat listing and counting.
+ * Kept in one place so a filter can never apply to the page but not the count.
+ */
+function chatFilter(opts: ListChatsOptions = {}): { clause: string; args: unknown[] } {
+  // Always scoped to the logged-in account: rows from a previous login describe
+  // the same chats from the opposite side.
+  const where: string[] = ['owner_id = ?']
+  const args: unknown[] = [getOwnerId()]
+  if (opts.kind) { where.push('kind = ?'); args.push(opts.kind) }
+  if (opts.mode) { where.push('mode = ?'); args.push(opts.mode) }
+  if (opts.unreadOnly) where.push('unread > 0')
+  if (opts.activeSince) {
+    where.push('(last_msg_ts IS NOT NULL AND last_msg_ts >= ?)')
+    args.push(opts.activeSince)
+  }
+  if (opts.search?.trim()) {
+    const term = opts.search.trim()
+    where.push('(search_key LIKE ? ESCAPE \'\\\' OR chat_id = ?)')
+    // Escape LIKE wildcards so a literal % or _ in a chat title still matches.
+    const escaped = term.toLowerCase().replace(/[\\%_]/g, m => `\\${m}`)
+    args.push(`%${escaped}%`, term)
+  }
+  return { clause: `WHERE ${where.join(' AND ')}`, args }
+}
+
+/**
+ * Chats ordered by recency.
+ *
+ * An account can hold thousands of dialogs, so every caller must page. The
+ * default limit is deliberately small — an unbounded read here is what turns a
+ * page render or a catch-up pass into a flood of work.
+ */
+export function listChats(opts: ListChatsOptions = {}): TgChat[] {
+  const { clause, args } = chatFilter(opts)
+  args.push(opts.limit ?? 50, opts.offset ?? 0)
+  return getTgDb().prepare(
+    `SELECT * FROM tg_chats ${clause}
+     ORDER BY last_msg_ts DESC NULLS LAST, updated_at DESC
+     LIMIT ? OFFSET ?`
   ).all(...args as never[]) as unknown as TgChat[]
+}
+
+export function countChats(opts: ListChatsOptions = {}): number {
+  const { clause, args } = chatFilter(opts)
+  const row = getTgDb().prepare(`SELECT COUNT(*) AS n FROM tg_chats ${clause}`)
+    .get(...args as never[]) as { n: number }
+  return row.n
 }
 
 export function setChatMode(chatId: string, mode: ChatMode): void {
   getTgDb().prepare('UPDATE tg_chats SET mode = ?, updated_at = ? WHERE chat_id = ?').run(mode, now(), chatId)
 }
 
+/**
+ * Keep the unread counter live between dialog syncs.
+ *
+ * `syncUnread` corrects it from Telegram every quarter hour, which is far too
+ * coarse for a policy that reacts in minutes. Counting locally costs nothing and
+ * no API call: an incoming message adds one, anything the owner sends clears it.
+ */
+export function bumpUnread(chatId: string, delta: number): void {
+  getTgDb().prepare(
+    'UPDATE tg_chats SET unread = MAX(0, unread + ?), updated_at = ? WHERE chat_id = ?'
+  ).run(delta, now(), chatId)
+}
+
+// --- Unattended replies ---
+
+export interface AutoReplyPolicy {
+  /** Bot name, or '' to switch the chat off. */
+  bot: string
+  afterSeconds: number
+  requireUnread: boolean
+}
+
+/**
+ * Assign — or clear — the bot that answers when the owner stays silent.
+ *
+ * Turning the policy on resets the answered-up-to marker to the newest logged
+ * message, so switching a chat on does not fire an answer to a conversation
+ * that went quiet last week.
+ */
+export function setAutoReply(chatId: string, policy: AutoReplyPolicy): void {
+  const d = getTgDb()
+  const current = getChat(chatId)
+  if (!current) return
+
+  // Only a chat going from off to on rewinds the marker. Adjusting the delay or
+  // the unread guard on a live chat must not discard what has been answered.
+  const turningOn = !current.auto_reply_bot && !!policy.bot
+  const latest = turningOn
+    ? (d.prepare('SELECT MAX(msg_id) AS m FROM tg_messages WHERE chat_id = ? AND owner_id = ?')
+        .get(chatId, getOwnerId()) as { m: number | null }).m ?? 0
+    : current.auto_reply_last_msg_id
+
+  d.prepare(`
+    UPDATE tg_chats SET
+      auto_reply_bot = ?,
+      auto_reply_after_s = ?,
+      auto_reply_require_unread = ?,
+      auto_reply_last_msg_id = ?,
+      updated_at = ?
+    WHERE chat_id = ?
+  `).run(
+    policy.bot,
+    Math.max(30, Math.floor(policy.afterSeconds)),
+    policy.requireUnread ? 1 : 0,
+    policy.bot ? latest : 0,
+    now(),
+    chatId,
+  )
+}
+
+/** Per-chat instruction: how the bot should sound and what it may say here. */
+export function setAutoReplyPrompt(chatId: string, prompt: string): void {
+  getTgDb().prepare('UPDATE tg_chats SET auto_reply_prompt = ?, updated_at = ? WHERE chat_id = ?')
+    .run(prompt.trim(), now(), chatId)
+}
+
+/**
+ * Recent messages the owner actually wrote, as raw material for imitation.
+ *
+ * Describing someone's voice never works as well as showing it. These are real
+ * sentences from the archive: short ones are dropped (they carry no style) and
+ * so are repeats.
+ */
+export function getOwnerStyleSamples(limit = 40, chatId?: string): string[] {
+  const d = getTgDb()
+  const args: unknown[] = [getOwnerId()]
+  let scope = ''
+  if (chatId) { scope = 'AND chat_id = ? '; args.push(chatId) }
+  args.push(limit * 4)
+
+  const rows = d.prepare(`
+    SELECT text FROM tg_messages
+    WHERE owner_id = ? AND direction = 'out' ${scope}
+      AND deleted_ts IS NULL AND LENGTH(text) BETWEEN 12 AND 400
+    ORDER BY ts DESC LIMIT ?
+  `).all(...args as never[]) as { text: string }[]
+
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const r of rows) {
+    const text = r.text.trim()
+    const key = text.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(text)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** Record that a message has been answered, so it is never answered twice. */
+export function markAutoReplied(chatId: string, msgId: number, ts = now()): void {
+  getTgDb().prepare(`
+    UPDATE tg_chats SET
+      auto_reply_last_msg_id = MAX(auto_reply_last_msg_id, ?),
+      auto_reply_last_ts = ?,
+      updated_at = ?
+    WHERE chat_id = ?
+  `).run(msgId, ts, now(), chatId)
+}
+
+/** Chats this bot is responsible for, current account only. */
+export function listAutoReplyChats(bot: string): TgChat[] {
+  return getTgDb().prepare(
+    'SELECT * FROM tg_chats WHERE auto_reply_bot = ? AND owner_id = ? ORDER BY last_msg_ts DESC'
+  ).all(bot, getOwnerId()) as unknown as TgChat[]
+}
+
+/** The newest message in a chat, whichever direction. */
+export function getLastMessage(chatId: string): TgMessage | null {
+  return (getTgDb().prepare(
+    'SELECT * FROM tg_messages WHERE chat_id = ? AND owner_id = ? AND deleted_ts IS NULL ORDER BY msg_id DESC LIMIT 1'
+  ).get(chatId, getOwnerId()) as unknown as TgMessage) ?? null
+}
+
 export function setChatCanSend(chatId: string, canSend: boolean): void {
   getTgDb().prepare('UPDATE tg_chats SET can_send = ?, updated_at = ? WHERE chat_id = ?').run(canSend ? 1 : 0, now(), chatId)
+}
+
+/**
+ * Record last activity without storing the message itself.
+ *
+ * Ordering and catch-up eligibility depend on recency, which must be known for
+ * chats we deliberately do not log (ignore mode) as well as ones we do.
+ * Monotonic: a stale dialog snapshot can never drag a chat backwards.
+ */
+export function touchChatActivity(chatId: string, ts: number): void {
+  getTgDb().prepare(
+    'UPDATE tg_chats SET last_msg_ts = MAX(COALESCE(last_msg_ts, 0), ?), updated_at = ? WHERE chat_id = ?'
+  ).run(ts, now(), chatId)
 }
 
 export function setChatUnread(chatId: string, unread: number): void {
@@ -204,8 +646,8 @@ export function setChatUnread(chatId: string, unread: number): void {
 /** Chats with pending unread messages, most recent first. */
 export function listUnreadChats(limit = 50): TgChat[] {
   return getTgDb().prepare(
-    'SELECT * FROM tg_chats WHERE unread > 0 ORDER BY last_msg_ts DESC LIMIT ?'
-  ).all(limit) as unknown as TgChat[]
+    'SELECT * FROM tg_chats WHERE unread > 0 AND owner_id = ? ORDER BY last_msg_ts DESC LIMIT ?'
+  ).all(getOwnerId(), limit) as unknown as TgChat[]
 }
 
 // --- Messages ---
@@ -225,11 +667,11 @@ export function insertMessage(m: {
   const d = getTgDb()
   const res = d.prepare(`
     INSERT OR IGNORE INTO tg_messages
-      (chat_id, msg_id, direction, sender_id, sender_name, text, media_type, reply_to, ts)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (chat_id, msg_id, direction, sender_id, sender_name, text, media_type, reply_to, ts, owner_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     m.chat_id, m.msg_id, m.direction, m.sender_id ?? null, m.sender_name ?? null,
-    m.text ?? '', m.media_type ?? null, m.reply_to ?? null, m.ts,
+    m.text ?? '', m.media_type ?? null, m.reply_to ?? null, m.ts, getOwnerId(),
   )
   const inserted = Number(res.changes) > 0
   if (inserted) {
@@ -241,7 +683,7 @@ export function insertMessage(m: {
 
 export function markEdited(chatId: string, msgId: number, text: string): void {
   const d = getTgDb()
-  const row = d.prepare('SELECT id FROM tg_messages WHERE chat_id = ? AND msg_id = ?').get(chatId, msgId) as { id: number } | undefined
+  const row = d.prepare('SELECT id FROM tg_messages WHERE chat_id = ? AND msg_id = ? AND owner_id = ?').get(chatId, msgId, getOwnerId()) as { id: number } | undefined
   if (!row) return
   d.prepare('UPDATE tg_messages SET text = ?, edited_ts = ? WHERE id = ?').run(text, now(), row.id)
   try {
@@ -253,7 +695,7 @@ export function markEdited(chatId: string, msgId: number, text: string): void {
 /** Tombstone: keep the fact that a message existed, drop its content. */
 export function markDeleted(chatId: string, msgId: number): void {
   const d = getTgDb()
-  const row = d.prepare('SELECT id FROM tg_messages WHERE chat_id = ? AND msg_id = ?').get(chatId, msgId) as { id: number } | undefined
+  const row = d.prepare('SELECT id FROM tg_messages WHERE chat_id = ? AND msg_id = ? AND owner_id = ?').get(chatId, msgId, getOwnerId()) as { id: number } | undefined
   if (!row) return
   d.prepare('UPDATE tg_messages SET deleted_ts = ?, text = ? WHERE id = ?').run(now(), '', row.id)
   try { d.prepare('DELETE FROM tg_messages_fts WHERE rowid = ?').run(row.id) } catch { /* ignore */ }
@@ -269,8 +711,8 @@ export function markDeleted(chatId: string, msgId: number): void {
 export function markDeletedByMsgId(msgId: number): string | null {
   const d = getTgDb()
   const row = d.prepare(
-    'SELECT id, chat_id FROM tg_messages WHERE msg_id = ? AND deleted_ts IS NULL ORDER BY ts DESC LIMIT 1'
-  ).get(msgId) as { id: number; chat_id: string } | undefined
+    'SELECT id, chat_id FROM tg_messages WHERE msg_id = ? AND owner_id = ? AND deleted_ts IS NULL ORDER BY ts DESC LIMIT 1'
+  ).get(msgId, getOwnerId()) as { id: number; chat_id: string } | undefined
   if (!row) return null
   d.prepare('UPDATE tg_messages SET deleted_ts = ?, text = ? WHERE id = ?').run(now(), '', row.id)
   try { d.prepare('DELETE FROM tg_messages_fts WHERE rowid = ?').run(row.id) } catch { /* ignore */ }
@@ -281,21 +723,21 @@ export function getMessages(chatId: string, limit = 50, beforeTs?: number): TgMe
   const d = getTgDb()
   if (beforeTs) {
     return d.prepare(
-      'SELECT * FROM tg_messages WHERE chat_id = ? AND ts < ? ORDER BY ts DESC, msg_id DESC LIMIT ?'
-    ).all(chatId, beforeTs, limit) as unknown as TgMessage[]
+      'SELECT * FROM tg_messages WHERE chat_id = ? AND owner_id = ? AND ts < ? ORDER BY ts DESC, msg_id DESC LIMIT ?'
+    ).all(chatId, getOwnerId(), beforeTs, limit) as unknown as TgMessage[]
   }
   return d.prepare(
-    'SELECT * FROM tg_messages WHERE chat_id = ? ORDER BY ts DESC, msg_id DESC LIMIT ?'
-  ).all(chatId, limit) as unknown as TgMessage[]
+    'SELECT * FROM tg_messages WHERE chat_id = ? AND owner_id = ? ORDER BY ts DESC, msg_id DESC LIMIT ?'
+  ).all(chatId, getOwnerId(), limit) as unknown as TgMessage[]
 }
 
 export function getRecentMessages(limit = 100, direction?: Direction): TgMessage[] {
   const d = getTgDb()
   if (direction) {
-    return d.prepare('SELECT * FROM tg_messages WHERE direction = ? ORDER BY ts DESC LIMIT ?')
-      .all(direction, limit) as unknown as TgMessage[]
+    return d.prepare('SELECT * FROM tg_messages WHERE direction = ? AND owner_id = ? ORDER BY ts DESC LIMIT ?')
+      .all(direction, getOwnerId(), limit) as unknown as TgMessage[]
   }
-  return d.prepare('SELECT * FROM tg_messages ORDER BY ts DESC LIMIT ?').all(limit) as unknown as TgMessage[]
+  return d.prepare('SELECT * FROM tg_messages WHERE owner_id = ? ORDER BY ts DESC LIMIT ?').all(getOwnerId(), limit) as unknown as TgMessage[]
 }
 
 export function searchMessages(query: string, opts?: { chatId?: string; sinceTs?: number; limit?: number }): TgMessage[] {
@@ -303,8 +745,8 @@ export function searchMessages(query: string, opts?: { chatId?: string; sinceTs?
   const sanitized = query.replace(/["*]/g, ' ').trim()
   if (!sanitized) return []
   const ftsQuery = sanitized.split(/\s+/).map(w => `"${w}"*`).join(' OR ')
-  const where: string[] = ['tg_messages_fts MATCH ?']
-  const args: unknown[] = [ftsQuery]
+  const where: string[] = ['tg_messages_fts MATCH ?', 'm.owner_id = ?']
+  const args: unknown[] = [ftsQuery, getOwnerId()]
   if (opts?.chatId) { where.push('m.chat_id = ?'); args.push(opts.chatId) }
   if (opts?.sinceTs) { where.push('m.ts >= ?'); args.push(opts.sinceTs) }
   args.push(opts?.limit ?? 30)
@@ -324,9 +766,9 @@ export function countMessages(): { total: number; incoming: number; outgoing: nu
       COUNT(*) AS total,
       SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END) AS incoming,
       SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END) AS outgoing
-    FROM tg_messages
-  `).get() as { total: number; incoming: number | null; outgoing: number | null }
-  const chats = d.prepare('SELECT COUNT(*) AS n FROM tg_chats').get() as { n: number }
+    FROM tg_messages WHERE owner_id = ?
+  `).get(getOwnerId()) as { total: number; incoming: number | null; outgoing: number | null }
+  const chats = d.prepare('SELECT COUNT(*) AS n FROM tg_chats WHERE owner_id = ?').get(getOwnerId()) as { n: number }
   return { total: row.total, incoming: row.incoming ?? 0, outgoing: row.outgoing ?? 0, chats: chats.n }
 }
 
@@ -334,13 +776,14 @@ export function countMessages(): { total: number; incoming: number; outgoing: nu
 
 function bumpCursor(chatId: string, msgId: number): void {
   getTgDb().prepare(`
-    INSERT INTO tg_cursor (chat_id, last_msg_id) VALUES (?, ?)
-    ON CONFLICT(chat_id) DO UPDATE SET last_msg_id = MAX(last_msg_id, excluded.last_msg_id)
-  `).run(chatId, msgId)
+    INSERT INTO tg_cursor (owner_id, chat_id, last_msg_id) VALUES (?, ?, ?)
+    ON CONFLICT(owner_id, chat_id) DO UPDATE SET last_msg_id = MAX(last_msg_id, excluded.last_msg_id)
+  `).run(getOwnerId(), chatId, msgId)
 }
 
 export function getCursor(chatId: string): number {
-  const row = getTgDb().prepare('SELECT last_msg_id FROM tg_cursor WHERE chat_id = ?').get(chatId) as { last_msg_id: number } | undefined
+  const row = getTgDb().prepare('SELECT last_msg_id FROM tg_cursor WHERE owner_id = ? AND chat_id = ?')
+    .get(getOwnerId(), chatId) as { last_msg_id: number } | undefined
   return row?.last_msg_id ?? 0
 }
 
@@ -351,7 +794,7 @@ export function recordOutbox(e: {
   kind: string
   text?: string
   file_path?: string | null
-  status: 'sent' | 'failed'
+  status: 'sent' | 'failed' | 'skipped'
   error?: string | null
   requested_by?: string
   msg_id?: number | null

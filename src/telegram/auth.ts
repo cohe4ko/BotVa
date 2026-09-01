@@ -134,7 +134,12 @@ async function finish(): Promise<LoginResult> {
   if (!pending) return { ok: false, error: 'Стан входу втрачено' }
   const session = String(pending.client.session.save())
   saveSession(session)
+  // disconnect() alone leaves GramJS's update loop running: it keeps retrying a
+  // dead socket and floods the log with TIMEOUT. destroy() tears the loops down,
+  // which matters here because the daemon is about to hold the same session and
+  // two live clients on one session is what gets an account logged out.
   try { await pending.client.disconnect() } catch { /* ignore */ }
+  try { await pending.client.destroy() } catch { /* ignore */ }
   pending = null
   step = 'authorized'
   return { ok: true, step }

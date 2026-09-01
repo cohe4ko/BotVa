@@ -9,16 +9,17 @@ import { Hono } from 'hono'
 import { html } from 'hono/html'
 import { layout, icon } from '../views/layout.js'
 import { guideBlock } from '../views/components.js'
-import { getProjectRoot } from '../db-multi.js'
+import { getProjectRoot, getBotNames } from '../db-multi.js'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { getObserverStatus, readLogTail } from '../../telegram/status.js'
 import {
-  listChats, listUnreadChats, getRecentMessages, getMessages, listOutbox,
-  setChatMode, setChatCanSend, getChat, countMessages,
-  type ChatMode, type TgMessage, type TgChat,
+  listChats, countChats, listUnreadChats, getRecentMessages, getMessages, listOutbox,
+  setChatMode, setChatCanSend, getChat, countMessages, countForeignRows, purgeForeignRows, setAutoReply, setAutoReplyPrompt,
+  type ChatMode, type TgMessage, type TgChat, type ListChatsOptions,
 } from '../../telegram/db.js'
+import { logger } from '../../logger.js'
 import { getLoginState, startLogin, submitCode, submitPassword, cancelLogin } from '../../telegram/auth.js'
 
 const app = new Hono<I18nEnv>()
@@ -65,6 +66,7 @@ function modeBadge(mode: ChatMode) {
 function renderStatus(t: TFunc) {
   const s = getObserverStatus()
   const login = getLoginState()
+  const foreign = countForeignRows()
 
   return html`
     <div class="stats-grid">
@@ -111,6 +113,21 @@ function renderStatus(t: TFunc) {
         ${icon('alert-triangle', 14)} <strong>TELEGRAM_API_ID / TELEGRAM_API_HASH не задані.</strong>
         Отримай їх на <a href="https://my.telegram.org" target="_blank" rel="noreferrer">my.telegram.org</a>
         → API development tools, і додай у <code>.env</code> в корені проєкту.
+      </div>` : ''}
+
+    ${foreign.messages > 0 || foreign.chats > 0 ? html`
+      <div class="alert alert-warning" style="margin-top:0.75rem">
+        ${icon('alert-triangle', 14)} <strong>У базі дані іншого акаунта:</strong>
+        ${foreign.chats} чатів, ${foreign.messages} повідомлень.
+        Вони не показуються і не потрапляють у пошук — «вхідне» та «вихідне» там означають протилежне.
+        <div style="margin-top:0.5rem">
+          <button class="btn-sm secondary outline"
+                  hx-post="/telegram/purge-foreign"
+                  hx-target="#tg-status" hx-swap="innerHTML"
+                  hx-confirm="Видалити ${foreign.chats} чатів і ${foreign.messages} повідомлень іншого акаунта? Це незворотно.">
+            ${icon('trash-2', 11)} Видалити назавжди
+          </button>
+        </div>
       </div>` : ''}
 
     <div style="display:flex;gap:0.4rem;margin-top:0.75rem;flex-wrap:wrap">
@@ -187,18 +204,194 @@ function renderLoginBlock(login: ReturnType<typeof getLoginState>) {
     </div>`
 }
 
-function renderChats(chats: TgChat[]) {
-  if (chats.length === 0) {
-    return html`<p style="color:var(--mc-text-dim);font-size:0.85rem">
-      Чатів ще немає. Вони з'являться після запуску демона і перших повідомлень.
-    </p>`
+/** Chats per page — an account can hold thousands, so nothing renders unbounded. */
+const CHATS_PER_PAGE = 25
+
+interface ChatQuery {
+  page: number
+  search: string
+  mode: ChatMode | ''
+  activeDays: number
+}
+
+/**
+ * Read the list state from plain values.
+ *
+ * Accepts a bag rather than the request so that a POST (mode toggle) can
+ * restore the same page and filters from its body — otherwise every toggle
+ * would bounce the user back to page one of an unfiltered list.
+ */
+function parseChatQuery(values: Record<string, string | undefined>): ChatQuery {
+  const page = Math.max(1, Number(values['page'] ?? 1) || 1)
+  const search = (values['q'] ?? '').slice(0, 100)
+  const rawMode = values['mode'] ?? ''
+  const mode = (CHAT_MODES as string[]).includes(rawMode) ? rawMode as ChatMode : ''
+  const activeDays = Number(values['days'] ?? 0) || 0
+  return { page, search, mode, activeDays }
+}
+
+function chatQueryToOptions(q: ChatQuery): ListChatsOptions {
+  return {
+    search: q.search || undefined,
+    mode: q.mode || undefined,
+    activeSince: q.activeDays > 0 ? Math.floor(Date.now() / 1000) - q.activeDays * 86400 : undefined,
+    limit: CHATS_PER_PAGE,
+    offset: (q.page - 1) * CHATS_PER_PAGE,
+  }
+}
+
+function chatsUrl(q: ChatQuery, page: number): string {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  if (q.search) params.set('q', q.search)
+  if (q.mode) params.set('mode', q.mode)
+  if (q.activeDays) params.set('days', String(q.activeDays))
+  return `/telegram/chats?${params.toString()}`
+}
+
+/** htmx-driven pager: swaps the fragment in place instead of reloading the page. */
+function chatPager(q: ChatQuery, total: number) {
+  const totalPages = Math.max(1, Math.ceil(total / CHATS_PER_PAGE))
+  if (totalPages <= 1) return html`<p style="font-size:0.72rem;color:var(--mc-text-dim);margin-top:0.4rem">Всього: ${total}</p>`
+
+  const window = 2
+  const pages: (number | '…')[] = []
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= q.page - window && i <= q.page + window)) pages.push(i)
+    else if (pages[pages.length - 1] !== '…') pages.push('…')
   }
 
   return html`
+    <div style="display:flex;align-items:center;gap:0.3rem;flex-wrap:wrap;margin-top:0.5rem">
+      ${pages.map(p => p === '…'
+        ? html`<span style="color:var(--mc-text-dim);padding:0 0.2rem">…</span>`
+        : html`<button class="btn-sm ${p === q.page ? '' : 'outline'}"
+                 style="min-width:32px;padding:0 0.4rem"
+                 hx-get="${chatsUrl(q, p)}" hx-target="#tg-chats" hx-swap="innerHTML">${p}</button>`)}
+      <span style="font-size:0.72rem;color:var(--mc-text-dim);margin-left:0.4rem">
+        сторінка ${q.page} з ${totalPages} · всього ${total}
+      </span>
+    </div>`
+}
+
+/**
+ * Filter bar — rendered once with the page, never inside the swapped fragment.
+ *
+ * htmx replaces the target's innerHTML, so a search box living inside the
+ * fragment gets destroyed and recreated on every keystroke batch: the caret
+ * jumps out mid-word. Keeping the controls outside #tg-chats means only the
+ * table is redrawn and the field keeps focus.
+ *
+ * The list filter is named list_mode so it cannot collide with the per-row mode
+ * select, which posts its own `mode` value.
+ */
+function chatFilters() {
+  const dayOptions: { value: number; label: string }[] = [
+    { value: 0, label: 'за весь час' },
+    { value: 7, label: 'активні 7 днів' },
+    { value: 30, label: 'активні 30 днів' },
+    { value: 90, label: 'активні 90 днів' },
+  ]
+  return html`
+    <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;flex-wrap:wrap;align-items:center">
+      <input type="search" name="q" placeholder="Пошук чату за назвою, @username або id"
+             style="margin:0;max-width:320px;flex:1"
+             hx-get="/telegram/chats" hx-target="#tg-chats" hx-swap="innerHTML"
+             hx-sync="this:replace"
+             hx-trigger="keyup changed delay:350ms, search"
+             hx-include="[name='list_mode'],[name='days']">
+      <select name="list_mode" style="margin:0;max-width:150px;font-size:0.8rem"
+              hx-get="/telegram/chats" hx-target="#tg-chats" hx-swap="innerHTML"
+              hx-trigger="change" hx-include="[name='q'],[name='days']">
+        <option value="">всі режими</option>
+        ${CHAT_MODES.map(m => html`<option value="${m}">${m}</option>`)}
+      </select>
+      <select name="days" style="margin:0;max-width:170px;font-size:0.8rem"
+              hx-get="/telegram/chats" hx-target="#tg-chats" hx-swap="innerHTML"
+              hx-trigger="change" hx-include="[name='q'],[name='list_mode']">
+        ${dayOptions.map(o => html`<option value="${o.value}">${o.label}</option>`)}
+      </select>
+      <span class="htmx-indicator" style="font-size:0.72rem;color:var(--mc-text-dim)">шукаю…</span>
+    </div>`
+}
+
+/**
+ * Delay presets, seconds.
+ *
+ * 30 s is a live conversation — the bot keeps a dialogue going while the owner
+ * is away from the phone. Longer values are a safety net: answer only what has
+ * clearly been left hanging.
+ */
+const AUTO_REPLY_DELAYS: [number, string][] = [
+  [30, '30 с'], [60, '1 хв'], [120, '2 хв'], [300, '5 хв'],
+  [600, '10 хв'], [1800, '30 хв'], [3600, '1 год'], [10800, '3 год'],
+]
+
+/**
+ * Which bot answers here, after how long, and whether an opened chat counts.
+ *
+ * Sending as the account holder is off unless a bot is named, and switching it
+ * on marks everything already logged as handled — turning the feature on must
+ * never fire an answer into a conversation that ended last week.
+ */
+function autoReplyCell(c: TgChat, bots: string[]) {
+  const include = "[name='q'],[name='list_mode'],[name='days'],[name='page']"
+  const post = `/telegram/chat/${encodeURIComponent(c.chat_id)}/auto-reply`
+  const on = !!c.auto_reply_bot
+
+  return html`
+    <div style="display:flex;flex-direction:column;gap:0.2rem">
+      <select style="margin:0;font-size:0.75rem;max-width:120px"
+              hx-post="${post}" hx-target="#tg-chats" hx-swap="innerHTML"
+              hx-include="${include}"
+              hx-vals="js:{bot: event.target.value}" hx-trigger="change">
+        <option value=""${!on ? ' selected' : ''}>— вимкнено —</option>
+        ${bots.map(b => html`<option value="${b}"${b === c.auto_reply_bot ? ' selected' : ''}>${b}</option>`)}
+      </select>
+      ${on ? html`
+        <select style="margin:0;font-size:0.7rem;max-width:120px"
+                hx-post="${post}" hx-target="#tg-chats" hx-swap="innerHTML"
+                hx-include="${include}"
+                hx-vals="js:{after_s: event.target.value}" hx-trigger="change">
+          ${AUTO_REPLY_DELAYS.map(([s, label]) =>
+            html`<option value="${s}"${s === c.auto_reply_after_s ? ' selected' : ''}>через ${label}</option>`)}
+        </select>
+        <label style="font-size:0.68rem;color:var(--mc-text-dim);display:flex;gap:0.25rem;align-items:center">
+          <input type="checkbox" style="margin:0"${c.auto_reply_require_unread ? ' checked' : ''}
+                 hx-post="${post}" hx-target="#tg-chats" hx-swap="innerHTML"
+                 hx-include="${include}"
+                 hx-vals="js:{require_unread: event.target.checked ? '1' : '0'}" hx-trigger="change">
+          лише непрочитане
+        </label>
+        ${!c.can_send ? html`
+          <span style="font-size:0.66rem;color:var(--mc-warning,#c47f00)">
+            ${icon('alert-triangle', 10)} увімкни «Відправку» — інакше бот не зможе написати
+          </span>` : ''}
+        <a href="/telegram/chat/${encodeURIComponent(c.chat_id)}#autoreply"
+           style="font-size:0.66rem">${c.auto_reply_prompt ? 'промт ✎' : 'задати промт'}</a>
+        ${c.auto_reply_last_ts ? html`
+          <span style="font-size:0.66rem;color:var(--mc-text-dim)">відповів ${fmtTime(c.auto_reply_last_ts)}</span>` : ''}
+      ` : ''}
+    </div>`
+}
+
+function renderChats(chats: TgChat[], q: ChatQuery, total: number, bots: string[]) {
+  if (chats.length === 0) {
+    return html`
+      <input type="hidden" name="page" value="1">
+      <p style="color:var(--mc-text-dim);font-size:0.85rem">
+        ${q.search || q.mode || q.activeDays
+          ? 'Нічого не знайдено за цим фільтром.'
+          : 'Чатів ще немає. Вони з\'являться після запуску демона і перших повідомлень.'}
+      </p>`
+  }
+
+  return html`
+    <input type="hidden" name="page" value="${q.page}">
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Чат</th><th>Тип</th><th>Непрочитані</th><th>Режим</th><th>Відправка</th><th>Останнє</th><th></th></tr>
+          <tr><th>Чат</th><th>Тип</th><th>Непрочитані</th><th>Режим</th><th>Відправка</th><th>Автовідповідь</th><th>Останнє</th><th></th></tr>
         </thead>
         <tbody>
           ${chats.map(c => html`
@@ -213,6 +406,7 @@ function renderChats(chats: TgChat[]) {
                 <select style="margin:0;font-size:0.75rem;max-width:130px"
                         hx-post="/telegram/chat/${encodeURIComponent(c.chat_id)}/mode"
                         hx-target="#tg-chats" hx-swap="innerHTML"
+                        hx-include="[name='q'],[name='list_mode'],[name='days'],[name='page']"
                         hx-vals="js:{mode: event.target.value}" hx-trigger="change">
                   ${CHAT_MODES.map(m => html`<option value="${m}"${m === c.mode ? ' selected' : ''}>${m}</option>`)}
                 </select>
@@ -221,17 +415,21 @@ function renderChats(chats: TgChat[]) {
                 <input type="checkbox" style="margin:0"${c.can_send ? ' checked' : ''}
                        hx-post="/telegram/chat/${encodeURIComponent(c.chat_id)}/can-send"
                        hx-target="#tg-chats" hx-swap="innerHTML"
+                       hx-include="[name='q'],[name='list_mode'],[name='days'],[name='page']"
                        hx-vals="js:{can_send: event.target.checked ? '1' : '0'}" hx-trigger="change">
               </td>
+              <td>${autoReplyCell(c, bots)}</td>
               <td style="font-size:0.72rem;color:var(--mc-text-dim)">${c.last_msg_ts ? fmtTime(c.last_msg_ts) : '—'}</td>
               <td>${modeBadge(c.mode)}</td>
             </tr>`)}
         </tbody>
       </table>
     </div>
+    ${chatPager(q, total)}
     <p style="font-size:0.72rem;color:var(--mc-text-dim);margin-top:0.4rem">
       ${CHAT_MODES.map(m => html`<code>${m}</code> — ${MODE_HINT[m]}. `)}
       Боти завжди <code>ignore</code> за замовчуванням, щоб бот BotVa не читав власні повідомлення.
+      Чати без активності понад 30 днів реєструються як <code>ignore</code> — вмикай вручну, якщо потрібні.
     </p>`
 }
 
@@ -266,6 +464,43 @@ function renderMessages(rows: TgMessage[], showChat = true) {
     </div>`
 }
 
+/**
+ * The instruction the answering agent is given for this chat.
+ *
+ * Lives on the chat page rather than in the list: it is a paragraph, not a
+ * toggle, and it is the one control that decides how the bot sounds.
+ */
+function renderAutoReplyPanel(chat: TgChat) {
+  return html`
+    <div id="autoreply" class="card" style="margin:0.75rem 0;padding:0.75rem">
+      <h3 style="margin:0 0 0.4rem;font-size:0.95rem">${icon('message-circle', 14)} Промт автовідповіді</h3>
+      <p style="font-size:0.75rem;color:var(--mc-text-dim);margin:0 0 0.5rem">
+        ${chat.auto_reply_bot
+          ? html`Відповідає бот <code>${chat.auto_reply_bot}</code> через
+                 ${chat.auto_reply_after_s < 90 ? `${chat.auto_reply_after_s} с` : `${Math.round(chat.auto_reply_after_s / 60)} хв`}
+                 мовчання${chat.auto_reply_require_unread ? ', лише коли чат непрочитаний' : ''}.`
+          : 'Автовідповідь для цього чату вимкнена — промт збережеться і застосується, коли ввімкнеш.'}
+      </p>
+      <div id="tg-autoreply-prompt">
+        <form hx-post="/telegram/chat/${encodeURIComponent(chat.chat_id)}/auto-reply-prompt"
+              hx-target="#tg-autoreply-prompt" hx-swap="innerHTML">
+          <textarea name="prompt" rows="6" style="width:100%;font-size:0.8rem"
+                    placeholder="Напр.: пиши коротко, українською, з гумором; на робочі питання відповідай стримано; ніколи не погоджуйся на зустрічі">${chat.auto_reply_prompt}</textarea>
+          <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.4rem">
+            <button class="btn-sm" type="submit">${icon('check', 11)} Зберегти</button>
+            <span style="font-size:0.72rem;color:var(--mc-text-dim)">
+              Порожньо — бот тримається твоєї манери за зразками з архіву.
+            </span>
+          </div>
+        </form>
+      </div>
+      <p style="font-size:0.7rem;color:var(--mc-text-dim);margin:0.5rem 0 0">
+        Межі не перевизначаються промтом: одне повідомлення, без вигаданих фактів про тебе,
+        і право змовчати, якщо питання вимагає твого рішення.
+      </p>
+    </div>`
+}
+
 // --- Pages ---
 
 app.get('/telegram', (c) => {
@@ -280,6 +515,7 @@ app.get('/telegram', (c) => {
     </div>
 
     <h2 style="margin-top:1.25rem">${icon('list', 16)} Чати</h2>
+    ${chatFilters()}
     <div id="tg-chats" hx-get="/telegram/chats" hx-trigger="load" hx-swap="innerHTML">
       <p style="color:var(--mc-text-dim)">Завантаження...</p>
     </div>
@@ -335,6 +571,7 @@ app.get('/telegram/chat/:id', (c) => {
       · повідомлень у логу: ${messages.length}
     </p>
     <p><a href="/telegram" class="btn-sm outline">${icon('arrow-left', 11)} До списку</a></p>
+    ${renderAutoReplyPanel(chat)}
     ${renderMessages(messages, false)}
   `
 
@@ -345,7 +582,29 @@ app.get('/telegram/chat/:id', (c) => {
 
 app.get('/telegram/status', (c) => c.html(renderStatus(c.get('t'))))
 
-app.get('/telegram/chats', (c) => c.html(renderChats(listChats({ limit: 200 }))))
+app.get('/telegram/chats', (c) => {
+  const q = parseChatQuery({
+    page: c.req.query('page'),
+    q: c.req.query('q'),
+    // The filter bar sends list_mode; the pager rebuilds the URL with mode.
+    mode: c.req.query('list_mode') ?? c.req.query('mode'),
+    days: c.req.query('days'),
+  })
+  const opts = chatQueryToOptions(q)
+  return c.html(renderChats(listChats(opts), q, countChats(opts), getBotNames()))
+})
+
+/** Re-render the chat list preserving whatever filters the form carried. */
+function renderChatsFromBody(body: Record<string, unknown>) {
+  const q = parseChatQuery({
+    page: body['page'] ? String(body['page']) : undefined,
+    q: body['q'] ? String(body['q']) : undefined,
+    mode: body['list_mode'] ? String(body['list_mode']) : undefined,
+    days: body['days'] ? String(body['days']) : undefined,
+  })
+  const opts = chatQueryToOptions(q)
+  return renderChats(listChats(opts), q, countChats(opts), getBotNames())
+}
 
 app.get('/telegram/messages', (c) => {
   const filter = c.req.query('filter') ?? 'all'
@@ -397,8 +656,10 @@ app.get('/telegram/outbox', (c) => {
                 <td style="font-size:0.75rem">${o.requested_by}</td>
                 <td>${o.status === 'sent'
                   ? html`<span class="badge badge-set" style="font-size:0.65rem">надіслано</span>`
-                  : html`<span class="badge badge-missing" style="font-size:0.65rem">помилка</span>`}</td>
-                <td style="font-size:0.78rem">${o.text}${o.error ? html`<div style="font-size:0.7rem;color:var(--mc-error, #c00)">${o.error}</div>` : ''}</td>
+                  : o.status === 'skipped'
+                    ? html`<span class="badge" style="font-size:0.65rem">змовчав</span>`
+                    : html`<span class="badge badge-missing" style="font-size:0.65rem">помилка</span>`}</td>
+                <td style="font-size:0.78rem">${o.text}${o.error ? html`<div style="font-size:0.7rem;color:${o.status === 'skipped' ? 'var(--mc-text-dim)' : 'var(--mc-error, #c00)'}">${o.error}</div>` : ''}</td>
               </tr>`
           })}
         </tbody>
@@ -461,19 +722,71 @@ app.post('/telegram/login/reset', async (c) => {
   return c.html(renderStatus(c.get('t')))
 })
 
+app.post('/telegram/purge-foreign', (c) => {
+  const removed = purgeForeignRows()
+  logger.info(`[telegram] purged foreign rows: ${removed.chats} chats, ${removed.messages} messages`)
+  return c.html(renderStatus(c.get('t')))
+})
+
 app.post('/telegram/chat/:id/mode', async (c) => {
   const chatId = decodeURIComponent(c.req.param('id'))
   const body = await c.req.parseBody()
   const mode = String(body['mode'] ?? '') as ChatMode
   if (CHAT_MODES.includes(mode)) setChatMode(chatId, mode)
-  return c.html(renderChats(listChats({ limit: 200 })))
+  return c.html(renderChatsFromBody(body))
+})
+
+/**
+ * Update the unattended-reply policy for one chat.
+ *
+ * Each control posts only the field it changed, so the others are read back from
+ * the row — a partial form must never silently reset the delay or the guard.
+ */
+app.post('/telegram/chat/:id/auto-reply', async (c) => {
+  const chatId = decodeURIComponent(c.req.param('id'))
+  const body = await c.req.parseBody()
+  const current = getChat(chatId)
+  if (!current) return c.html(renderChatsFromBody(body))
+
+  const known = getBotNames()
+  const rawBot = body['bot'] !== undefined ? String(body['bot']) : current.auto_reply_bot
+  const bot = known.includes(rawBot) ? rawBot : ''
+
+  setAutoReply(chatId, {
+    bot,
+    afterSeconds: body['after_s'] !== undefined ? Number(body['after_s']) : current.auto_reply_after_s,
+    requireUnread: body['require_unread'] !== undefined
+      ? String(body['require_unread']) === '1'
+      : !!current.auto_reply_require_unread,
+  })
+
+  logger.info({ chatId, bot, title: current.title }, '[telegram] auto-reply policy changed')
+  return c.html(renderChatsFromBody(body))
+})
+
+app.post('/telegram/chat/:id/auto-reply-prompt', async (c) => {
+  const chatId = decodeURIComponent(c.req.param('id'))
+  const body = await c.req.parseBody()
+  const prompt = String(body['prompt'] ?? '')
+  setAutoReplyPrompt(chatId, prompt)
+  logger.info({ chatId, chars: prompt.trim().length }, '[telegram] auto-reply prompt updated')
+
+  return c.html(html`
+    <form hx-post="/telegram/chat/${encodeURIComponent(chatId)}/auto-reply-prompt"
+          hx-target="#tg-autoreply-prompt" hx-swap="innerHTML">
+      <textarea name="prompt" rows="6" style="width:100%;font-size:0.8rem">${prompt.trim()}</textarea>
+      <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.4rem">
+        <button class="btn-sm" type="submit">${icon('check', 11)} Зберегти</button>
+        <span style="font-size:0.72rem;color:var(--mc-success,#2a7)">Збережено. Застосується з наступної сесії чату.</span>
+      </div>
+    </form>`)
 })
 
 app.post('/telegram/chat/:id/can-send', async (c) => {
   const chatId = decodeURIComponent(c.req.param('id'))
   const body = await c.req.parseBody()
   setChatCanSend(chatId, String(body['can_send'] ?? '0') === '1')
-  return c.html(renderChats(listChats({ limit: 200 })))
+  return c.html(renderChatsFromBody(body))
 })
 
 // JSON status for scripts and diagnostics

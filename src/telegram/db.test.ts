@@ -22,10 +22,11 @@ vi.mock('./paths.js', () => ({
 }))
 
 import {
-  getTgDb, closeTgDb, upsertChat, getChat, listChats, setChatMode, setChatCanSend,
-  setChatUnread, listUnreadChats, insertMessage, markEdited, markDeleted,
+  getTgDb, closeTgDb, upsertChat, getChat, listChats, countChats, setChatMode, setChatCanSend,
+  setChatUnread, touchChatActivity, listUnreadChats, insertMessage, markEdited, markDeleted,
   markDeletedByMsgId, getMessages, getRecentMessages, searchMessages, countMessages,
   getCursor, recordOutbox, listOutbox, countOutboxSince,
+  getOwnerId, setOwnerId, resetOwnerCache, countForeignRows, purgeForeignRows, LEGACY_OWNER,
 } from './db.js'
 
 function resetDb(): void {
@@ -35,6 +36,8 @@ function resetDb(): void {
   d.exec('DELETE FROM tg_chats')
   d.exec('DELETE FROM tg_cursor')
   d.exec('DELETE FROM tg_outbox')
+  d.exec("DELETE FROM tg_meta WHERE key = 'owner_id'")
+  resetOwnerCache()
 }
 
 function makeChat(id = '111', overrides: Partial<Parameters<typeof upsertChat>[0]> = {}) {
@@ -97,6 +100,78 @@ describe('chats', () => {
     makeChat('111')
     makeChat('222', { kind: 'channel' })
     expect(listChats({ kind: 'channel' })).toHaveLength(1)
+  })
+})
+
+describe('chat listing at scale', () => {
+  const now = Math.floor(Date.now() / 1000)
+
+  function seed(count: number): void {
+    for (let i = 1; i <= count; i++) {
+      makeChat(String(i), { title: `Чат ${i}` })
+      // Newest first: chat 1 is the most recent.
+      touchChatActivity(String(i), now - i * 60)
+    }
+  }
+
+  it('never returns everything by default', () => {
+    seed(120)
+    // An unbounded read here is what would hang a thousand-dialog account.
+    expect(listChats().length).toBe(50)
+  })
+
+  it('pages without gaps or repeats', () => {
+    seed(60)
+    const first = listChats({ limit: 25, offset: 0 }).map(c => c.chat_id)
+    const second = listChats({ limit: 25, offset: 25 }).map(c => c.chat_id)
+    expect(first).toHaveLength(25)
+    expect(second).toHaveLength(25)
+    expect(new Set([...first, ...second]).size).toBe(50)
+  })
+
+  it('orders by recency, newest first', () => {
+    seed(5)
+    expect(listChats({ limit: 5 }).map(c => c.chat_id)).toEqual(['1', '2', '3', '4', '5'])
+  })
+
+  it('counts the filtered set, not the table', () => {
+    seed(40)
+    const opts = { limit: 10, search: 'Чат 1' }
+    expect(listChats(opts).length).toBe(10)
+    // "Чат 1", "Чат 1x" — the count must reflect the same filter as the page.
+    expect(countChats(opts)).toBe(countChats({ search: 'Чат 1' }))
+    expect(countChats({})).toBe(40)
+  })
+
+  it('searches by title, username and exact id', () => {
+    makeChat('555', { title: 'Ольга Козак', username: 'olha' })
+    makeChat('666', { title: 'Петро', username: 'petro' })
+    expect(listChats({ search: 'козак' }).map(c => c.chat_id)).toEqual(['555'])
+    expect(listChats({ search: 'PETRO' }).map(c => c.chat_id)).toEqual(['666'])
+    expect(listChats({ search: '555' }).map(c => c.chat_id)).toEqual(['555'])
+  })
+
+  it('excludes chats older than the activity window', () => {
+    makeChat('111', { title: 'Свіжий' })
+    touchChatActivity('111', now - 3600)
+    makeChat('222', { title: 'Давній' })
+    touchChatActivity('222', now - 90 * 86400)
+
+    const recent = listChats({ activeSince: now - 7 * 86400 })
+    expect(recent.map(c => c.chat_id)).toEqual(['111'])
+    expect(countChats({ activeSince: now - 7 * 86400 })).toBe(1)
+  })
+
+  it('treats a chat with no activity as excluded from the window', () => {
+    makeChat('111', { title: 'Без активності' })
+    expect(listChats({ activeSince: now - 86400 })).toHaveLength(0)
+  })
+
+  it('keeps activity monotonic so a stale snapshot cannot rewind a chat', () => {
+    makeChat('111')
+    touchChatActivity('111', 5000)
+    touchChatActivity('111', 1000)
+    expect(getChat('111')!.last_msg_ts).toBe(5000)
   })
 })
 
@@ -238,5 +313,66 @@ describe('outbox', () => {
     recordOutbox({ chat_id: '111', kind: 'message', status: 'sent' })
     recordOutbox({ chat_id: '111', kind: 'message', status: 'failed' })
     expect(countOutboxSince(now - 60)).toBe(1)
+  })
+})
+
+describe('owner isolation', () => {
+  it('reads as legacy until an account is stamped', () => {
+    expect(getOwnerId()).toBe(LEGACY_OWNER)
+  })
+
+  it('reports a switch only when a real account was replaced', () => {
+    expect(setOwnerId('aaa')).toEqual({ previous: LEGACY_OWNER, changed: false })
+    expect(setOwnerId('bbb')).toEqual({ previous: 'aaa', changed: true })
+    expect(setOwnerId('bbb')).toEqual({ previous: 'bbb', changed: false })
+  })
+
+  it('hides another account rows from every listing', () => {
+    setOwnerId('aaa')
+    makeChat('111')
+    insertMessage({ chat_id: '111', msg_id: 1, direction: 'in', text: 'від першого', ts: 1000 })
+
+    setOwnerId('bbb')
+    // Same chat_id, same msg_id — legitimate under a different account.
+    makeChat('111')
+    insertMessage({ chat_id: '111', msg_id: 1, direction: 'out', text: 'від другого', ts: 2000 })
+
+    expect(getMessages('111').map(m => m.text)).toEqual(['від другого'])
+    expect(countMessages().total).toBe(1)
+    expect(getRecentMessages(10)).toHaveLength(1)
+    expect(searchMessages('другого')).toHaveLength(1)
+    expect(searchMessages('першого')).toHaveLength(0)
+
+    setOwnerId('aaa')
+    expect(getMessages('111').map(m => m.text)).toEqual(['від першого'])
+  })
+
+  it('keeps the read cursor per account', () => {
+    setOwnerId('aaa')
+    makeChat('111')
+    insertMessage({ chat_id: '111', msg_id: 500, direction: 'in', text: 'a', ts: 1000 })
+    expect(getCursor('111')).toBe(500)
+
+    setOwnerId('bbb')
+    expect(getCursor('111')).toBe(0)
+  })
+
+  it('counts and purges rows of other accounts', () => {
+    setOwnerId('aaa')
+    makeChat('111')
+    insertMessage({ chat_id: '111', msg_id: 1, direction: 'in', text: 'старе', ts: 1000 })
+
+    setOwnerId('bbb')
+    makeChat('222')
+    insertMessage({ chat_id: '222', msg_id: 1, direction: 'in', text: 'нове', ts: 2000 })
+
+    // upsertChat re-claims a chat the current account can see, so only the
+    // chat nobody re-registered stays foreign.
+    expect(countForeignRows()).toEqual({ chats: 1, messages: 1 })
+
+    const removed = purgeForeignRows()
+    expect(removed).toEqual({ chats: 1, messages: 1 })
+    expect(countForeignRows()).toEqual({ chats: 0, messages: 0 })
+    expect(countMessages().total).toBe(1)
   })
 })

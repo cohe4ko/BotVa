@@ -26,9 +26,10 @@ vi.mock('telegram/Utils.js', () => ({
 }))
 
 import { handleNewMessage, handleEditedMessage, handleDeletedMessages, catchUp, stats } from './log.js'
+import { configureThrottle, resetThrottle } from './throttle.js'
 import {
   getTgDb, closeTgDb, getChat, getMessages, countMessages, setChatMode,
-  upsertChat, insertMessage, getCursor,
+  upsertChat, insertMessage, getCursor, touchChatActivity,
   type ChatMode,
 } from './db.js'
 
@@ -76,6 +77,11 @@ function resetDb(): void {
 
 beforeEach(() => {
   resetDb()
+  // A FloodWait in one case arms a global pause — exactly what production wants,
+  // and exactly what would stall the next test. Clear it, then drop the pacing:
+  // real timing is covered in throttle.test.ts.
+  resetThrottle()
+  configureThrottle({ minIntervalMs: 0, jitterMs: 0 })
 })
 
 afterAll(() => {
@@ -200,6 +206,8 @@ describe('edits and deletions', () => {
 })
 
 describe('catch-up after downtime', () => {
+  const nowTs = Math.floor(Date.now() / 1000)
+
   /** Stand-in for TelegramClient.getMessages, recording how it was called. */
   function fakeClient(byChat: Record<string, unknown[]>, calls: { chat: string; opts: Record<string, unknown> }[] = []) {
     return {
@@ -211,71 +219,106 @@ describe('catch-up after downtime', () => {
     } as never
   }
 
+  /** Catch-up only considers recently active chats, so tests must mark them so. */
+  function activeChat(id: string, title: string, mode: ChatMode = 'log-only', ageSeconds = 3600) {
+    upsertChat({ chat_id: id, title, kind: 'user', defaultMode: mode })
+    touchChatActivity(id, nowTs - ageSeconds)
+  }
+
   function histMessage(id: number, text: string, ts: number, out = false) {
-    return {
-      id, message: text, out, date: ts, senderId: 42,
-      getSender: async () => ({ firstName: 'Петро' }),
-    }
+    return { id, message: text, out, date: ts, senderId: 42, _sender: { firstName: 'Петро' } }
   }
 
   it('resumes from the cursor instead of refetching everything', async () => {
-    upsertChat({ chat_id: '111', title: 'Петро', kind: 'user', defaultMode: 'log-only' })
-    insertMessage({ chat_id: '111', msg_id: 10, direction: 'in', text: 'старе', ts: 1000 })
+    activeChat('111', 'Петро')
+    insertMessage({ chat_id: '111', msg_id: 10, direction: 'in', text: 'старе', ts: nowTs - 3600 })
     expect(getCursor('111')).toBe(10)
 
     const calls: { chat: string; opts: Record<string, unknown> }[] = []
-    await catchUp(fakeClient({ '111': [histMessage(11, 'пропущене', 2000)] }, calls))
+    await catchUp(fakeClient({ '111': [histMessage(11, 'пропущене', nowTs)] }, calls), undefined, { delayMs: 0 })
 
     expect(calls[0].opts['minId']).toBe(10)
     expect(getMessages('111').map(m => m.text)).toContain('пропущене')
   })
 
   it('takes a small recent slice for a chat with no cursor, not a full backfill', async () => {
-    upsertChat({ chat_id: '111', title: 'Петро', kind: 'user', defaultMode: 'log-only' })
+    activeChat('111', 'Петро')
     const calls: { chat: string; opts: Record<string, unknown> }[] = []
-    await catchUp(fakeClient({ '111': [] }, calls))
+    await catchUp(fakeClient({ '111': [] }, calls), undefined, { delayMs: 0 })
 
     expect(calls[0].opts['minId']).toBeUndefined()
     expect(calls[0].opts['limit']).toBe(20)
   })
 
   it('never touches ignored chats', async () => {
-    upsertChat({ chat_id: '222', title: 'Канал', kind: 'channel', defaultMode: 'ignore' })
+    activeChat('222', 'Канал', 'ignore')
     const calls: { chat: string; opts: Record<string, unknown> }[] = []
-    await catchUp(fakeClient({}, calls))
+    await catchUp(fakeClient({}, calls), undefined, { delayMs: 0 })
     expect(calls).toHaveLength(0)
   })
 
+  it('skips chats that have been quiet for longer than the activity window', async () => {
+    activeChat('111', 'Давній', 'log-only', 30 * 86400)
+    const calls: { chat: string; opts: Record<string, unknown> }[] = []
+    await catchUp(fakeClient({}, calls), undefined, { delayMs: 0 })
+    // Old conversations stay reachable via tg_read_chat; walking them on every
+    // start is what would turn a large account into a flood.
+    expect(calls).toHaveLength(0)
+  })
+
+  it('caps how many chats one pass may touch', async () => {
+    for (let i = 1; i <= 45; i++) activeChat(String(i), `Чат ${i}`)
+    const calls: { chat: string; opts: Record<string, unknown> }[] = []
+    await catchUp(fakeClient({}, calls), undefined, { delayMs: 0 })
+    expect(calls.length).toBeLessThanOrEqual(30)
+  }, 30000)
+
   it('does not duplicate messages already in the log', async () => {
-    upsertChat({ chat_id: '111', title: 'Петро', kind: 'user', defaultMode: 'log-only' })
-    insertMessage({ chat_id: '111', msg_id: 10, direction: 'in', text: 'вже є', ts: 1000 })
-    const result = await catchUp(fakeClient({ '111': [histMessage(10, 'вже є', 1000)] }))
+    activeChat('111', 'Петро')
+    insertMessage({ chat_id: '111', msg_id: 10, direction: 'in', text: 'вже є', ts: nowTs - 100 })
+    const result = await catchUp(fakeClient({ '111': [histMessage(10, 'вже є', nowTs - 100)] }), undefined, { delayMs: 0 })
     expect(countMessages().total).toBe(1)
     expect(result.stored).toBe(0)
   })
 
   it('reports counts of what it recovered', async () => {
-    upsertChat({ chat_id: '111', title: 'Петро', kind: 'user', defaultMode: 'log-only' })
+    activeChat('111', 'Петро')
     const result = await catchUp(fakeClient({
-      '111': [histMessage(1, 'a', 100), histMessage(2, 'b', 200, true)],
-    }))
+      '111': [histMessage(1, 'a', nowTs - 200), histMessage(2, 'b', nowTs - 100, true)],
+    }), undefined, { delayMs: 0 })
     expect(result.stored).toBe(2)
     expect(result.chats).toBe(1)
   })
 
-  it('skips a chat on FloodWait and keeps going', async () => {
-    upsertChat({ chat_id: '111', title: 'Перший', kind: 'user', defaultMode: 'log-only' })
-    upsertChat({ chat_id: '222', title: 'Другий', kind: 'user', defaultMode: 'log-only' })
+  it('stops the whole pass on FloodWait instead of hitting the next chat', async () => {
+    activeChat('111', 'Перший')
+    activeChat('222', 'Другий')
 
+    const touched: string[] = []
     const client = {
       getMessages: async (chat: string) => {
-        if (chat === '111') throw new Error('A wait of 42 seconds is required (FLOOD_WAIT)')
-        return [histMessage(5, 'дійшло', 500)]
+        touched.push(chat)
+        throw new Error('A wait of 42 seconds is required (FLOOD_WAIT)')
       },
     } as never
 
-    const result = await catchUp(client)
+    const result = await catchUp(client, undefined, { delayMs: 0 })
     expect(result.floodWaits).toBe(1)
-    expect(getMessages('222').map(m => m.text)).toContain('дійшло')
+    // Walking into the same limit chat after chat is how a penalty becomes a ban.
+    expect(touched).toHaveLength(1)
   }, 15000)
+
+  it('takes sender names from the update, never a per-message lookup', async () => {
+    activeChat('111', 'Петро')
+    let senderLookups = 0
+    const message = {
+      id: 1, message: 'привіт', out: false, date: nowTs, senderId: 42,
+      _sender: { firstName: 'Петро' },
+      getSender: async () => { senderLookups++; return { firstName: 'Петро' } },
+    }
+    await catchUp(fakeClient({ '111': [message] }), undefined, { delayMs: 0 })
+
+    expect(senderLookups).toBe(0)
+    expect(getMessages('111')[0].sender_name).toBe('Петро')
+  })
 })

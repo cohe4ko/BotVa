@@ -16,6 +16,7 @@ import { preventSleep, allowSleep } from './caffeinate.js'
 import { stopDeduplication } from './deduplication.js'
 import { initTelegraph } from './telegraph.js'
 import { runDailyConsolidation } from './consolidate.js'
+import { TG_DB_PATH } from './telegram/paths.js'
 
 const PID_FILE = join(STORE_DIR, 'botva.pid')
 const SOCK_PATH = join(STORE_DIR, 'colleague.sock')
@@ -245,6 +246,15 @@ async function main(): Promise<void> {
   // Init scheduler (pass bot.api for builtin MCP in scheduled tasks)
   initScheduler(sendMessage, bot.api)
 
+  // Unattended Telegram replies. Only started when the observer has a database:
+  // otherwise every bot process would open a store it has no reason to touch.
+  let stopAutoReply: (() => void) | undefined
+  if (existsSync(TG_DB_PATH)) {
+    const mod = await import('./telegram-autoreply.js')
+    mod.initAutoReply()
+    stopAutoReply = mod.stopAutoReply
+  }
+
   // Start relay listener for bot-to-bot communication in groups
   const stopRelay = startRelayListener(bot)
 
@@ -276,6 +286,7 @@ async function main(): Promise<void> {
     stopRelay()
     stopSocketListener()
     stopScheduler()
+    stopAutoReply?.()
     stopDeduplication()
     allowSleep()
     runner.stop()

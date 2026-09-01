@@ -12,7 +12,12 @@ import { getPeerId, getDisplayName } from 'telegram/Utils.js'
 import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { TG_SESSION_PATH, PROJECT_ROOT } from './paths.js'
+import { throttled, typingDelayMs } from './throttle.js'
 import type { ChatKind, ChatMode } from './db.js'
+
+/** Hard caps on how much a single call may ask for, regardless of the caller. */
+export const MAX_DIALOGS = 100
+export const MAX_HISTORY = 100
 
 export interface ApiCredentials {
   apiId: number
@@ -153,12 +158,19 @@ export function classifyEntity(entity: Api.TypeUser | Api.TypeChat | Api.TypeInp
 }
 
 /**
+ * Telegram's own service account. It delivers login codes and security alerts —
+ * one-time secrets that must never be written to a plaintext database.
+ */
+export const SERVICE_CHAT_ID = '777000'
+
+/**
  * Default logging mode for a freshly seen chat.
  *
  * Bots are hard-ignored: BotVa's own bots message the same account, and logging
  * them would feed the observer its own output.
  */
-export function defaultModeFor(kind: ChatKind): ChatMode {
+export function defaultModeFor(kind: ChatKind, chatId?: string): ChatMode {
+  if (chatId === SERVICE_CHAT_ID) return 'ignore'
   switch (kind) {
     case 'bot': return 'ignore'
     case 'user': return 'log-only'
@@ -181,7 +193,7 @@ export interface DialogSummary {
 }
 
 export async function listDialogs(client: TelegramClient, limit = 100): Promise<DialogSummary[]> {
-  const dialogs = await client.getDialogs({ limit })
+  const dialogs = await throttled('getDialogs', () => client.getDialogs({ limit: Math.min(limit, MAX_DIALOGS) }))
   const out: DialogSummary[] = []
   for (const d of dialogs) {
     const info = classifyEntity(d.entity)
@@ -210,25 +222,50 @@ export async function getHistory(
   chat: string,
   limit = 30,
 ): Promise<HistoryMessage[]> {
-  const messages = await client.getMessages(chat, { limit })
+  const messages = await throttled('getMessages', () =>
+    client.getMessages(chat, { limit: Math.min(limit, MAX_HISTORY) }))
+
   const out: HistoryMessage[] = []
   for (const m of messages) {
     if (!m) continue
-    let senderName = ''
-    try {
-      const sender = await m.getSender()
-      senderName = sender ? getDisplayName(sender as never) : ''
-    } catch { /* sender may be unavailable for channel posts */ }
     out.push({
       msg_id: m.id,
       direction: m.out ? 'out' : 'in',
-      sender_name: senderName,
+      sender_name: senderNameFromCache(m),
       text: m.message ?? '',
       media_type: mediaTypeOf(m),
       ts: m.date,
     })
   }
   return out.reverse() // chronological
+}
+
+/**
+ * Sender name without a network round-trip.
+ *
+ * `message.getSender()` resolves the entity, and on a cache miss that is a
+ * separate API call — once per message. Reading a 200-message history would
+ * then cost 200 extra requests, which is exactly the pattern that earns a
+ * FLOOD_WAIT. An unnamed sender is a cosmetic loss; a rate limit is not.
+ */
+export function senderNameFromCache(message: unknown): string {
+  const m = message as {
+    _sender?: unknown
+    sender?: unknown
+    out?: boolean
+    senderId?: unknown
+  }
+  const cached = m._sender ?? m.sender
+  if (cached) {
+    try {
+      const name = getDisplayName(cached as never)
+      if (name) return name
+    } catch { /* entity shape not nameable */ }
+  }
+  // No cached entity: leave the name empty rather than storing a bare numeric
+  // id. A reader — human or model — takes "700100200" for a participant, and
+  // callers already have the chat title to fall back on.
+  return ''
 }
 
 export function mediaTypeOf(message: { media?: unknown }): string | null {
@@ -246,8 +283,24 @@ export function mediaTypeOf(message: { media?: unknown }): string | null {
   }
 }
 
+/**
+ * Send text, preceded by a typing indicator and a delay scaled to its length.
+ *
+ * An instant reply is the clearest signal that nobody typed it. The indicator
+ * also makes the pause read as normal to the person on the other side.
+ */
 export async function sendText(client: TelegramClient, chat: string, text: string): Promise<number> {
-  const msg = await client.sendMessage(chat, { message: text })
+  const delay = typingDelayMs(text)
+  try {
+    await throttled('setTyping', () => client.invoke(new Api.messages.SetTyping({
+      peer: chat,
+      action: new Api.SendMessageTypingAction(),
+    })))
+  } catch { /* the indicator is cosmetic — never block the send on it */ }
+
+  await new Promise(resolve => setTimeout(resolve, delay))
+
+  const msg = await throttled('sendMessage', () => client.sendMessage(chat, { message: text }))
   return msg.id
 }
 
@@ -258,17 +311,17 @@ export async function sendFile(
   caption?: string,
   asDocument = false,
 ): Promise<number> {
-  const msg = await client.sendFile(chat, {
+  const msg = await throttled('sendFile', () => client.sendFile(chat, {
     file: path,
     caption,
     forceDocument: asDocument,
-  })
+  }))
   return msg.id
 }
 
 export async function resolveChat(client: TelegramClient, query: string): Promise<ChatInfo | null> {
   try {
-    const entity = await client.getEntity(query)
+    const entity = await throttled('getEntity', () => client.getEntity(query))
     return classifyEntity(entity)
   } catch {
     return null
@@ -276,5 +329,35 @@ export async function resolveChat(client: TelegramClient, query: string): Promis
 }
 
 export async function markRead(client: TelegramClient, chat: string): Promise<void> {
-  await client.markAsRead(chat)
+  await throttled('markAsRead', () => client.markAsRead(chat))
+}
+
+export interface PeerState {
+  chat_id: string
+  unread: number
+  /** Highest message id the owner has read in this chat. */
+  read_inbox_max_id: number
+}
+
+/**
+ * Live read state for one chat.
+ *
+ * The locally tracked counter cannot see the owner opening the chat on their
+ * phone. Anything about to speak on their behalf must ask Telegram first, and
+ * one dialog lookup is cheap enough to do at that moment only.
+ */
+export async function getPeerState(client: TelegramClient, chat: string): Promise<PeerState | null> {
+  const peer = await throttled('getPeerState.getInputEntity', () => client.getInputEntity(chat))
+  const res = await throttled('getPeerState.getPeerDialogs', () =>
+    client.invoke(new Api.messages.GetPeerDialogs({
+      peers: [new Api.InputDialogPeer({ peer })],
+    })))
+
+  const dialog = res.dialogs.find(d => d.className === 'Dialog') as Api.Dialog | undefined
+  if (!dialog) return null
+  return {
+    chat_id: String(chat),
+    unread: dialog.unreadCount ?? 0,
+    read_inbox_max_id: dialog.readInboxMaxId ?? 0,
+  }
 }

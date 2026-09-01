@@ -18,9 +18,17 @@ import { TG_PID_PATH } from './paths.js'
 import { readCredentials, createClient, connectAuthorized, hasSession } from './client.js'
 import { handleNewMessage, handleEditedMessage, handleDeletedMessages, syncUnread, catchUp, stats } from './log.js'
 import { startMcpSocket, type McpSocketHandle } from './mcp.js'
-import { getTgDb, closeTgDb } from './db.js'
+import { getThrottleStats } from './throttle.js'
+import { getTgDb, closeTgDb, setOwnerId, countForeignRows } from './db.js'
 
-const UNREAD_SYNC_MS = 5 * 60 * 1000
+/**
+ * Dialog refresh interval.
+ *
+ * Each pass is one getDialogs call. Unread counts also arrive via updates, so
+ * this is a reconciliation pass, not the primary source — 15 minutes keeps the
+ * daily call count negligible.
+ */
+const UNREAD_SYNC_MS = 15 * 60 * 1000
 
 let client: TelegramClient | null = null
 let mcp: McpSocketHandle | null = null
@@ -123,7 +131,21 @@ async function main(): Promise<void> {
   } else {
     const me = await client.getMe()
     const name = (me as Api.User).username ?? (me as Api.User).firstName ?? 'невідомо'
-    log(`Підключено як ${name} (id ${(me as Api.User).id})`)
+    const ownerId = String((me as Api.User).id)
+    log(`Підключено як ${name} (id ${ownerId})`)
+
+    // Stamp the session owner before any write. `direction` is owner-relative:
+    // the same chat_id logged from another account means the opposite thing,
+    // and merging the two silently would corrupt the archive.
+    const owner = setOwnerId(ownerId)
+    if (owner.changed) {
+      log(`Увага: акаунт змінився (був ${owner.previous}). Дані попереднього акаунта лишаються в базі, але приховані.`)
+    }
+    const foreign = countForeignRows()
+    if (foreign.messages > 0 || foreign.chats > 0) {
+      log(`У базі ${foreign.messages} повідомлень і ${foreign.chats} чатів іншого акаунта — вони не показуються і не використовуються.`)
+    }
+
     await attachHandlers(client)
     await syncUnread(client).catch(err => log('syncUnread failed', err))
 
@@ -148,8 +170,11 @@ async function main(): Promise<void> {
 
   // Heartbeat so the log shows the daemon is alive and how much it has seen.
   setInterval(() => {
-    log(`Живий. Апдейтів: ${rawUpdates}. Повідомлень: бачено ${stats.seen}, збережено ${stats.stored}, пропущено ${stats.skipped}. MCP-з'єднань: ${mcp?.connections() ?? 0}`)
-  }, 5 * 60 * 1000)
+    const t = getThrottleStats()
+    const flood = t.floodUntil ? `, пауза до ${new Date(t.floodUntil).toISOString().slice(11, 19)}` : ''
+    log(`Живий. Апдейтів: ${rawUpdates}. Повідомлень: бачено ${stats.seen}, збережено ${stats.stored}, пропущено ${stats.skipped}. `
+      + `Запитів до Telegram сьогодні: ${t.calls}, FloodWait: ${t.floodWaits}${flood}. MCP-з'єднань: ${mcp?.connections() ?? 0}`)
+  }, 15 * 60 * 1000)
 }
 
 main().catch((err) => {
