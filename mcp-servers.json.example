@@ -56,5 +56,12 @@
       "HA_TOKEN"
     ],
     "enabled": true
+  },
+  "telegram": {
+    "command": "node",
+    "args": [
+      "/ABSOLUTE/PATH/TO/BotVa/mcp-servers/telegram/build/index.js"
+    ],
+    "enabled": false
   }
 }

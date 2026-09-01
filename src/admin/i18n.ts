@@ -22,6 +22,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.docs': 'Docs',
     'nav.terminal': 'Terminal',
     'nav.records': 'Records',
+    'nav.telegram': 'Telegram',
     'nav.footer': 'BotVa Admin',
 
     // Page guides (collapsible help blocks)
@@ -898,6 +899,7 @@ const translations: Record<Lang, Record<string, string>> = {
     'nav.docs': 'Документація',
     'nav.terminal': 'Термінал',
     'nav.records': 'Записи',
+    'nav.telegram': 'Telegram',
     'nav.footer': 'BotVa Адмін',
 
     // Page guides

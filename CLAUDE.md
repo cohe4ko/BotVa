@@ -120,6 +120,7 @@ ReadWorkspaceFile, WriteWorkspaceFile
 - home-assistant -- розумний дім
 - stagehand -- AI-браузер (act, extract, observe)
 - playwright-remote -- headless Chrome
+- telegram -- Telegram Observer: читання чатів, непрочитані, пошук по архіву, відправка від імені власника (демон `src/telegram/`, транспорт -- Unix socket)
 - Будь-який MCP сервер можна додати через `mcp-servers.json` (див. нижче)
 
 ### Як підключити MCP інтеграцію

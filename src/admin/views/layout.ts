@@ -16,6 +16,7 @@ const PAGE_ICONS: Record<string, string> = {
   '/team': 'users',
   '/gallery': 'image',
   '/records': 'mic',
+  '/telegram': 'send',
   '/audio': 'volume-2',
   '/storage': 'hard-drive',
   '/backup': 'archive',
@@ -29,6 +30,7 @@ const PAGE_ICONS: Record<string, string> = {
 
 const TOP_NAV_KEYS: Record<string, string> = {
   team: 'nav.team', gallery: 'nav.gallery', records: 'nav.records', audio: 'nav.audio',
+  telegram: 'nav.telegram',
   storage: 'nav.storage', backup: 'nav.backup', diagnostics: 'nav.diagnostics',
   terminal: 'nav.terminal', system: 'nav.system', docs: 'nav.docs',
   templates: 'nav.templates', 'create-bot': 'nav.new',
@@ -158,6 +160,7 @@ export function layout(title: string, content: HtmlContent, activePath = '/', t?
         <a href="/templates" class="${activePath.startsWith('/templates') ? 'active' : ''}"><i data-lucide="file-code" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.templates')}</span></a>
         <a href="/gallery" class="${activePath === '/gallery' ? 'active' : ''}"><i data-lucide="image" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.gallery')}</span></a>
         <a href="/records" class="${activePath === '/records' ? 'active' : ''}"><i data-lucide="mic" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.records')}</span></a>
+        <a href="/telegram" class="${activePath === '/telegram' ? 'active' : ''}"><i data-lucide="send" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.telegram')}</span></a>
         <a href="/audio" class="${activePath === '/audio' ? 'active' : ''}"><i data-lucide="volume-2" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.audio')}</span></a>
         <a href="/storage" class="${activePath === '/storage' ? 'active' : ''}"><i data-lucide="hard-drive" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.storage')}</span></a>
         <a href="/backup" class="${activePath === '/backup' ? 'active' : ''}"><i data-lucide="archive" style="width:16px;height:16px"></i> <span class="nav-label">${_t('nav.backup')}</span></a>

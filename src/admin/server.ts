@@ -27,6 +27,7 @@ import docs from './routes/docs.js'
 import templates from './routes/templates.js'
 import terminal from './routes/terminal.js'
 import records from './routes/records.js'
+import telegram from './routes/telegram.js'
 import { attachTerminalWS } from './terminal-ws.js'
 import { logger } from '../logger.js'
 
@@ -73,6 +74,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', createBot)
   app.route('/', gallery)
   app.route('/', records)
+  app.route('/', telegram)
   app.route('/', storage)
   app.route('/', backup)
   app.route('/', team)

@@ -183,6 +183,7 @@ CurrencyRates (готівкові курси), GetCurrentTime, RunPython (sandbo
 | Stagehand (AI-браузер) | `stagehand` | `GOOGLE_API_KEY` |
 | Google Calendar, Gmail, Drive | `google-workspace` | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` |
 | Home Assistant | `home-assistant` | `HA_URL`, `HA_TOKEN` |
+| Telegram Observer (особистий акаунт) | `telegram` | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` |
 
 Інші MCP-сервери (CRM, реклама, наукові бази тощо) додаються як запис в `mcp-servers.json` та увімкнюються в адмінці System → MCP Servers.
 
@@ -223,6 +224,60 @@ Env: `GROQ_API_KEY` (або `GROQ_API_KEYS`), `LISTENER_PORT=3847`, `ANTHROPIC_A
 
 Пристрої відображаються в адмін-панелі System → Recorder.
 
+## Telegram Observer
+
+Демон, який тримає MTProto-сесію **особистого акаунта** власника (не бота), логує переписку і дає ботам інструменти діяти від його імені.
+
+**Компоненти:**
+
+| Компонент | Опис | Розташування |
+|-----------|------|-------------|
+| Демон | GramJS-клієнт, лог, MCP-сервер | `src/telegram/daemon.ts` |
+| MCP-shim | Pipe stdio ↔ Unix socket | `mcp-servers/telegram/` |
+| Керування | start / stop / restart / status | `scripts/telegram-observer.sh` |
+| Адмінка | Підключення, чати, лог | Розділ **Telegram** |
+
+**Налаштування:**
+
+1. Отримати `TELEGRAM_API_ID` і `TELEGRAM_API_HASH` на [my.telegram.org](https://my.telegram.org) → API development tools, додати в `.env`
+2. Адмінка → Telegram → ввести номер → код із Telegram → пароль 2FA (якщо є)
+3. Запустити демон кнопкою в адмінці або `scripts/telegram-observer.sh start`
+4. Увімкнути сервер `telegram` в `mcp-servers.json` (System → MCP Servers)
+
+**Режими чатів** — задаються в адмінці, дефолт залежить від типу:
+
+| Режим | Лог | Витяг фактів | Дефолт для |
+|-------|-----|--------------|-----------|
+| `ignore` | ні | ні | боти, супергрупи, канали |
+| `log-only` | так | ні | приватні чати, базові групи |
+| `facts-only` | так | факти | — |
+| `full` | так | факти + задачі | — |
+
+Чати з ботами завжди `ignore` за замовчуванням, щоб демон не читав відповіді власних ботів BotVa.
+
+**MCP-інструменти для ботів:**
+
+| Tool | Що робить | Гейт |
+|------|-----------|------|
+| `tg_list_chats` | Список чатів (з логу або живий) | — |
+| `tg_unread` | Чати з непрочитаними | — |
+| `tg_read_chat` | Останні повідомлення чату | — |
+| `tg_search` | Пошук по архіву переписки | — |
+| `tg_resolve` | Знайти chat_id за @username чи назвою | — |
+| `tg_send_message` | Надіслати повідомлення | allowlist + ліміт 10/год, 30/добу |
+| `tg_send_file` | Надіслати файл або фото | allowlist + ліміт |
+| `tg_mark_read` | Позначити чат прочитаним | — |
+
+Відправка дозволена лише в чати з увімкненою галочкою «Відправка» в адмінці; кожна дія пишеться у вихідний журнал. Бот має показати чернетку і отримати підтвердження через `AskUser` перед викликом `tg_send_*`.
+
+**Позначки прочитання.** Читання (`tg_read_chat`, `tg_search`, лог) не змінює read-state — спостереження непомітне для співрозмовника. А от `tg_send_*` перед відправкою позначає чат прочитаним: інакше співрозмовник бачить відповідь при непрочитаних своїх повідомленнях, що виглядає неприродно. Вимикається параметром `mark_read: false`.
+
+**Пропущене за час простою.** MTProto віддає апдейти лише в живе з'єднання, тож рестарт демона лишав би діру в лозі. При старті демон добирає пропущене через `messages.getHistory`: від збереженого курсора (останній залогований `msg_id` у чаті), а для чату, побаченого вперше — останні 20 повідомлень. Не бекфіл: чати в режимі `ignore` пропускаються, між чатами пауза, `FLOOD_WAIT` обробляється відступом.
+
+Транспорт — Unix socket `store/telegram.sock` (права 600), не TCP-порт. Сесія — `store/telegram.session` (права 600, у gitignore); відкликати доступ можна в Telegram → Settings → Devices.
+
+План подальших фаз (витяг фактів і задач у пам'ять бота): [docs/telegram-observer.md](docs/telegram-observer.md)
+
 ## Адмін-панель
 
 <img src="screenshots/admin-dashboard-5bots.jpg" alt="Dashboard — 5 ботів" width="700">
@@ -255,6 +310,7 @@ Env: `GROQ_API_KEY` (або `GROQ_API_KEYS`), `LISTENER_PORT=3847`, `ANTHROPIC_A
 | Team | Управління командою ботів |
 | Templates | Шаблони ролей |
 | Terminal | Браузерний shell |
+| Telegram | Telegram Observer: підключення акаунта, статус демона, чати з режимами, лог вхідних/вихідних, вихідні дії ботів |
 | Create Bot | Майстер створення нового бота |
 
 Детальний посібник: [MANUAL.md](MANUAL.md)
