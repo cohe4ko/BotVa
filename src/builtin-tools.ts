@@ -103,7 +103,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     { name: 'TranscribeAudio', icon: 'mic', category: 'voice', description: 'Transcribe a local audio file (Groq Whisper, auto-chunk for long files)', condition: 'GROQ_API_KEY', available: hasGroq },
     // Publishing
     { name: 'PublishTelegraph', icon: 'newspaper', category: 'publish', description: 'Publish long text to Telegraph', condition: 'TELEGRAPH_ENABLED', available: TELEGRAPH_ENABLED },
-    { name: 'ShareFile', icon: 'upload', category: 'publish', description: 'Upload file to public server (SSH or local)', condition: 'PUBLISH_BASE_URL', available: hasPublish },
+    { name: 'ShareFile', icon: 'upload', category: 'publish', description: 'Upload file, folder or archive to public server (SSH or local)', condition: 'PUBLISH_BASE_URL', available: hasPublish },
     // Gallery
     { name: 'ListGalleryImages', icon: 'grid', category: 'gallery', description: 'List gallery images with metadata', available: true },
     { name: 'SendGalleryImage', icon: 'send', category: 'gallery', description: 'Send gallery image to chat', available: true },
@@ -435,9 +435,9 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
     tools.push(
       tool(
         'ShareFile',
-        'Upload a file to the public server and return its URL. Use this to share files publicly.',
+        'Upload a file, a folder or an archive to the public server and return its URL. For multi-file pages (HTML + images/CSS/JS) pass the folder or a .zip/.tar.gz of it — the whole tree is deployed and the URL points at index.html. NEVER inline images as base64 to fit into a single file.',
         {
-          filePath: z.string().describe('Absolute path to the file to share'),
+          filePath: z.string().describe('Absolute path to a file, a folder, or an archive (.zip/.tar.gz/.tgz/.tar). Folders and archives should contain index.html'),
           subfolder: z.string().optional().describe('Optional subfolder on the server'),
         },
         async (args) => {
@@ -446,7 +446,7 @@ export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUs
             const { publishFile } = await import('./publish.js')
             const url = await publishFile(args.filePath, args.subfolder)
             if (url) {
-              return { content: [{ type: 'text' as const, text: `File shared: ${url}` }] }
+              return { content: [{ type: 'text' as const, text: `Shared: ${url}` }] }
             }
             return { content: [{ type: 'text' as const, text: 'Failed to share file' }], isError: true }
           } catch (err) {

@@ -163,7 +163,7 @@ SendMedia (фото, документи, альбоми), SendChecklist (спи�
 
 ### Утиліти
 
-CurrencyRates (готівкові курси), GetCurrentTime, RunPython (sandbox), SendEmail (SMTP), PublishTelegraph.
+CurrencyRates (готівкові курси), GetCurrentTime, RunPython (sandbox), SendEmail (SMTP), PublishTelegraph, ShareFile (файл, папка або `.zip`/`.tar.gz` -- багатофайлова сторінка розгортається на сервері в окрему теку з `index.html`).
 
 ### Workspace Files
 
