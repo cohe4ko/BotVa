@@ -23,7 +23,7 @@ vi.mock('./paths.js', () => ({
 import {
   getTgDb, closeTgDb, upsertChat, insertMessage, setAutoReply, markAutoReplied,
   listAutoReplyChats, getChat, setChatUnread, setOwnerId, resetOwnerCache,
-  setAutoReplyPrompt, getOwnerStyleSamples,
+  setAutoReplyPrompt, getOwnerStyleSamples, setOwnerUsername,
 } from './db.js'
 import { findAutoReplyCandidates, evaluateChat, replyGapFor } from './autoreply.js'
 
@@ -35,7 +35,7 @@ function reset(): void {
   d.exec('DELETE FROM tg_messages_fts')
   d.exec('DELETE FROM tg_chats')
   d.exec('DELETE FROM tg_cursor')
-  d.exec("DELETE FROM tg_meta WHERE key = 'owner_id'")
+  d.exec("DELETE FROM tg_meta WHERE key IN ('owner_id','owner_username')")
   resetOwnerCache()
   setOwnerId('owner-1')
 }
@@ -44,7 +44,7 @@ function reset(): void {
 function chatWaiting(secondsAgo: number, opts: { requireUnread?: boolean; unread?: number } = {}) {
   upsertChat({ chat_id: '111', title: 'Оля', kind: 'user', defaultMode: 'log-only' })
   insertMessage({ chat_id: '111', msg_id: 10, direction: 'in', text: 'привіт, є хвилинка?', ts: NOW - secondsAgo })
-  setAutoReply('111', { bot: 'cap', afterSeconds: 300, requireUnread: opts.requireUnread ?? false })
+  setAutoReply('111', { bot: 'cap', afterSeconds: 300, requireUnread: opts.requireUnread ?? false, mentionOnly: false })
   // setAutoReply marks everything already logged as answered — the message that
   // should trigger arrives after the policy is switched on.
   insertMessage({ chat_id: '111', msg_id: 11, direction: 'in', text: 'то як?', ts: NOW - secondsAgo })
@@ -115,14 +115,14 @@ describe('auto-reply policy', () => {
   it('switching the policy on does not answer an old conversation', () => {
     upsertChat({ chat_id: '222', title: 'Давня розмова', kind: 'user', defaultMode: 'log-only' })
     insertMessage({ chat_id: '222', msg_id: 5, direction: 'in', text: 'ще з минулого тижня', ts: NOW - 7 * 86400 })
-    setAutoReply('222', { bot: 'cap', afterSeconds: 300, requireUnread: false })
+    setAutoReply('222', { bot: 'cap', afterSeconds: 300, requireUnread: false, mentionOnly: false })
     expect(evaluateChat(getChat('222')!, NOW).skip).toBe('already-answered')
   })
 
   it('routes each chat to its own bot and nobody else', () => {
     chatWaiting(600)
     upsertChat({ chat_id: '333', title: 'Інший', kind: 'user', defaultMode: 'log-only' })
-    setAutoReply('333', { bot: 'doc', afterSeconds: 300, requireUnread: false })
+    setAutoReply('333', { bot: 'doc', afterSeconds: 300, requireUnread: false, mentionOnly: false })
     insertMessage({ chat_id: '333', msg_id: 1, direction: 'in', text: 'алло', ts: NOW - 600 })
 
     expect(listAutoReplyChats('cap').map(c => c.chat_id)).toEqual(['111'])
@@ -132,13 +132,13 @@ describe('auto-reply policy', () => {
 
   it('clearing the policy removes the chat from every bot', () => {
     chatWaiting(600)
-    setAutoReply('111', { bot: '', afterSeconds: 300, requireUnread: false })
+    setAutoReply('111', { bot: '', afterSeconds: 300, requireUnread: false, mentionOnly: false })
     expect(listAutoReplyChats('cap')).toEqual([])
   })
 
   it('never lets the threshold drop below half a minute', () => {
     chatWaiting(600)
-    setAutoReply('111', { bot: 'cap', afterSeconds: 0, requireUnread: false })
+    setAutoReply('111', { bot: 'cap', afterSeconds: 0, requireUnread: false, mentionOnly: false })
     expect(getChat('111')!.auto_reply_after_s).toBe(30)
   })
 
@@ -152,7 +152,7 @@ describe('auto-reply policy', () => {
 describe('bursts and fast reaction', () => {
   it('waits from the newest message, so a burst does not get cut off', () => {
     upsertChat({ chat_id: '111', title: 'Оля', kind: 'user', defaultMode: 'log-only' })
-    setAutoReply('111', { bot: 'cap', afterSeconds: 300, requireUnread: false })
+    setAutoReply('111', { bot: 'cap', afterSeconds: 300, requireUnread: false, mentionOnly: false })
 
     // Three lines in a row; the last one is still fresh.
     insertMessage({ chat_id: '111', msg_id: 20, direction: 'in', text: 'слухай', ts: NOW - 900 })
@@ -163,7 +163,7 @@ describe('bursts and fast reaction', () => {
 
   it('answers the whole burst once, at the newest message', () => {
     upsertChat({ chat_id: '111', title: 'Оля', kind: 'user', defaultMode: 'log-only' })
-    setAutoReply('111', { bot: 'cap', afterSeconds: 300, requireUnread: false })
+    setAutoReply('111', { bot: 'cap', afterSeconds: 300, requireUnread: false, mentionOnly: false })
     insertMessage({ chat_id: '111', msg_id: 20, direction: 'in', text: 'слухай', ts: NOW - 900 })
     insertMessage({ chat_id: '111', msg_id: 21, direction: 'in', text: 'коли зможеш?', ts: NOW - 600 })
 
@@ -177,7 +177,7 @@ describe('bursts and fast reaction', () => {
 
   it('allows a 30-second threshold with a matching cooldown', () => {
     upsertChat({ chat_id: '111', title: 'Оля', kind: 'user', defaultMode: 'log-only' })
-    setAutoReply('111', { bot: 'cap', afterSeconds: 30, requireUnread: false })
+    setAutoReply('111', { bot: 'cap', afterSeconds: 30, requireUnread: false, mentionOnly: false })
     expect(getChat('111')!.auto_reply_after_s).toBe(30)
     expect(replyGapFor(getChat('111')!)).toBe(30)
 
@@ -187,7 +187,7 @@ describe('bursts and fast reaction', () => {
 
   it('keeps a long cooldown when the chat is set to a long threshold', () => {
     upsertChat({ chat_id: '111', title: 'Оля', kind: 'user', defaultMode: 'log-only' })
-    setAutoReply('111', { bot: 'cap', afterSeconds: 3600, requireUnread: false })
+    setAutoReply('111', { bot: 'cap', afterSeconds: 3600, requireUnread: false, mentionOnly: false })
     expect(replyGapFor(getChat('111')!)).toBe(3600)
   })
 })
@@ -199,7 +199,7 @@ describe('per-chat instruction', () => {
     expect(getChat('111')!.auto_reply_prompt).toBe('пиши коротко, українською')
 
     // Changing the delay must not wipe the instruction.
-    setAutoReply('111', { bot: 'cap', afterSeconds: 60, requireUnread: false })
+    setAutoReply('111', { bot: 'cap', afterSeconds: 60, requireUnread: false, mentionOnly: false })
     expect(getChat('111')!.auto_reply_prompt).toBe('пиши коротко, українською')
 
     setAutoReplyPrompt('111', '')
@@ -229,5 +229,96 @@ describe('style samples', () => {
 
     expect(getOwnerStyleSamples(10, '111')).toHaveLength(1)
     expect(getOwnerStyleSamples(10)).toHaveLength(2)
+  })
+})
+
+describe('group chats', () => {
+  const OWNER = 'olesь_h'
+
+  function group(): void {
+    setOwnerUsername(OWNER)
+    upsertChat({ chat_id: '900', title: 'Робоча група', kind: 'supergroup', defaultMode: 'log-only' })
+    setAutoReply('900', { bot: 'cap', afterSeconds: 300, requireUnread: false, mentionOnly: true })
+  }
+
+  it('ignores a room full of people talking to each other', () => {
+    group()
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'in', sender_id: '5', sender_name: 'Петро', text: 'а хто дивився звіт?', ts: NOW - 900 })
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: 'я дивилась, там ок', ts: NOW - 800 })
+    expect(evaluateChat(getChat('900')!, NOW).skip).toBe('not-addressed')
+  })
+
+  it('answers an @mention of the owner', () => {
+    group()
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'in', sender_id: '5', sender_name: 'Петро', text: 'усім привіт', ts: NOW - 900 })
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: `@${OWNER} глянеш кошторис?`, ts: NOW - 800 })
+    insertMessage({ chat_id: '900', msg_id: 3, direction: 'in', sender_id: '5', sender_name: 'Петро', text: 'до речі, обід о 13', ts: NOW - 700 })
+
+    const d = evaluateChat(getChat('900')!, NOW)
+    expect(d.skip).toBeNull()
+    // The trigger is the mention, not the newest line in the room.
+    expect(d.candidate!.trigger.msg_id).toBe(2)
+  })
+
+  it('answers a reply to the owner even without a handle', () => {
+    group()
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'out', text: 'я закинув документ у папку', ts: NOW - 1000 })
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: 'а в яку саме?', reply_to: 1, ts: NOW - 800 })
+
+    const d = evaluateChat(getChat('900')!, NOW)
+    expect(d.skip).toBeNull()
+    expect(d.candidate!.trigger.msg_id).toBe(2)
+  })
+
+  it('does not treat a reply to someone else as addressed to the owner', () => {
+    group()
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'in', sender_id: '5', sender_name: 'Петро', text: 'я зробив', ts: NOW - 1000 })
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: 'дякую!', reply_to: 1, ts: NOW - 800 })
+    expect(evaluateChat(getChat('900')!, NOW).skip).toBe('not-addressed')
+  })
+
+  it('stays silent once the owner has answered the mention himself', () => {
+    group()
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: `@${OWNER} є хвилинка?`, ts: NOW - 900 })
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'out', text: 'так, зараз наберу', ts: NOW - 800 })
+    expect(evaluateChat(getChat('900')!, NOW).skip).toBe('owner-answered')
+  })
+
+  it('is not held back by other people still talking', () => {
+    group()
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: `@${OWNER} підтвердиш?`, ts: NOW - 900 })
+    // The room keeps moving; the person who asked has stopped.
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'in', sender_id: '5', sender_name: 'Петро', text: 'а я про інше', ts: NOW - 10 })
+
+    const d = evaluateChat(getChat('900')!, NOW)
+    expect(d.skip).toBeNull()
+    expect(d.candidate!.waitedS).toBe(900)
+  })
+
+  it('waits out a burst from the person who asked', () => {
+    group()
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: `@${OWNER} слухай`, ts: NOW - 900 })
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: 'там таке питання', ts: NOW - 20 })
+    expect(evaluateChat(getChat('900')!, NOW).skip).toBe('too-soon')
+  })
+
+  it('falls back to replies only when the account has no @username', () => {
+    setOwnerUsername('')
+    upsertChat({ chat_id: '900', title: 'Робоча група', kind: 'supergroup', defaultMode: 'log-only' })
+    setAutoReply('900', { bot: 'cap', afterSeconds: 300, requireUnread: false, mentionOnly: true })
+    insertMessage({ chat_id: '900', msg_id: 1, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: '@хтось глянь', ts: NOW - 900 })
+    expect(evaluateChat(getChat('900')!, NOW).skip).toBe('not-addressed')
+
+    insertMessage({ chat_id: '900', msg_id: 2, direction: 'out', text: 'моя репліка', ts: NOW - 880 })
+    insertMessage({ chat_id: '900', msg_id: 3, direction: 'in', sender_id: '6', sender_name: 'Ніна', text: 'а точніше?', reply_to: 2, ts: NOW - 800 })
+    expect(evaluateChat(getChat('900')!, NOW).skip).toBeNull()
+  })
+
+  it('a private chat with mention-only off still answers everything', () => {
+    setOwnerUsername(OWNER)
+    upsertChat({ chat_id: '111', title: 'Марта', kind: 'user', defaultMode: 'log-only' })
+    setAutoReply('111', { bot: 'cap', afterSeconds: 300, requireUnread: false, mentionOnly: false })
+    insertMessage({ chat_id: '111', msg_id: 1, direction: 'in', sender_id: '6', text: 'привіт, без згадки', ts: NOW - 900 })
+    expect(evaluateChat(getChat('111')!, NOW).skip).toBeNull()
   })
 })

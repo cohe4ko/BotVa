@@ -19,7 +19,7 @@ import { readCredentials, createClient, connectAuthorized, hasSession } from './
 import { handleNewMessage, handleEditedMessage, handleDeletedMessages, syncUnread, catchUp, stats } from './log.js'
 import { startMcpSocket, type McpSocketHandle } from './mcp.js'
 import { getThrottleStats } from './throttle.js'
-import { getTgDb, closeTgDb, setOwnerId, countForeignRows } from './db.js'
+import { getTgDb, closeTgDb, setOwnerId, setOwnerUsername, countForeignRows } from './db.js'
 
 /**
  * Dialog refresh interval.
@@ -141,6 +141,13 @@ async function main(): Promise<void> {
     if (owner.changed) {
       log(`Увага: акаунт змінився (був ${owner.previous}). Дані попереднього акаунта лишаються в базі, але приховані.`)
     }
+    // The handle is how a mention is recognised in a group: the log keeps no
+    // message entities, so "@name" in the text is the signal. Without a handle
+    // only replies to the owner's own messages can count.
+    const username = (me as Api.User).username
+    if (username) setOwnerUsername(username)
+    else log('У акаунта немає @username — у групах спрацьовуватимуть лише відповіді на твої повідомлення.')
+
     const foreign = countForeignRows()
     if (foreign.messages > 0 || foreign.chats > 0) {
       log(`У базі ${foreign.messages} повідомлень і ${foreign.chats} чатів іншого акаунта — вони не показуються і не використовуються.`)

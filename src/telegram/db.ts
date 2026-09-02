@@ -37,6 +37,21 @@ export interface TgChat {
   auto_reply_last_ts: number | null
   /** Free-form instruction for how to answer in this chat. */
   auto_reply_prompt: string
+  /**
+   * Highest msg_id the chat's agent session has already been shown.
+   *
+   * Distinct from `auto_reply_last_msg_id`, which tracks what has been *answered*.
+   * The owner may exchange fifty messages by hand between two unattended
+   * replies: those were never answered by the bot, but the session still has to
+   * see them or it resumes a conversation it no longer follows.
+   */
+  auto_reply_ctx_msg_id: number
+  /**
+   * 1 = act only on messages that concern the owner (an @mention or a reply to
+   * him). Defaults on for groups, where every other message is between other
+   * people, and off for private chats, where everything is addressed to him.
+   */
+  auto_reply_mention_only: number
 }
 
 export interface TgMessage {
@@ -188,6 +203,8 @@ function initTgSchema(d: DatabaseSync): void {
     'ALTER TABLE tg_chats ADD COLUMN auto_reply_last_msg_id INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE tg_chats ADD COLUMN auto_reply_last_ts INTEGER',
     "ALTER TABLE tg_chats ADD COLUMN auto_reply_prompt TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE tg_chats ADD COLUMN auto_reply_ctx_msg_id INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE tg_chats ADD COLUMN auto_reply_mention_only INTEGER NOT NULL DEFAULT 0',
   ]) {
     try { d.exec(ddl) } catch { /* already exists */ }
   }
@@ -363,6 +380,26 @@ export function setOwnerId(id: string): { previous: string; changed: boolean } {
   return { previous, changed: previous !== LEGACY_OWNER && previous !== id }
 }
 
+const OWNER_USERNAME_KEY = 'owner_username'
+
+/**
+ * The owner's @username, as the only reliable way to spot a mention.
+ *
+ * Group messages arrive with entities the log does not keep, so a mention is
+ * detected from the text. A display name would match far too much — plenty of
+ * sentences contain someone's first name — while "@handle" is unambiguous.
+ */
+export function getOwnerUsername(): string {
+  const row = getTgDb().prepare('SELECT value FROM tg_meta WHERE key = ?').get(OWNER_USERNAME_KEY) as { value: string } | undefined
+  return row?.value ?? ''
+}
+
+export function setOwnerUsername(username: string): void {
+  getTgDb().prepare(
+    'INSERT INTO tg_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(OWNER_USERNAME_KEY, username)
+}
+
 /** Rows that belong to no known account — from before owner tracking, or another login. */
 export function countForeignRows(): { chats: number; messages: number } {
   const d = getTgDb()
@@ -517,6 +554,8 @@ export interface AutoReplyPolicy {
   bot: string
   afterSeconds: number
   requireUnread: boolean
+  /** Act only on an @mention or a reply to the owner. */
+  mentionOnly: boolean
 }
 
 /**
@@ -544,6 +583,7 @@ export function setAutoReply(chatId: string, policy: AutoReplyPolicy): void {
       auto_reply_bot = ?,
       auto_reply_after_s = ?,
       auto_reply_require_unread = ?,
+      auto_reply_mention_only = ?,
       auto_reply_last_msg_id = ?,
       updated_at = ?
     WHERE chat_id = ?
@@ -551,6 +591,7 @@ export function setAutoReply(chatId: string, policy: AutoReplyPolicy): void {
     policy.bot,
     Math.max(30, Math.floor(policy.afterSeconds)),
     policy.requireUnread ? 1 : 0,
+    policy.mentionOnly ? 1 : 0,
     policy.bot ? latest : 0,
     now(),
     chatId,
@@ -570,7 +611,7 @@ export function setAutoReplyPrompt(chatId: string, prompt: string): void {
  * sentences from the archive: short ones are dropped (they carry no style) and
  * so are repeats.
  */
-export function getOwnerStyleSamples(limit = 40, chatId?: string): string[] {
+export function getOwnerStyleSamples(limit = 40, chatId?: string, maxChars = 300): string[] {
   const d = getTgDb()
   const args: unknown[] = [getOwnerId()]
   let scope = ''
@@ -580,7 +621,7 @@ export function getOwnerStyleSamples(limit = 40, chatId?: string): string[] {
   const rows = d.prepare(`
     SELECT text FROM tg_messages
     WHERE owner_id = ? AND direction = 'out' ${scope}
-      AND deleted_ts IS NULL AND LENGTH(text) BETWEEN 12 AND 400
+      AND deleted_ts IS NULL AND LENGTH(text) >= ${MIN_SAMPLE_CHARS}
     ORDER BY ts DESC LIMIT ?
   `).all(...args as never[]) as { text: string }[]
 
@@ -591,10 +632,36 @@ export function getOwnerStyleSamples(limit = 40, chatId?: string): string[] {
     const key = text.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    out.push(text)
+    // Long messages are trimmed, never dropped. A three-paragraph reply is as
+    // much a part of how someone writes as a one-liner, and the opening of it
+    // carries the voice; discarding it would bias the sample towards short
+    // notes and quietly teach the wrong rhythm.
+    out.push(text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}…` : text)
     if (out.length >= limit) break
   }
   return out
+}
+
+/**
+ * Shortest message worth sampling.
+ *
+ * "ок" and "+" carry no manner. A few words already do — and in a group short
+ * replies are most of what a person writes, so the floor stays low.
+ */
+const MIN_SAMPLE_CHARS = 6
+
+/**
+ * Treat everything up to `msgId` as handled, without starting a cooldown.
+ *
+ * Used after back-filling a chat's archive. The turn-on rewind sets the marker
+ * from what is stored at that moment, so a chat enabled with an empty log gets
+ * a marker of zero — and history fetched a second later would then look like a
+ * pile of unanswered messages. Re-baselining closes that window.
+ */
+export function baselineAutoReply(chatId: string, msgId: number): void {
+  getTgDb().prepare(
+    'UPDATE tg_chats SET auto_reply_last_msg_id = MAX(auto_reply_last_msg_id, ?), updated_at = ? WHERE chat_id = ?'
+  ).run(msgId, now(), chatId)
 }
 
 /** Record that a message has been answered, so it is never answered twice. */
@@ -608,11 +675,116 @@ export function markAutoReplied(chatId: string, msgId: number, ts = now()): void
   `).run(msgId, ts, now(), chatId)
 }
 
+/** Remember how far the chat's agent session has been brought up to date. */
+export function setAutoReplyContext(chatId: string, msgId: number): void {
+  getTgDb().prepare(
+    'UPDATE tg_chats SET auto_reply_ctx_msg_id = MAX(auto_reply_ctx_msg_id, ?), updated_at = ? WHERE chat_id = ?'
+  ).run(msgId, now(), chatId)
+}
+
+/** Start the session's context afresh — used when a chat is primed again. */
+export function resetAutoReplyContext(chatId: string, msgId: number): void {
+  getTgDb().prepare('UPDATE tg_chats SET auto_reply_ctx_msg_id = ?, updated_at = ? WHERE chat_id = ?')
+    .run(msgId, now(), chatId)
+}
+
+/**
+ * Everything in a chat newer than a given message, newest first.
+ *
+ * The limit is a safety valve, not a window: callers must compare the result
+ * against `countMessagesAfter` to know whether anything was left out, because a
+ * silently truncated gap is worse than an acknowledged one.
+ */
+export function getMessagesAfter(chatId: string, afterMsgId: number, limit = 100): TgMessage[] {
+  return getTgDb().prepare(`
+    SELECT * FROM tg_messages
+    WHERE chat_id = ? AND owner_id = ? AND msg_id > ?
+    ORDER BY msg_id DESC LIMIT ?
+  `).all(chatId, getOwnerId(), afterMsgId, limit) as unknown as TgMessage[]
+}
+
+export function countMessagesAfter(chatId: string, afterMsgId: number): number {
+  const row = getTgDb().prepare(
+    'SELECT COUNT(*) AS n FROM tg_messages WHERE chat_id = ? AND owner_id = ? AND msg_id > ?'
+  ).get(chatId, getOwnerId(), afterMsgId) as { n: number }
+  return row.n
+}
+
 /** Chats this bot is responsible for, current account only. */
 export function listAutoReplyChats(bot: string): TgChat[] {
   return getTgDb().prepare(
     'SELECT * FROM tg_chats WHERE auto_reply_bot = ? AND owner_id = ? ORDER BY last_msg_ts DESC'
   ).all(bot, getOwnerId()) as unknown as TgChat[]
+}
+
+/**
+ * The newest incoming message that may start an unattended reply.
+ *
+ * In a private chat any unanswered message qualifies. In a group it must
+ * concern the owner — an @mention, or a reply to something he wrote — because a
+ * group's newest message is almost always somebody else talking to somebody
+ * else, and treating that as an unanswered question would have the bot
+ * interrupting a conversation it is not part of.
+ */
+export function findTriggerMessage(
+  chatId: string,
+  afterMsgId: number,
+  opts: { mentionOnly: boolean; ownerUsername?: string } = { mentionOnly: false },
+): TgMessage | null {
+  const d = getTgDb()
+  const base = `
+    FROM tg_messages m
+    WHERE m.chat_id = ? AND m.owner_id = ? AND m.deleted_ts IS NULL
+      AND m.direction = 'in' AND m.msg_id > ?
+  `
+  const args: unknown[] = [chatId, getOwnerId(), afterMsgId]
+
+  let mention = ''
+  if (opts.mentionOnly) {
+    // A reply to the owner counts even without a handle: that is what replying
+    // to someone means. Without a known username, replies are all we have.
+    const clauses = [`EXISTS (
+      SELECT 1 FROM tg_messages r
+      WHERE r.chat_id = m.chat_id AND r.owner_id = m.owner_id
+        AND r.msg_id = m.reply_to AND r.direction = 'out'
+    )`]
+    if (opts.ownerUsername) {
+      clauses.push("m.text LIKE ? ESCAPE '\\'")
+      args.push(`%@${opts.ownerUsername.replace(/[\\%_]/g, c => `\\${c}`)}%`)
+    }
+    mention = ` AND (${clauses.join(' OR ')})`
+  }
+
+  return (d.prepare(`SELECT m.* ${base}${mention} ORDER BY m.msg_id DESC LIMIT 1`)
+    .get(...args as never[]) as unknown as TgMessage) ?? null
+}
+
+/** Did the owner speak after this message? Then nothing is left unanswered. */
+export function hasOwnerReplyAfter(chatId: string, msgId: number): boolean {
+  const row = getTgDb().prepare(`
+    SELECT 1 AS hit FROM tg_messages
+    WHERE chat_id = ? AND owner_id = ? AND direction = 'out'
+      AND msg_id > ? AND deleted_ts IS NULL
+    LIMIT 1
+  `).get(chatId, getOwnerId(), msgId) as { hit: number } | undefined
+  return row !== undefined
+}
+
+/**
+ * When the person who wrote the trigger last said anything.
+ *
+ * The wait is measured from here rather than from the trigger itself, so a
+ * three-line burst is not cut off mid-thought — and, in a busy group, so the
+ * bot is not held back forever by other people still talking.
+ */
+export function lastTsFromSender(chatId: string, senderId: string | null, sinceMsgId: number): number | null {
+  if (!senderId) return null
+  const row = getTgDb().prepare(`
+    SELECT MAX(ts) AS ts FROM tg_messages
+    WHERE chat_id = ? AND owner_id = ? AND sender_id = ?
+      AND msg_id >= ? AND deleted_ts IS NULL
+  `).get(chatId, getOwnerId(), senderId, sinceMsgId) as { ts: number | null }
+  return row.ts
 }
 
 /** The newest message in a chat, whichever direction. */

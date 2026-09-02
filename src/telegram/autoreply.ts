@@ -11,7 +11,10 @@
  * is a reason NOT to speak, and all of them must be cleared.
  */
 
-import { listAutoReplyChats, getLastMessage, type TgChat, type TgMessage } from './db.js'
+import {
+  listAutoReplyChats, findTriggerMessage, hasOwnerReplyAfter, lastTsFromSender,
+  getOwnerUsername, type TgChat, type TgMessage,
+} from './db.js'
 
 /** Absolute floor on the gap between two replies, whatever the chat is set to. */
 export const MIN_REPLY_GAP_S = 30
@@ -39,9 +42,11 @@ export interface AutoReplyCandidate {
 
 /** Why a chat was passed over — surfaced in the log so silence is explainable. */
 export type SkipReason =
-  | 'no-messages'
-  | 'owner-answered'
+  /** Nothing new since the last answer. */
   | 'already-answered'
+  /** A group message that neither mentions the owner nor replies to him. */
+  | 'not-addressed'
+  | 'owner-answered'
   | 'too-soon'
   | 'cooldown'
   | 'read'
@@ -59,22 +64,29 @@ export interface AutoReplyDecision {
  * stored counter is a fallback for when no fresh value is available.
  */
 export function evaluateChat(chat: TgChat, nowS: number, unread?: number): AutoReplyDecision {
-  const last = getLastMessage(chat.chat_id)
-  if (!last) return { chat, candidate: null, skip: 'no-messages' }
+  const mentionOnly = !!chat.auto_reply_mention_only
 
-  // The owner spoke last — there is nothing unanswered.
-  if (last.direction !== 'in') return { chat, candidate: null, skip: 'owner-answered' }
+  // In a private chat every incoming message is addressed to the owner. In a
+  // group almost none of them are, so the trigger has to be found rather than
+  // assumed: the newest message that mentions him or replies to him.
+  const trigger = findTriggerMessage(chat.chat_id, chat.auto_reply_last_msg_id, {
+    mentionOnly,
+    ownerUsername: mentionOnly ? getOwnerUsername() : undefined,
+  })
+  if (!trigger) return { chat, candidate: null, skip: mentionOnly ? 'not-addressed' : 'already-answered' }
 
-  if (last.msg_id <= chat.auto_reply_last_msg_id) {
-    return { chat, candidate: null, skip: 'already-answered' }
+  // The owner spoke after it — there is nothing unanswered.
+  if (hasOwnerReplyAfter(chat.chat_id, trigger.msg_id)) {
+    return { chat, candidate: null, skip: 'owner-answered' }
   }
 
-  // Measured from the NEWEST incoming message, so a burst restarts the clock.
-  // Someone typing three lines in a row is still mid-thought; answering after
-  // the first would cut them off, and answering each in turn would be three
-  // replies to one thought. The whole burst is then answered once, because the
-  // context handed to the agent carries all of it.
-  const waitedS = nowS - last.ts
+  // Measured from that person's newest message, not the trigger and not the
+  // chat's. Someone typing three lines in a row is still mid-thought, so the
+  // clock restarts; but other people talking in a busy group must not hold the
+  // reply back forever. The whole burst is answered once, because the context
+  // handed to the agent carries all of it.
+  const lastFromThem = lastTsFromSender(chat.chat_id, trigger.sender_id, trigger.msg_id) ?? trigger.ts
+  const waitedS = nowS - lastFromThem
   if (waitedS < chat.auto_reply_after_s) return { chat, candidate: null, skip: 'too-soon' }
 
   if (chat.auto_reply_last_ts !== null && nowS - chat.auto_reply_last_ts < replyGapFor(chat)) {
@@ -88,7 +100,7 @@ export function evaluateChat(chat: TgChat, nowS: number, unread?: number): AutoR
     if (effective <= 0) return { chat, candidate: null, skip: 'read' }
   }
 
-  return { chat, candidate: { chat, trigger: last, waitedS }, skip: null }
+  return { chat, candidate: { chat, trigger, waitedS }, skip: null }
 }
 
 /**

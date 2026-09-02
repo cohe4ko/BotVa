@@ -16,10 +16,11 @@ import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { getObserverStatus, readLogTail } from '../../telegram/status.js'
 import {
   listChats, countChats, listUnreadChats, getRecentMessages, getMessages, listOutbox,
-  setChatMode, setChatCanSend, getChat, countMessages, countForeignRows, purgeForeignRows, setAutoReply, setAutoReplyPrompt,
+  setChatMode, setChatCanSend, getChat, countMessages, countForeignRows, purgeForeignRows, setAutoReply, setAutoReplyPrompt, baselineAutoReply,
   type ChatMode, type TgMessage, type TgChat, type ListChatsOptions,
 } from '../../telegram/db.js'
 import { logger } from '../../logger.js'
+import { openObserver } from '../../telegram/bridge.js'
 import { getLoginState, startLogin, submitCode, submitPassword, cancelLogin } from '../../telegram/auth.js'
 
 const app = new Hono<I18nEnv>()
@@ -316,6 +317,37 @@ function chatFilters() {
 }
 
 /**
+ * Pull recent history and the owner's own messages into the log for one chat.
+ *
+ * Runs detached: the admin request must not wait on Telegram, and a failure
+ * here is a thinner first reply, not a broken setting.
+ */
+async function seedChatArchive(chatId: string, title: string): Promise<void> {
+  try {
+    const obs = await openObserver()
+    try {
+      const raw = await obs.call('tg_seed_chat', { chat: chatId, limit: 100, own_limit: 50 })
+      const result = JSON.parse(raw) as { stored: number; newest_msg_id: number }
+
+      // Everything just pulled in existed before the chat was switched on, so it
+      // counts as handled. Without this the bot would open by answering a
+      // conversation that ended weeks ago.
+      if (result.newest_msg_id > 0) baselineAutoReply(chatId, result.newest_msg_id)
+      logger.info({ chatId, title, ...result }, '[telegram] seeded archive for a newly enabled chat')
+    } finally {
+      await obs.close()
+    }
+  } catch (err) {
+    logger.warn({ err, chatId }, '[telegram] could not seed the archive; the chat will fill up as messages arrive')
+  }
+}
+
+/** A room with more than two people in it: most messages are not for the owner. */
+function isGroupKind(kind: string): boolean {
+  return kind === 'group' || kind === 'supergroup' || kind === 'channel'
+}
+
+/**
  * Delay presets, seconds.
  *
  * 30 s is a live conversation — the bot keeps a dialogue going while the owner
@@ -362,6 +394,13 @@ function autoReplyCell(c: TgChat, bots: string[]) {
                  hx-include="${include}"
                  hx-vals="js:{require_unread: event.target.checked ? '1' : '0'}" hx-trigger="change">
           лише непрочитане
+        </label>
+        <label style="font-size:0.68rem;color:var(--mc-text-dim);display:flex;gap:0.25rem;align-items:center">
+          <input type="checkbox" style="margin:0"${c.auto_reply_mention_only ? ' checked' : ''}
+                 hx-post="${post}" hx-target="#tg-chats" hx-swap="innerHTML"
+                 hx-include="${include}"
+                 hx-vals="js:{mention_only: event.target.checked ? '1' : '0'}" hx-trigger="change">
+          лише згадки${isGroupKind(c.kind) ? '' : ' і відповіді'}
         </label>
         ${!c.can_send ? html`
           <span style="font-size:0.66rem;color:var(--mc-warning,#c47f00)">
@@ -752,13 +791,31 @@ app.post('/telegram/chat/:id/auto-reply', async (c) => {
   const rawBot = body['bot'] !== undefined ? String(body['bot']) : current.auto_reply_bot
   const bot = known.includes(rawBot) ? rawBot : ''
 
+  // A group switched on for the first time defaults to mentions only. Answering
+  // every message in a room full of people talking to each other is never what
+  // the owner means, and it is the one mistake that cannot be taken back.
+  const turningOn = !current.auto_reply_bot && !!bot
+  const mentionOnly = body['mention_only'] !== undefined
+    ? String(body['mention_only']) === '1'
+    : (turningOn ? isGroupKind(current.kind) : !!current.auto_reply_mention_only)
+
   setAutoReply(chatId, {
     bot,
     afterSeconds: body['after_s'] !== undefined ? Number(body['after_s']) : current.auto_reply_after_s,
     requireUnread: body['require_unread'] !== undefined
       ? String(body['require_unread']) === '1'
       : !!current.auto_reply_require_unread,
+    mentionOnly,
   })
+
+  // Switching a chat on is the moment to give it a past.
+  //
+  // The log only holds what arrived since the observer started, and catch-up
+  // deliberately visits just the thirty most recent chats of the last week — so
+  // a quiet contact or a group further down the list has an empty archive, and
+  // the first reply there would be composed with nothing to go on. Two bounded
+  // requests, once, at the one point the owner has said this chat matters.
+  if (turningOn) void seedChatArchive(chatId, current.title)
 
   logger.info({ chatId, bot, title: current.title }, '[telegram] auto-reply policy changed')
   return c.html(renderChatsFromBody(body))

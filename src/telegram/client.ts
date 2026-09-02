@@ -211,9 +211,12 @@ export async function listDialogs(client: TelegramClient, limit = 100): Promise<
 export interface HistoryMessage {
   msg_id: number
   direction: 'in' | 'out'
+  /** Needed to tell participants apart in a group, and to seed the log faithfully. */
+  sender_id: string | null
   sender_name: string
   text: string
   media_type: string | null
+  reply_to: number | null
   ts: number
 }
 
@@ -231,9 +234,11 @@ export async function getHistory(
     out.push({
       msg_id: m.id,
       direction: m.out ? 'out' : 'in',
+      sender_id: m.senderId ? String(m.senderId) : null,
       sender_name: senderNameFromCache(m),
       text: m.message ?? '',
       media_type: mediaTypeOf(m),
+      reply_to: m.replyTo?.replyToMsgId ?? null,
       ts: m.date,
     })
   }
@@ -330,6 +335,42 @@ export async function resolveChat(client: TelegramClient, query: string): Promis
 
 export async function markRead(client: TelegramClient, chat: string): Promise<void> {
   await throttled('markAsRead', () => client.markAsRead(chat))
+}
+
+/**
+ * Only the owner's own messages in a chat.
+ *
+ * Server-side filtering, not a scan: `fromUser` turns this into one
+ * `messages.search` with a sender filter, so a group where the owner wrote
+ * twenty lines among ten thousand costs the same as any other history read.
+ *
+ * This is what makes style work in a group. Reading the last four hundred
+ * messages of a busy room yields a handful of his lines drowned in everyone
+ * else's; asking for his alone gives the same budget spent entirely on signal.
+ */
+export async function getOwnHistory(
+  client: TelegramClient,
+  chat: string,
+  limit = 50,
+): Promise<HistoryMessage[]> {
+  const messages = await throttled('getMessages.own', () =>
+    client.getMessages(chat, { limit: Math.min(limit, MAX_HISTORY), fromUser: 'me' }))
+
+  const out: HistoryMessage[] = []
+  for (const m of messages) {
+    if (!m) continue
+    out.push({
+      msg_id: m.id,
+      direction: 'out',
+      sender_id: m.senderId ? String(m.senderId) : null,
+      sender_name: senderNameFromCache(m),
+      text: m.message ?? '',
+      media_type: mediaTypeOf(m),
+      reply_to: m.replyTo?.replyToMsgId ?? null,
+      ts: m.date,
+    })
+  }
+  return out.reverse() // chronological
 }
 
 export interface PeerState {

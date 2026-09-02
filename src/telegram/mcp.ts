@@ -22,9 +22,12 @@ import type { TelegramClient } from 'telegram'
 import { TG_SOCK_PATH } from './paths.js'
 import {
   listChats, countChats, listUnreadChats, getChat, getMessages, searchMessages,
-  recordOutbox, countOutboxSince, setChatUnread,
+  recordOutbox, countOutboxSince, setChatUnread, insertMessage,
 } from './db.js'
-import { listDialogs, getHistory, sendText, sendFile, resolveChat, markRead, getPeerState } from './client.js'
+import {
+  listDialogs, getHistory, getOwnHistory, sendText, sendFile, resolveChat, markRead,
+  getPeerState, MAX_HISTORY,
+} from './client.js'
 
 /** Outgoing action limits — a hard refusal, never a queue. */
 const SEND_LIMIT_HOUR = 10
@@ -185,6 +188,31 @@ const TOOLS = [
     inputSchema: {
       type: 'object' as const,
       properties: { chat: { type: 'string', description: 'chat_id або @username' } },
+      required: ['chat'],
+    },
+  },
+  {
+    name: 'tg_my_messages',
+    description: 'Тільки повідомлення власника в цьому чаті, без чужих. Корисно в групах, щоб побачити його власну манеру чи згадати, що саме він там писав — фільтрація на боці Telegram, не вичитування всієї історії.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        chat: { type: 'string', description: 'chat_id або @username' },
+        limit: { type: 'number', description: 'скільки повідомлень (за замовчуванням 30, максимум 100)' },
+      },
+      required: ['chat'],
+    },
+  },
+  {
+    name: 'tg_seed_chat',
+    description: 'Наповнити локальний архів чату: підтягнути свіжу історію і окремо всі повідомлення власника в цьому чаті, зберегти в лог. Разова підготовча дія для щойно доданого чату — повторний виклик нічого не дублює. Повертає JSON зі stored і newest_msg_id.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        chat: { type: 'string', description: 'chat_id (чат має бути в реєстрі)' },
+        limit: { type: 'number', description: 'скільки останніх повідомлень підтягнути (типово 100, максимум 100)' },
+        own_limit: { type: 'number', description: 'скільки власних повідомлень підтягнути (типово 50, максимум 100)' },
+      },
       required: ['chat'],
     },
   },
@@ -392,6 +420,62 @@ async function callTool(
       await markRead(live, chat)
       setChatUnread(chat, 0)
       return ok('Позначено прочитаним.')
+    }
+
+    case 'tg_my_messages': {
+      const chat = String(args['chat'] ?? '')
+      if (!chat) return fail('Потрібен параметр chat')
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений. Читання власних повідомлень потребує живої сесії.')
+      const limit = Math.min(Number(args['limit'] ?? 30) || 30, MAX_HISTORY)
+      const own = await getOwnHistory(live, chat, limit)
+      if (own.length === 0) return ok('Власник у цьому чаті нічого не писав.')
+      return ok(own.map(m => `[${new Date(m.ts * 1000).toISOString().slice(0, 16).replace('T', ' ')}] ${m.text || `[${m.media_type ?? 'вкладення'}]`}`).join('\n'))
+    }
+
+    case 'tg_seed_chat': {
+      const chat = String(args['chat'] ?? '')
+      if (!chat) return fail('Потрібен параметр chat')
+      const row = getChat(chat)
+      if (!row) return fail(`Чат "${chat}" не знайдено в реєстрі.`)
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений.')
+
+      const limit = Math.min(Number(args['limit'] ?? 100) || 100, MAX_HISTORY)
+      const ownLimit = Math.min(Number(args['own_limit'] ?? 50) || 50, MAX_HISTORY)
+
+      // Two calls, both bounded, both idempotent: the log's unique key drops
+      // anything already stored, so re-seeding costs requests but not integrity.
+      const recent = await getHistory(live, row.chat_id, limit)
+      const own = await getOwnHistory(live, row.chat_id, ownLimit)
+
+      let stored = 0
+      let newest = 0
+      for (const m of [...recent, ...own]) {
+        if (!m.text && !m.media_type) continue
+        if (m.msg_id > newest) newest = m.msg_id
+        if (insertMessage({
+          chat_id: row.chat_id,
+          msg_id: m.msg_id,
+          direction: m.direction,
+          sender_id: m.sender_id,
+          sender_name: m.sender_name,
+          text: m.text,
+          media_type: m.media_type,
+          reply_to: m.reply_to,
+          ts: m.ts,
+        })) stored++
+      }
+      // The caller needs the high-water mark: back-filled history predates the
+      // decision to switch the chat on, and must not read as unanswered.
+      return ok(JSON.stringify({
+        chat_id: row.chat_id,
+        title: row.title,
+        stored,
+        newest_msg_id: newest,
+        checked_recent: recent.length,
+        checked_own: own.length,
+      }))
     }
 
     case 'tg_chat_state': {
