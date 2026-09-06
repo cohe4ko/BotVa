@@ -15,10 +15,11 @@ import { NewMessage, Raw } from 'telegram/events/index.js'
 import { EditedMessage } from 'telegram/events/EditedMessage.js'
 import { DeletedMessage } from 'telegram/events/DeletedMessage.js'
 import { TG_PID_PATH } from './paths.js'
-import { readCredentials, createClient, connectAuthorized, hasSession } from './client.js'
+import { readCredentials, createClient, connectAuthorized, hasSession, RESILIENT_CONNECTION } from './client.js'
 import { handleNewMessage, handleEditedMessage, handleDeletedMessages, syncUnread, catchUp, stats } from './log.js'
 import { startMcpSocket, type McpSocketHandle } from './mcp.js'
 import { getThrottleStats } from './throttle.js'
+import { watchdogAction, nextFailureCount } from './watchdog.js'
 import { getTgDb, closeTgDb, setOwnerId, setOwnerUsername, countForeignRows } from './db.js'
 
 /**
@@ -30,9 +31,33 @@ import { getTgDb, closeTgDb, setOwnerId, setOwnerUsername, countForeignRows } fr
  */
 const UNREAD_SYNC_MS = 15 * 60 * 1000
 
+/**
+ * Watchdog tick.
+ *
+ * Every tick compares the raw update counter with the previous one; the health
+ * line is printed every third tick, so the log keeps its old 15-minute rhythm
+ * while a stall is caught within five minutes.
+ */
+const WATCHDOG_MS = 5 * 60 * 1000
+const HEARTBEAT_EVERY_TICKS = 3
+
+/** A probe that hangs is a probe that failed — the socket is what we doubt. */
+const PROBE_TIMEOUT_MS = 15_000
+
+/**
+ * Consecutive failed probes before the daemon gives up and exits non-zero.
+ *
+ * Two ticks is ten minutes of confirmed silence, with one forced reconnect
+ * attempted in between. Exiting is not a defeat: launchd restarts us, and a
+ * fresh process reconnects and runs catch-up, which is exactly the recovery
+ * a stuck update loop needs.
+ */
+const STALL_EXITS_AFTER = 2
+
 let client: TelegramClient | null = null
 let mcp: McpSocketHandle | null = null
 let unreadTimer: ReturnType<typeof setInterval> | null = null
+let watchdogTimer: ReturnType<typeof setInterval> | null = null
 
 function log(msg: string, extra?: unknown): void {
   const ts = new Date().toISOString()
@@ -89,9 +114,9 @@ async function attachHandlers(c: TelegramClient): Promise<void> {
   }, new DeletedMessage({}))
 }
 
-async function shutdown(signal: string): Promise<void> {
-  log(`Отримано ${signal}, зупиняюсь...`)
+async function releaseResources(): Promise<void> {
   if (unreadTimer) clearInterval(unreadTimer)
+  if (watchdogTimer) clearInterval(watchdogTimer)
   if (mcp) await mcp.close().catch(() => {})
   if (client) {
     try { await client.disconnect() } catch { /* ignore */ }
@@ -99,7 +124,45 @@ async function shutdown(signal: string): Promise<void> {
   }
   closeTgDb()
   clearPid()
+}
+
+async function shutdown(signal: string): Promise<void> {
+  log(`Отримано ${signal}, зупиняюсь...`)
+  await releaseResources()
+  // A clean exit tells launchd this was intentional: KeepAlive/SuccessfulExit
+  // leaves us down, which is what `telegram-observer.sh stop` means.
   process.exit(0)
+}
+
+/**
+ * Exit with a failure code so the supervisor brings us back.
+ *
+ * The opposite contract to shutdown(): the daemon is not done, it is stuck,
+ * and only a fresh process can fix that.
+ */
+async function exitForRestart(reason: string): Promise<void> {
+  log(`ПЕРЕЗАПУСК: ${reason}`)
+  await releaseResources()
+  process.exit(1)
+}
+
+/**
+ * Ask Telegram directly whether the connection still carries traffic.
+ *
+ * A stalled counter is a strong hint but not proof — an account can genuinely
+ * go quiet — so nothing is done on the hint alone.
+ */
+async function connectionAlive(c: TelegramClient): Promise<boolean> {
+  if (!c.connected) return false
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const expired = new Promise<boolean>(resolve => {
+    timer = setTimeout(() => resolve(false), PROBE_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([c.getMe().then(() => true, () => false), expired])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function main(): Promise<void> {
@@ -123,7 +186,7 @@ async function main(): Promise<void> {
     return
   }
 
-  client = createClient(creds)
+  client = createClient(creds, undefined, RESILIENT_CONNECTION)
   const authorized = await connectAuthorized(client)
   if (!authorized) {
     log('Сесія недійсна (відкликана або застаріла). Потрібна повторна авторизація в адмінці.')
@@ -175,13 +238,71 @@ async function main(): Promise<void> {
 
   process.on('unhandledRejection', (err) => log('unhandledRejection', err))
 
-  // Heartbeat so the log shows the daemon is alive and how much it has seen.
-  setInterval(() => {
-    const t = getThrottleStats()
-    const flood = t.floodUntil ? `, пауза до ${new Date(t.floodUntil).toISOString().slice(11, 19)}` : ''
-    log(`Живий. Апдейтів: ${rawUpdates}. Повідомлень: бачено ${stats.seen}, збережено ${stats.stored}, пропущено ${stats.skipped}. `
-      + `Запитів до Telegram сьогодні: ${t.calls}, FloodWait: ${t.floodWaits}${flood}. MCP-з'єднань: ${mcp?.connections() ?? 0}`)
-  }, 15 * 60 * 1000)
+  watchdogTimer = setInterval(() => { void watchdogTick() }, WATCHDOG_MS)
+}
+
+/** Counters as of the previous tick, and how many probes have failed in a row. */
+let lastSeenUpdates = -1
+let failedProbes = 0
+let tick = 0
+
+function healthLine(): string {
+  const t = getThrottleStats()
+  const flood = t.floodUntil ? `, пауза до ${new Date(t.floodUntil).toISOString().slice(11, 19)}` : ''
+  return `Апдейтів: ${rawUpdates}. Повідомлень: бачено ${stats.seen}, збережено ${stats.stored}, пропущено ${stats.skipped}. `
+    + `Запитів до Telegram сьогодні: ${t.calls}, FloodWait: ${t.floodWaits}${flood}. MCP-з'єднань: ${mcp?.connections() ?? 0}`
+}
+
+/**
+ * Liveness, not just presence.
+ *
+ * The old heartbeat printed "Живий" whenever the process existed, which is a
+ * different claim from the one that matters. `UpdateUserStatus` alone keeps the
+ * counter moving roughly once a second, so a tick that sees no new updates is
+ * worth checking — and if the check fails twice, being restarted beats being
+ * silently blind.
+ */
+async function watchdogTick(): Promise<void> {
+  tick++
+  const moved = rawUpdates !== lastSeenUpdates
+  lastSeenUpdates = rawUpdates
+  const due = tick % HEARTBEAT_EVERY_TICKS === 0
+
+  // No client means no session yet — a stall is expected, not a fault.
+  if (!client) {
+    if (due) log(`Живий. ${healthLine()}`)
+    return
+  }
+
+  // The probe costs one API call and only fires when the counter stood still.
+  const alive = moved ? true : await connectionAlive(client)
+  if (!alive) failedProbes++
+  const action = watchdogAction({ moved, alive, failedProbes, exitsAfter: STALL_EXITS_AFTER })
+  failedProbes = nextFailureCount(failedProbes, action)
+
+  switch (action) {
+    case 'healthy':
+      if (due) log(`Живий. ${healthLine()}`)
+      return
+    case 'quiet':
+      log(`Тиша: жодного апдейту за ${WATCHDOG_MS / 60000} хв, але зв'язок відповідає. ${healthLine()}`)
+      return
+    case 'reconnect':
+      log(`УВАГА: Telegram не відповідає (невдала перевірка ${failedProbes}/${STALL_EXITS_AFTER}). ${healthLine()}`)
+      // One forced reconnect before giving up — cheaper than a full restart,
+      // and enough when GramJS lost its way rather than the network.
+      try {
+        await client.connect()
+        log('Перепідключення виконано, чекаю апдейтів.')
+      } catch (err) {
+        log('Перепідключення не вдалося', err)
+      }
+      return
+    case 'restart':
+      log(`УВАГА: Telegram не відповідає (невдала перевірка ${failedProbes}/${STALL_EXITS_AFTER}). ${healthLine()}`)
+      await exitForRestart(`зв'язок мертвий ${(STALL_EXITS_AFTER * WATCHDOG_MS) / 60000} хв`)
+      return
+  }
 }
 
 main().catch((err) => {

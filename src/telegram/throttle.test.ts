@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   throttled, parseFloodWait, typingDelayMs, getThrottleStats, resetThrottle,
   FloodWaitError,
@@ -121,5 +121,25 @@ describe('typingDelayMs', () => {
 
   it('is capped so a long message does not stall the agent', () => {
     expect(typingDelayMs('а'.repeat(5000))).toBeLessThanOrEqual(12000)
+  })
+})
+
+describe('daily counter across midnight', () => {
+  it('reports zero when the recorded day is not today', async () => {
+    // The counter resets lazily, on the next call. An idle daemon crossing
+    // midnight would otherwise keep printing yesterday's number in its health
+    // line — which is exactly the kind of stale figure that hides an outage.
+    resetThrottle()
+    await throttled('probe', async () => 'ok')
+    expect(getThrottleStats().calls).toBe(1)
+
+    const dayAfterTomorrow = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+    vi.useFakeTimers()
+    vi.setSystemTime(dayAfterTomorrow)
+    try {
+      expect(getThrottleStats().calls).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

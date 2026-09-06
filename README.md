@@ -234,7 +234,7 @@ Env: `GROQ_API_KEY` (або `GROQ_API_KEYS`), `LISTENER_PORT=3847`, `ANTHROPIC_A
 |-----------|------|-------------|
 | Демон | GramJS-клієнт, лог, MCP-сервер | `src/telegram/daemon.ts` |
 | MCP-shim | Pipe stdio ↔ Unix socket | `mcp-servers/telegram/` |
-| Керування | start / stop / restart / status | `scripts/telegram-observer.sh` |
+| Керування | start / stop / restart / status / install / uninstall | `scripts/telegram-observer.sh` |
 | Адмінка | Підключення, чати, лог | Розділ **Telegram** |
 
 **Налаштування:**
@@ -243,6 +243,15 @@ Env: `GROQ_API_KEY` (або `GROQ_API_KEYS`), `LISTENER_PORT=3847`, `ANTHROPIC_A
 2. Адмінка → Telegram → ввести номер → код із Telegram → пароль 2FA (якщо є)
 3. Запустити демон кнопкою в адмінці або `scripts/telegram-observer.sh start`
 4. Увімкнути сервер `telegram` в `mcp-servers.json` (System → MCP Servers)
+5. `scripts/telegram-observer.sh install` — під launchd з автопідйомом після збою (робить і `deploy.sh launchd`)
+
+**Стійкість до обривів мережі:**
+
+| Механізм | Що робить |
+|----------|-----------|
+| Нескінченний переконект | GramJS пробує відновити зв'язок без обмеження спроб — обрив будь-якої тривалості не вбиває демон |
+| Watchdog | Кожні 5 хв звіряє лічильник апдейтів; якщо той стоїть — перевіряє зв'язок реальним запитом, потім перепідключається, а після двох невдач виходить з кодом 1 |
+| launchd `KeepAlive` | Піднімає демон після падіння або виходу watchdog'а; штатний `stop` (вихід 0) лишає його зупиненим |
 
 **Режими чатів** — задаються в адмінці, дефолт залежить від типу:
 

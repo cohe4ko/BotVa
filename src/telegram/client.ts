@@ -89,10 +89,38 @@ export function hasSession(): boolean {
 
 // --- Client ---
 
-export function createClient(creds: ApiCredentials, session = loadSession()): TelegramClient {
+export interface ConnectionTuning {
+  connectionRetries: number
+  retryDelay: number
+}
+
+/**
+ * Interactive login: a person is waiting on the admin form, so failing fast is
+ * the honest answer — better an error they can retry than a spinner forever.
+ */
+export const INTERACTIVE_CONNECTION: ConnectionTuning = { connectionRetries: 10, retryDelay: 2000 }
+
+/**
+ * The daemon must outlive an outage of any length.
+ *
+ * A bounded retry budget is a time bomb here: ten attempts two seconds apart
+ * means any loss of connectivity longer than twenty seconds ends the update
+ * loop permanently, while the process stays up and keeps reporting health.
+ * That is exactly what happened on 5 Sep 2026 — the socket died at 18:36, the
+ * ten attempts were spent by 21:24, and the observer went on to see nothing at
+ * all for the next 21 hours. A failed attempt against a dead network costs
+ * nothing, so there is no reason to ever stop trying.
+ */
+export const RESILIENT_CONNECTION: ConnectionTuning = { connectionRetries: Infinity, retryDelay: 3000 }
+
+export function createClient(
+  creds: ApiCredentials,
+  session = loadSession(),
+  tuning: ConnectionTuning = INTERACTIVE_CONNECTION,
+): TelegramClient {
   return new TelegramClient(new StringSession(session), creds.apiId, creds.apiHash, {
-    connectionRetries: 10,
-    retryDelay: 2000,
+    connectionRetries: tuning.connectionRetries,
+    retryDelay: tuning.retryDelay,
     autoReconnect: true,
     // GramJS logs verbosely at info level; the daemon has its own logging.
     baseLogger: undefined,

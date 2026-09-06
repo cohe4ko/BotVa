@@ -654,6 +654,16 @@ PLIST
     info "$bot → $LABEL (auto-start on boot)"
   done
 
+  # The observer is the eyes of the whole system and used to be the one process
+  # nothing supervised. Its own script owns the plist, so there is one template.
+  if [ -f "$DIR/store/telegram.session" ]; then
+    if bash "$DIR/scripts/telegram-observer.sh" install >/dev/null 2>&1; then
+      info "telegram-observer → com.botva.telegram-observer (restart on crash)"
+    else
+      warn "telegram-observer: не вдалося поставити під launchd"
+    fi
+  fi
+
   echo -e "\nManage:"
   echo "  launchctl list | grep botva"
   echo "  launchctl stop com.botva.bot.<name>"

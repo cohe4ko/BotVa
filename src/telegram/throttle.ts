@@ -91,7 +91,10 @@ export function parseFloodWait(err: unknown): number | null {
 
 export function getThrottleStats(): ThrottleStats {
   return {
-    calls: callsToday,
+    // The counter is reset lazily, on the next call. Reporting it raw would
+    // carry yesterday's number into today whenever the daemon sits idle over
+    // midnight — and a stale number in a health line is worse than none.
+    calls: budgetDate === today() ? callsToday : 0,
     floodWaits: floodWaitCount,
     budgetDate,
     floodUntil: floodUntil > Date.now() ? floodUntil : null,
