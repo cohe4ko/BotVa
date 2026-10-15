@@ -24,6 +24,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.undo.ok': '⏪ Rewound the last step — your next message will continue from the previous point.',
     'cmd.undo.nothing': 'Nothing to undo.',
     'cmd.undo.cleared': '⏪ That was the first step, so the session was cleared.',
+    'cmd.fork.ok': '🔀 Branched the conversation. We continue in the new branch with everything said so far; the previous one is kept — switch back with /session.',
+    'cmd.fork.nothing': 'Nothing to branch yet — start a conversation first.',
+    'cmd.fork.failed': 'Could not branch the conversation: {error}',
 
     // Cancel
     'cancel.request': 'request cancelled',
@@ -352,6 +355,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'menu.start': 'Start',
     'menu.new': 'New session (clear context)',
     'menu.undo': 'Undo last step (rewind one exchange)',
+    'menu.fork': 'Branch the conversation (keep the current one)',
     'menu.cancel': 'Cancel current request',
     'menu.model': 'Switch AI model',
     'menu.usage': 'Usage stats',
@@ -382,6 +386,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.undo.ok': '⏪ Відкотив останній крок — наступне повідомлення продовжить з попередньої точки.',
     'cmd.undo.nothing': 'Нема що відкочувати.',
     'cmd.undo.cleared': '⏪ Це був перший крок, тому сесію очищено.',
+    'cmd.fork.ok': '🔀 Розгалузив розмову. Продовжуємо в новій гілці з усім сказаним; попередня лишилась — повернутися можна через /session.',
+    'cmd.fork.nothing': 'Ще нема чого розгалужувати — спочатку почни розмову.',
+    'cmd.fork.failed': 'Не вдалося розгалузити розмову: {error}',
 
     // Cancel
     'cancel.request': 'запит скасовано',
@@ -710,6 +717,7 @@ const translations: Record<BotLang, Record<string, string>> = {
     'menu.start': 'Почати роботу',
     'menu.new': 'Нова сесія (очистити контекст)',
     'menu.undo': 'Відкотити останній крок',
+    'menu.fork': 'Розгалузити розмову (поточна лишиться)',
     'menu.cancel': 'Скасувати поточний запит',
     'menu.model': 'Змінити модель AI',
     'menu.usage': 'Статистика використання',

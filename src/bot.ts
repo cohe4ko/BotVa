@@ -1848,6 +1848,29 @@ export function createBot(): Bot {
   }
   bot.command('undo', undoHandler)
 
+  // --- /fork (branch the conversation; the current branch stays in /session) ---
+  bot.command('fork', async (ctx) => {
+    const chatIdStr = String(ctx.chat!.id)
+    const t = chatT(chatIdStr)
+    const sessionId = getSession(chatIdStr)
+    if (!sessionId) {
+      await ctx.reply(t('cmd.fork.nothing'))
+      return
+    }
+    try {
+      const { forkSession } = await import('@anthropic-ai/claude-agent-sdk')
+      const { sessionId: forked } = await forkSession(sessionId, { dir: BOT_DIR })
+      setSession(chatIdStr, forked)
+      // A rewind anchor points into the old branch; it means nothing in the new one.
+      clearPendingRewind(chatIdStr)
+      logAudit(chatIdStr, 'session_fork', `${sessionId} -> ${forked}`)
+      await ctx.reply(t('cmd.fork.ok'))
+    } catch (err) {
+      logger.warn({ err, sessionId }, 'Session fork failed')
+      await ctx.reply(t('cmd.fork.failed', { error: err instanceof Error ? err.message : String(err) }))
+    }
+  })
+
   bot.command('usage', async (ctx) => {
     if (!isAuthorised(ctx.chat.id)) return
     const t = chatT(String(ctx.chat.id))
@@ -2589,6 +2612,7 @@ export function createBot(): Bot {
   const cmds = (t: BotT) => [
     { command: 'new', description: t('menu.new') },
     { command: 'undo', description: t('menu.undo') },
+    { command: 'fork', description: t('menu.fork') },
     { command: 'cancel', description: t('menu.cancel') },
     { command: 'model', description: t('menu.model') },
     { command: 'usage', description: t('menu.usage') },

@@ -860,7 +860,7 @@ export function logUsage(
 
 // --- Audit log ---
 
-export type AuditEventType = 'command' | 'tool_call' | 'error' | 'session_start' | 'session_clear' | 'session_undo' | 'session_undo_clear'
+export type AuditEventType = 'command' | 'tool_call' | 'error' | 'session_start' | 'session_clear' | 'session_undo' | 'session_undo_clear' | 'session_fork'
 
 export function logAudit(chatId: string | null, eventType: AuditEventType, detail?: string): void {
   const now = Math.floor(Date.now() / 1000)
