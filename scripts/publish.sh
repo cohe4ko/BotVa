@@ -40,10 +40,18 @@ if [ -z "${PUBLISH_REMOTE_DIR:-}" ]; then
     done
 fi
 
-LOCAL_PATH="${1:?usage: publish.sh <file|dir|archive> [subfolder]}"
+LOCAL_PATH="${1:?usage: publish.sh <file|dir|archive> [subfolder] [hash]}"
 SUBFOLDER="${2:-$(date +%Y-%m-%d)}"
 BASENAME=$(basename "$LOCAL_PATH")
-HASH=$(date +%s%N | shasum | head -c 10)
+# Hash keeps the URL unguessable. Normally random per publish; pass a fixed one
+# (3rd arg or PUBLISH_HASH env) to get a STABLE URL across re-publishes.
+if [ -n "${3:-}" ]; then
+    HASH="$3"
+elif [ -n "${PUBLISH_HASH:-}" ]; then
+    HASH="$PUBLISH_HASH"
+else
+    HASH=$(date +%s%N | shasum | head -c 10)
+fi
 
 SSH_HOST="${PUBLISH_SSH_HOST:-}"
 REMOTE_DIR="${PUBLISH_REMOTE_DIR:?PUBLISH_REMOTE_DIR not set in .env}"
