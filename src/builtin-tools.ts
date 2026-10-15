@@ -2100,16 +2100,23 @@ function makeNameSessionTool(chatIdStr: string, usedTools: Set<string>, ctx: Con
       usedTools.add('NameSession')
       try {
         const { getSession } = await import('./db.js')
-        const sessionId = getSession(chatIdStr)
+        const { keyOf, threadOf, getSessionMode } = await import('./session-key.js')
+        const sessionId = getSession(keyOf(ctx) || chatIdStr)
         if (!sessionId) {
           return { content: [{ type: 'text' as const, text: 'No active session' }], isError: true }
         }
         const { writeSessionTitle } = await import('./session-titles.js')
         writeSessionTitle(sessionId, args.title)
-        // Fire-and-forget: send session title message and pin it
-        ctx.api.sendMessage(chatId, `📌 ${args.title}`, { disable_notification: true })
-          .then(msg => ctx.api.pinChatMessage(chatId, msg.message_id, { disable_notification: true }).catch(() => {}))
-          .catch(() => {})
+        const thread = threadOf(ctx)
+        if (thread && getSessionMode(chatId) === 'topics') {
+          // Topic mode: the topic itself carries the conversation's name
+          ctx.api.editForumTopic(chatId, thread, { name: args.title.slice(0, 128) }).catch(() => {})
+        } else {
+          // Fire-and-forget: send session title message and pin it
+          ctx.api.sendMessage(chatId, `📌 ${args.title}`, { disable_notification: true })
+            .then(msg => ctx.api.pinChatMessage(chatId, msg.message_id, { disable_notification: true }).catch(() => {}))
+            .catch(() => {})
+        }
         return { content: [{ type: 'text' as const, text: `Session named: ${args.title}` }] }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

@@ -34,6 +34,7 @@ import { createBuiltinMcpServer } from './builtin-tools.js'
 import { initTgap, tgapMiddleware } from './tgap/runtime.js'
 import { teamBotIds } from './team-bots.js'
 import { chatForStoppedDraft } from './draft-stop.js'
+import { keyOf, threadOf, getSessionMode, routeIntoThread, sessionKey } from './session-key.js'
 import { hasSessionTitle } from './session-titles.js'
 import { getUserNudge } from './workspace-files.js'
 import { classifyReaction } from './auto-react.js'
@@ -775,11 +776,16 @@ async function handleMessage(
   }
 
   const chatIdStr = String(chatId)
+  // session_mode=topics: each forum topic is a conversation of its own, and
+  // everything this turn sends goes back into that topic (session-key.ts).
+  const sKey = keyOf(ctx)
+  const topicThread = threadOf(ctx)
+  if (topicThread && getSessionMode(chatId) === 'topics') routeIntoThread(ctx, topicThread)
 
   logger.info({ chatId: chatIdStr, len: rawText.length }, 'Message received')
 
   // Queue the request
-  await queueRequest(chatIdStr, async () => {
+  await queueRequest(sKey, async () => {
     let currentMessage = rawText
 
     // Progress reporter persists across follow-up iterations
@@ -794,6 +800,7 @@ async function handleMessage(
       || (RICH_DRAFT_ENABLED && richDraftSetting !== '0')
     const richDraft = RICH_MESSAGES_ENABLED && ctx.chat?.type === 'private' && richDraftEnabled
     const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang, richDraft, PROGRESS_FULL_LOG, RICH_DRAFT_THROTTLE_MS)
+    reporter.runKey = sKey
 
     // Loop: run agent, check for follow-up messages (like typing in CLI while agent runs)
     while (true) {
@@ -870,15 +877,15 @@ async function handleMessage(
       }
 
       // Get session
-      const sessionId = getSession(chatIdStr)
+      const sessionId = getSession(sKey)
 
       // Consume any pending /undo anchor — one-shot. Resume this turn only up to
       // the stored assistant message (SDK resumeSessionAt) so the last exchange
       // is dropped. Ignore if it was computed against a different session.
       let resumeAt: string | undefined
-      const pendingRewind = getPendingRewind(chatIdStr)
+      const pendingRewind = getPendingRewind(sKey)
       if (pendingRewind) {
-        clearPendingRewind(chatIdStr)
+        clearPendingRewind(sKey)
         if (sessionId && pendingRewind.sessionId === sessionId) resumeAt = pendingRewind.anchorUuid
       }
 
@@ -990,10 +997,10 @@ async function handleMessage(
 
         return new Promise<string>((resolve, reject) => {
           const timeout = setTimeout(() => {
-            pendingQuestions.delete(chatIdStr)
+            pendingQuestions.delete(sKey)
             reject(new Error('timeout'))
           }, ASK_USER_TIMEOUT_MS)
-          pendingQuestions.set(chatIdStr, { resolve, reject, timeout, labels: options.map(o => o.label) })
+          pendingQuestions.set(sKey, { resolve, reject, timeout, labels: options.map(o => o.label) })
         })
       }
 
@@ -1077,7 +1084,7 @@ async function handleMessage(
           ? buildAgentDefinitions(matched, getChatLang(chatIdStr))
           : undefined
 
-        const result = await runAgent(fullMessage, sessionId, sendTyping, chatIdStr, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs, currentEffort, resumeAt)
+        const result = await runAgent(fullMessage, sessionId, sendTyping, sKey, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs, currentEffort, resumeAt)
         text = result.text
         newSessionId = result.newSessionId
         usage = result.usage
@@ -1096,7 +1103,7 @@ async function handleMessage(
       // Update session
       if (newSessionId) {
         const oldSessionId = sessionId
-        setSession(chatIdStr, newSessionId)
+        setSession(sKey, newSessionId)
         // Fire-and-forget: consolidate previous session in background
         if (oldSessionId && oldSessionId !== newSessionId) {
           import('./consolidate.js').then(({ consolidateSession }) =>
@@ -1126,11 +1133,11 @@ async function handleMessage(
       }
 
       // Check for follow-up BEFORE cleanup — reuse reporter if continuing
-      const followup = getAndClearFollowup(chatIdStr)
+      const followup = getAndClearFollowup(sKey)
       if (followup) {
         // Add separator line, keep writing to same progress message
         reporter.addFollowupMarker(followup)
-        clearCancelled(chatIdStr)
+        clearCancelled(sKey)
         logger.info({ chatId: chatIdStr }, 'Follow-up received, resuming with new message')
         // Wrap follow-up so agent processes it AND continues original task
         currentMessage = chatT(chatIdStr)('followup.prefix', { text: followup })
@@ -1144,7 +1151,7 @@ async function handleMessage(
       // No follow-up — send the result
       if (!text) {
         // Юзер зупинив агента до появи тексту — «⏹ Зупинено», не «(без відповіді)»
-        const wasStopped = isInterrupted(chatIdStr)
+        const wasStopped = isInterrupted(sKey)
         await ctx.reply(wasStopped ? '⏹ Зупинено' : chatT(chatIdStr)('auth.noReply'))
         return
       }
@@ -1276,7 +1283,7 @@ export function createBot(): Bot {
   bot.use(async (ctx, next) => {
     // AskUserQuestion answer callback
     if (ctx.callbackQuery?.data?.startsWith('ask:')) {
-      const chatIdStr = String(ctx.chat?.id)
+      const chatIdStr = keyOf(ctx)
       const raw = ctx.callbackQuery.data.slice(4) // remove 'ask:'
       const pending = pendingQuestions.get(chatIdStr)
       if (pending) {
@@ -1384,7 +1391,8 @@ export function createBot(): Bot {
     if (stopped) {
       const chatIdStr = String(stopped.chat?.id ?? '')
       if (stopped.draft_id && chatForStoppedDraft(stopped.draft_id, chatIdStr)) {
-        const result = await interruptRequest(chatIdStr)
+        const key = sessionKey(chatIdStr, (stopped as { message_thread_id?: number }).message_thread_id, getSessionMode(chatIdStr))
+        const result = await interruptRequest(key)
         logger.info({ chatId: chatIdStr, draftId: stopped.draft_id, interrupted: result.interrupted }, 'Draft stop pressed')
       }
       return
@@ -1393,7 +1401,8 @@ export function createBot(): Bot {
     if (ctx.callbackQuery?.data?.startsWith('stop:')) {
       const targetChatId = ctx.callbackQuery.data.split(':')[1]
       if (String(ctx.chat?.id) === targetChatId) {
-        const result = await interruptRequest(targetChatId)
+        // The button sits in the run's own topic, so its thread names the run
+        const result = await interruptRequest(keyOf(ctx))
         const _t = chatT(targetChatId)
         await ctx.answerCallbackQuery({ text: result.interrupted ? _t('cb.stopping') : _t('cb.nothingToStop') })
         // interrupt_receipt_v1: some queued follow-ups survive the interrupt.
@@ -1438,8 +1447,8 @@ export function createBot(): Bot {
     if (ctx.callbackQuery?.data?.startsWith('intr:')) {
       const targetChatId = ctx.callbackQuery.data.split(':')[1]
       if (String(ctx.chat?.id) === targetChatId) {
-        const cancelled = await cancelRequest(targetChatId)
-        clearQueue(targetChatId)
+        const cancelled = await cancelRequest(keyOf(ctx))
+        clearQueue(keyOf(ctx))
         const _t = chatT(targetChatId)
         await ctx.answerCallbackQuery({ text: cancelled ? _t('cb.interrupting') : _t('cb.nothingToStop') })
       }
@@ -1653,8 +1662,8 @@ export function createBot(): Bot {
       const _t = chatT(chatIdStr)
       clearPasteBuffer(chatIdStr)
       clearAlbumBuffers(chatIdStr)
-      const cancelled = await cancelRequest(chatIdStr)
-      const cleared = clearQueue(chatIdStr)
+      const cancelled = await cancelRequest(keyOf(ctx))
+      const cleared = clearQueue(keyOf(ctx))
       if (cancelled || cleared > 0) {
         const parts: string[] = []
         if (cancelled) parts.push(_t('cancel.request'))
@@ -1684,7 +1693,9 @@ export function createBot(): Bot {
     // inject it — agent gets soft-interrupted and resumes with the follow-up in same session
     if (ctx.message && !ctx.message.text?.startsWith('/')) {
       const chatIdStr = String(ctx.chat?.id)
-      if (isProcessing(chatIdStr)) {
+      // A message in another topic is a different conversation, not a follow-up
+      const runKey = keyOf(ctx)
+      if (isProcessing(runKey)) {
         // Voice + voice_confirm ON: let it through to voice handler for transcription & confirm UI
         if (ctx.message.voice && getChatSetting(chatIdStr, 'voice_confirm') === '1') {
           await next()
@@ -1728,7 +1739,7 @@ export function createBot(): Bot {
         }
         if (followupText) {
           const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
-          await addFollowup(chatIdStr, followupText, protectSubagents)
+          await addFollowup(runKey, followupText, protectSubagents)
           // Visual feedback: react with 👀 so user knows it was captured
           await ctx.react('👀').catch(() => {})
         }
@@ -1804,8 +1815,9 @@ export function createBot(): Bot {
     const chatIdStr = String(ctx.chat!.id)
     clearPasteBuffer(chatIdStr)
     clearAlbumBuffers(chatIdStr)
-    const oldSessionId = getSession(chatIdStr)
-    clearSession(chatIdStr)
+    const key = keyOf(ctx)
+    const oldSessionId = getSession(key)
+    clearSession(key)
     logAudit(chatIdStr, 'session_clear')
     // Fire-and-forget: consolidate previous session in background
     if (oldSessionId) {
@@ -1824,7 +1836,8 @@ export function createBot(): Bot {
   const undoHandler = async (ctx: Context) => {
     const chatIdStr = String(ctx.chat!.id)
     const t = chatT(chatIdStr)
-    const sessionId = getSession(chatIdStr)
+    const key = keyOf(ctx)
+    const sessionId = getSession(key)
     if (!sessionId) {
       await ctx.reply(t('cmd.undo.nothing'))
       return
@@ -1836,13 +1849,13 @@ export function createBot(): Bot {
     }
     if (anchor.action === 'clear') {
       // Undoing the only exchange empties the session — clear it outright.
-      clearSession(chatIdStr)
-      clearPendingRewind(chatIdStr)
+      clearSession(key)
+      clearPendingRewind(key)
       logAudit(chatIdStr, 'session_undo_clear')
       await ctx.reply(t('cmd.undo.cleared'))
       return
     }
-    setPendingRewind(chatIdStr, sessionId, anchor.anchorUuid)
+    setPendingRewind(key, sessionId, anchor.anchorUuid)
     logAudit(chatIdStr, 'session_undo', anchor.anchorUuid)
     await ctx.reply(t('cmd.undo.ok'))
   }
@@ -1852,7 +1865,8 @@ export function createBot(): Bot {
   bot.command('fork', async (ctx) => {
     const chatIdStr = String(ctx.chat!.id)
     const t = chatT(chatIdStr)
-    const sessionId = getSession(chatIdStr)
+    const key = keyOf(ctx)
+    const sessionId = getSession(key)
     if (!sessionId) {
       await ctx.reply(t('cmd.fork.nothing'))
       return
@@ -1860,9 +1874,9 @@ export function createBot(): Bot {
     try {
       const { forkSession } = await import('@anthropic-ai/claude-agent-sdk')
       const { sessionId: forked } = await forkSession(sessionId, { dir: BOT_DIR })
-      setSession(chatIdStr, forked)
+      setSession(key, forked)
       // A rewind anchor points into the old branch; it means nothing in the new one.
-      clearPendingRewind(chatIdStr)
+      clearPendingRewind(key)
       logAudit(chatIdStr, 'session_fork', `${sessionId} -> ${forked}`)
       await ctx.reply(t('cmd.fork.ok'))
     } catch (err) {

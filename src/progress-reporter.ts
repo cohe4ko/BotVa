@@ -271,6 +271,8 @@ export class ProgressReporter {
   private lastDraftText = ''
 
   private draftThrottleMs: number
+  /** Request-queue key of the run this reporter shows (differs from the chat in topic mode). */
+  runKey?: string
 
   constructor(chatId: number, api: Api, cleanupDelayMs?: number, cuteMode?: boolean, lang?: BotLang, richDraft?: boolean, fullLog?: boolean, draftThrottleMs?: number) {
     this.chatId = chatId
@@ -784,7 +786,7 @@ export class ProgressReporter {
 
       if (res.subtype !== 'success' && res.subtype !== undefined) {
         // Перерваний користувачем хід (Stop/follow-up) — не помилка, а зупинка
-        if (res.subtype === 'error_during_execution' && isInterrupted(String(this.chatId))) {
+        if (res.subtype === 'error_during_execution' && isInterrupted(this.runKey ?? String(this.chatId))) {
           parts.push('⏹ зупинено')
         } else {
           parts.push(`⚠️ ${res.subtype}`)

@@ -1,5 +1,6 @@
 import type { Bot, Context } from 'grammy'
 import { getChatSetting, setChatSetting, deleteChatSetting, getSession, setSession, clearSession, logAudit } from './db.js'
+import { keyOf } from './session-key.js'
 import { chatT, getChatLang, setChatLang, type BotT } from './bot-i18n.js'
 import { getModel, setModel, MODELS, getModelLabel } from './model.js'
 import { listDiskSessionsByKey, listClaudeProjects, getSessionDetail } from './disk-sessions.js'
@@ -71,6 +72,8 @@ export function buildSettingsMessage(chatId: string) {
   const sttLangLabel = t(STT_LANG_OPTIONS.find(o => o.id === sttLang)?.labelKey ?? 'stt.uk')
   const thinkLang = getChatSetting(chatId, 'think_lang') ?? 'auto'
   const thinkLangLabel = t(THINK_LANG_OPTIONS.find(o => o.id === thinkLang)?.labelKey ?? 'think.auto')
+  const sessionMode = getChatSetting(chatId, 'session_mode') === 'topics' ? 'topics' : 'name'
+  const sessionModeLabel = t(`session_mode.${sessionMode}`)
 
   const keyboard = [
     [
@@ -99,6 +102,7 @@ export function buildSettingsMessage(chatId: string) {
     ],
     [
       { text: t('settings.think_lang', { label: thinkLangLabel }), callback_data: 'settings:think_lang' },
+      { text: t('settings.session_mode', { label: sessionModeLabel }), callback_data: 'settings:session_mode' },
     ],
     [
       { text: '❌ ' + t('settings.close'), callback_data: 'settings:close' },
@@ -121,6 +125,7 @@ export function buildSettingsMessage(chatId: string) {
     `🎙 <b>${sttLangLabel}</b> — ${t('settings.desc.stt_lang')}`,
     `🛡 <b>${protectSubagentsOn ? 'ON' : 'OFF'}</b> — ${t('settings.desc.protect_subagents')}`,
     `💭 <b>${thinkLangLabel}</b> — ${t('settings.desc.think_lang')}`,
+    `🗂 <b>${sessionModeLabel}</b> — ${t('settings.desc.session_mode')}`,
   ]
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: keyboard } }
@@ -351,6 +356,12 @@ export async function handleSettingsCallback(
       else setChatSetting(chatIdStr, 'think_lang', next)
       break
     }
+    case 'session_mode': {
+      // name (default, one conversation named via NameSession) <-> topics (one per forum topic)
+      if (getChatSetting(chatIdStr, 'session_mode') === 'topics') deleteChatSetting(chatIdStr, 'session_mode')
+      else setChatSetting(chatIdStr, 'session_mode', 'topics')
+      break
+    }
     case 'close': {
       await ctx.answerCallbackQuery()
       try { await ctx.deleteMessage() } catch { /* ignore */ }
@@ -407,7 +418,7 @@ export async function handleSessionCallback(ctx: Context, chatIdStr: string, act
   const _t = chatT(chatIdStr)
 
   if (action === 'new') {
-    clearSession(chatIdStr)
+    clearSession(keyOf(ctx))
     logAudit(chatIdStr, 'session_clear')
     await ctx.answerCallbackQuery({ text: _t('cmd.newchat') })
     const { text, reply_markup } = buildProjectsMessage(chatIdStr)
@@ -446,7 +457,7 @@ export async function handleSessionCallback(ctx: Context, chatIdStr: string, act
 
   if (action.startsWith('load:')) {
     const sessionId = action.slice(5)
-    setSession(chatIdStr, sessionId)
+    setSession(keyOf(ctx), sessionId)
     const shortId = sessionId.slice(0, 8)
     await ctx.answerCallbackQuery({ text: _t('cmd.session.loaded', { name: shortId }) })
 
@@ -549,7 +560,7 @@ export function registerSettingsCommands(
         await ctx.reply(t('cmd.session.import_usage'))
         return
       }
-      setSession(chatIdStr, sessionId)
+      setSession(keyOf(ctx), sessionId)
       await ctx.reply(t('cmd.session.imported'))
       return
     }
