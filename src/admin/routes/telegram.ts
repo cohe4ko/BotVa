@@ -17,7 +17,11 @@ import { getObserverStatus, readLogTail } from '../../telegram/status.js'
 import {
   listChats, countChats, listUnreadChats, getRecentMessages, getMessages, listOutbox,
   setChatMode, setChatCanSend, getChat, countMessages, countForeignRows, purgeForeignRows, setAutoReply, setAutoReplyPrompt, baselineAutoReply,
+  setAnalysisTarget, listPeople, countPeople, getPerson, setPersonProfile, personName,
+  listExtractions, getExtraction, setExtractionStatus, countExtractions, listBudget,
+  listChatMembers, chatMembersSyncedAt,
   type ChatMode, type TgMessage, type TgChat, type ListChatsOptions,
+  type TgPerson, type Extraction,
 } from '../../telegram/db.js'
 import { logger } from '../../logger.js'
 import { openObserver } from '../../telegram/bridge.js'
@@ -30,8 +34,18 @@ const CHAT_MODES: ChatMode[] = ['ignore', 'log-only', 'facts-only', 'full']
 const MODE_HINT: Record<ChatMode, string> = {
   'ignore': 'Повністю поза системою',
   'log-only': 'Логувати, нічого не витягати',
-  'facts-only': 'Логувати + витягати факти (коли конвеєр увімкнено)',
+  'facts-only': 'Логувати + витягати факти',
   'full': 'Логувати + факти + задачі',
+}
+
+const KIND_LABEL: Record<string, string> = {
+  facts: 'факт',
+  events: 'подія',
+  commitments_mine: 'моя обіцянка',
+  commitments_theirs: 'обіцяли мені',
+  requests: 'попросили',
+  dates: 'дата',
+  contacts: 'контакт',
 }
 
 function runControl(action: 'start' | 'stop' | 'restart'): Promise<{ ok: boolean; output: string }> {
@@ -414,6 +428,35 @@ function autoReplyCell(c: TgChat, bots: string[]) {
     </div>`
 }
 
+/**
+ * Which bot turns this chat into facts.
+ *
+ * Deliberately its own control rather than a side effect of the mode: logging a
+ * chat and writing its contents into a bot's long-term memory are different
+ * permissions. Only offered where the mode allows extraction at all.
+ */
+function analysisCell(c: TgChat, bots: string[]) {
+  if (c.mode !== 'facts-only' && c.mode !== 'full') {
+    return html`<span style="font-size:0.7rem;color:var(--mc-text-dim)">—</span>`
+  }
+  const include = "[name='q'],[name='list_mode'],[name='days'],[name='page']"
+  return html`
+    <div style="display:flex;flex-direction:column;gap:0.2rem">
+      <select style="margin:0;font-size:0.75rem;max-width:120px"
+              hx-post="/telegram/chat/${encodeURIComponent(c.chat_id)}/analysis"
+              hx-target="#tg-chats" hx-swap="innerHTML"
+              hx-include="${include}"
+              hx-vals="js:{bot: event.target.value}" hx-trigger="change">
+        <option value=""${!c.target_bot ? ' selected' : ''}>— не аналізувати —</option>
+        ${bots.map(b => html`<option value="${b}"${b === c.target_bot ? ' selected' : ''}>${b}</option>`)}
+      </select>
+      ${c.target_bot ? html`
+        <span style="font-size:0.66rem;color:var(--mc-text-dim)">
+          розібрано до #${c.analyzed_msg_id}${c.mode === 'facts-only' ? ', без задач' : ''}
+        </span>` : ''}
+    </div>`
+}
+
 function renderChats(chats: TgChat[], q: ChatQuery, total: number, bots: string[]) {
   if (chats.length === 0) {
     return html`
@@ -430,7 +473,7 @@ function renderChats(chats: TgChat[], q: ChatQuery, total: number, bots: string[
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Чат</th><th>Тип</th><th>Непрочитані</th><th>Режим</th><th>Відправка</th><th>Автовідповідь</th><th>Останнє</th><th></th></tr>
+          <tr><th>Чат</th><th>Тип</th><th>Непрочитані</th><th>Режим</th><th>Відправка</th><th>Автовідповідь</th><th>Аналіз</th><th>Останнє</th><th></th></tr>
         </thead>
         <tbody>
           ${chats.map(c => html`
@@ -458,6 +501,7 @@ function renderChats(chats: TgChat[], q: ChatQuery, total: number, bots: string[
                        hx-vals="js:{can_send: event.target.checked ? '1' : '0'}" hx-trigger="change">
               </td>
               <td>${autoReplyCell(c, bots)}</td>
+              <td>${analysisCell(c, bots)}</td>
               <td style="font-size:0.72rem;color:var(--mc-text-dim)">${c.last_msg_ts ? fmtTime(c.last_msg_ts) : '—'}</td>
               <td>${modeBadge(c.mode)}</td>
             </tr>`)}
@@ -542,6 +586,111 @@ function renderAutoReplyPanel(chat: TgChat) {
 
 // --- Pages ---
 
+function renderPeople(people: TgPerson[], total: number, search: string) {
+  if (people.length === 0) {
+    return html`<p style="color:var(--mc-text-dim);font-size:0.85rem">
+      ${search ? 'Нікого не знайдено.' : 'Довідник наповнюється сам із логу — щойно хтось напише, він тут з\'явиться.'}
+    </p>`
+  }
+  return html`
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Хто</th><th style="width:150px">Роль</th><th style="width:170px">Алаяси</th><th>Нотатка</th><th style="width:110px">Активність</th></tr>
+        </thead>
+        <tbody>
+          ${people.map(p => {
+            const post = `/telegram/person/${encodeURIComponent(p.peer_id)}`
+            return html`
+            <tr>
+              <td>
+                <input value="${p.canonical_name}" placeholder="${p.display_name || p.peer_id}"
+                       style="margin:0;font-size:0.8rem;width:100%"
+                       hx-post="${post}" hx-target="#tg-people" hx-swap="innerHTML"
+                       hx-include="[name='people_q']"
+                       hx-vals="js:{canonical_name: event.target.value}" hx-trigger="change">
+                <div style="font-size:0.68rem;color:var(--mc-text-dim)">
+                  ${p.display_name}${p.username ? html` · @${p.username}` : ''}${p.is_bot ? ' · бот' : ''}
+                </div>
+              </td>
+              <td>
+                <input value="${p.role}" placeholder="дружина, підрядник…"
+                       style="margin:0;font-size:0.78rem;width:100%"
+                       hx-post="${post}" hx-target="#tg-people" hx-swap="innerHTML"
+                       hx-include="[name='people_q']"
+                       hx-vals="js:{role: event.target.value}" hx-trigger="change">
+              </td>
+              <td>
+                <input value="${p.aliases}" placeholder="інші імена"
+                       style="margin:0;font-size:0.78rem;width:100%"
+                       hx-post="${post}" hx-target="#tg-people" hx-swap="innerHTML"
+                       hx-include="[name='people_q']"
+                       hx-vals="js:{aliases: event.target.value}" hx-trigger="change">
+              </td>
+              <td>
+                <input value="${p.note}" placeholder="коротка нотатка"
+                       style="margin:0;font-size:0.78rem;width:100%"
+                       hx-post="${post}" hx-target="#tg-people" hx-swap="innerHTML"
+                       hx-include="[name='people_q']"
+                       hx-vals="js:{note: event.target.value}" hx-trigger="change">
+              </td>
+              <td style="font-size:0.7rem;color:var(--mc-text-dim);white-space:nowrap">
+                ${p.msg_count} повідомл.${p.seen_last ? html`<br>${fmtTime(p.seen_last)}` : ''}
+              </td>
+            </tr>`
+          })}
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:0.72rem;color:var(--mc-text-dim);margin-top:0.4rem">
+      Показано ${people.length} з ${total}. Канонічне ім'я витісняє те, як людина підписана в Telegram —
+      саме воно йде в аналіз і у факти. Роль — те, що робить факт осмисленим: «приїду в четвер»
+      від дружини і від підрядника означає різне.
+    </p>`
+}
+
+function renderQueue(items: Extraction[], counts: Record<string, number>) {
+  if (items.length === 0) {
+    return html`<p style="color:var(--mc-text-dim);font-size:0.85rem">
+      Черга порожня. Сюди потрапляє те, у чому модель не впевнена — приблизно 0.45–0.75.
+      ${counts['saved'] ? html`<br>Записано без питань: ${counts['saved']}.` : ''}
+    </p>`
+  }
+  return html`
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th style="width:100px">Тип</th><th>Що витягли</th><th style="width:130px">Хто / коли</th><th style="width:70px">Впевн.</th><th style="width:150px"></th></tr>
+        </thead>
+        <tbody>
+          ${items.map(e => html`
+            <tr>
+              <td style="font-size:0.72rem">${KIND_LABEL[e.kind] ?? e.kind}</td>
+              <td>
+                <div style="font-size:0.85rem">${e.text}</div>
+                <div style="font-size:0.7rem;color:var(--mc-text-dim);font-style:italic">«${e.quote}»</div>
+              </td>
+              <td style="font-size:0.72rem;color:var(--mc-text-dim)">
+                ${e.who || '—'}${e.when_due ? html`<br>до ${e.when_due}` : ''}
+              </td>
+              <td style="font-size:0.75rem">${e.confidence.toFixed(2)}</td>
+              <td>
+                <button class="btn-sm" hx-post="/telegram/queue/${e.id}/approve"
+                        hx-target="#tg-queue" hx-swap="innerHTML">Записати</button>
+                <button class="btn-sm outline" hx-post="/telegram/queue/${e.id}/decline"
+                        hx-target="#tg-queue" hx-swap="innerHTML">Ні</button>
+              </td>
+            </tr>`)}
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:0.72rem;color:var(--mc-text-dim);margin-top:0.4rem">
+      Записано автоматично: ${counts['saved'] ?? 0} · відхилено: ${counts['declined'] ?? 0} ·
+      дублі: ${counts['duplicate'] ?? 0} · відсіяно порогом: ${counts['dropped'] ?? 0} ·
+      джерело змінилось: ${counts['stale'] ?? 0}
+    </p>`
+}
+
 app.get('/telegram', (c) => {
   const t: TFunc = c.get('t')
   const lang: Lang = c.get('lang')
@@ -570,6 +719,20 @@ app.get('/telegram', (c) => {
       <p style="color:var(--mc-text-dim)">Завантаження...</p>
     </div>
 
+    <h2 style="margin-top:1.25rem">${icon('users', 16)} Люди</h2>
+    <input type="search" name="people_q" placeholder="ім'я, @username або алаяс"
+           style="max-width:280px;margin-bottom:0.5rem"
+           hx-get="/telegram/people" hx-target="#tg-people" hx-swap="innerHTML"
+           hx-trigger="input changed delay:300ms, search">
+    <div id="tg-people" hx-get="/telegram/people" hx-trigger="load" hx-swap="innerHTML">
+      <p style="color:var(--mc-text-dim)">Завантаження...</p>
+    </div>
+
+    <h2 style="margin-top:1.25rem">${icon('inbox', 16)} Черга ревізії</h2>
+    <div id="tg-queue" hx-get="/telegram/queue" hx-trigger="load" hx-swap="innerHTML">
+      <p style="color:var(--mc-text-dim)">Завантаження...</p>
+    </div>
+
     <h2 style="margin-top:1.25rem">${icon('outdent', 16)} Вихідні дії ботів</h2>
     <div id="tg-outbox" hx-get="/telegram/outbox" hx-trigger="load" hx-swap="innerHTML">
       <p style="color:var(--mc-text-dim)">Завантаження...</p>
@@ -584,7 +747,8 @@ app.get('/telegram', (c) => {
       'Telegram Observer — окремий демон, який тримає MTProto-сесію твого особистого акаунта (не бота).',
       'Він логує повідомлення за режимом кожного чату і віддає ботам MCP-інструменти через Unix socket store/telegram.sock.',
       'Боти можуть читати чати, бачити непрочитані і надсилати повідомлення від твого імені — відправка лише в чати з галочкою «Відправка».',
-      'Витяг фактів і задач у пам\'ять бота — наступна фаза, зараз демон тільки логує.',
+      'Витяг фактів і задач (Tier 1) працює для чатів у режимі facts-only і full, яким призначено бота в колонці «Аналіз».',
+      'Впевнене йде в пам\'ять одразу, сумнівне — у чергу ревізії, решта лишається тільки в логу.',
     ])}
   `
 
@@ -847,6 +1011,84 @@ app.post('/telegram/chat/:id/can-send', async (c) => {
 })
 
 // JSON status for scripts and diagnostics
+app.get('/telegram/people', (c) => {
+  const search = c.req.query('people_q') ?? ''
+  const people = listPeople({ search: search || undefined, includeBots: true, limit: 100 })
+  return c.html(renderPeople(people, countPeople(), search))
+})
+
+app.post('/telegram/person/:id', async (c) => {
+  const peerId = decodeURIComponent(c.req.param('id'))
+  const body = await c.req.parseBody()
+  const field = (k: string) => (body[k] === undefined ? undefined : String(body[k]))
+
+  setPersonProfile(peerId, {
+    canonical_name: field('canonical_name'),
+    role: field('role'),
+    aliases: field('aliases'),
+    note: field('note'),
+  })
+
+  const search = String(body['people_q'] ?? '')
+  return c.html(renderPeople(
+    listPeople({ search: search || undefined, includeBots: true, limit: 100 }),
+    countPeople(), search))
+})
+
+app.post('/telegram/chat/:id/analysis', async (c) => {
+  const chatId = decodeURIComponent(c.req.param('id'))
+  const body = await c.req.parseBody()
+  const bot = String(body['bot'] ?? '')
+  setAnalysisTarget(chatId, bot)
+  logger.info({ chatId, bot }, '[telegram] analysis target changed')
+  return c.html(renderChatsFromBody(body))
+})
+
+function queueView() {
+  return renderQueue(listExtractions({ status: 'pending', limit: 50 }), countExtractions())
+}
+
+app.get('/telegram/queue', (c) => c.html(queueView()))
+
+/**
+ * Approve one queued candidate.
+ *
+ * The write goes through the same path the automatic branch uses, so an
+ * approved item is indistinguishable from a confidently extracted one — there
+ * is no second way into the bot's memory.
+ */
+app.post('/telegram/queue/:id/approve', async (c) => {
+  const id = Number(c.req.param('id'))
+  const item = getExtraction(id)
+  if (!item || item.status !== 'pending') return c.html(queueView())
+
+  try {
+    const { insertFactForBot } = await import('../db-multi.js')
+    const { sectorFor } = await import('../../telegram/gate.js')
+    const factId = insertFactForBot(
+      item.target_bot,
+      'admin',
+      item.text,
+      item.topic || 'general',
+      sectorFor(item.kind as never),
+      item.tags,
+      `telegram:${item.chat_id}`,
+      item.confidence,
+    )
+    setExtractionStatus(id, 'saved', { fact_id: factId })
+    logger.info({ id, factId, bot: item.target_bot }, '[telegram] queued item approved')
+  } catch (err) {
+    logger.error({ err, id }, '[telegram] could not save approved item')
+  }
+  return c.html(queueView())
+})
+
+app.post('/telegram/queue/:id/decline', (c) => {
+  const id = Number(c.req.param('id'))
+  setExtractionStatus(id, 'declined')
+  return c.html(queueView())
+})
+
 app.get('/telegram/api/status', (c) => {
   const s = getObserverStatus()
   return c.json({ ...s, counts: countMessages() })

@@ -23,10 +23,14 @@ import { TG_SOCK_PATH } from './paths.js'
 import {
   listChats, countChats, listUnreadChats, getChat, getMessages, searchMessages,
   recordOutbox, countOutboxSince, setChatUnread, insertMessage,
+  syncChatMembers, listChatMembers, chatMembersSyncedAt, listPeople, getPerson,
+  setPersonProfile, personName, type TgPerson,
 } from './db.js'
 import {
   listDialogs, getHistory, getOwnHistory, sendText, sendFile, resolveChat, markRead,
-  getPeerState, MAX_HISTORY,
+  getPeerState, getParticipants, readContactNote, writeContactNote, addContact,
+  sendContact, sendVcardFile, importContactByPhone,
+  MAX_HISTORY, MAX_PARTICIPANTS,
 } from './client.js'
 
 /** Outgoing action limits — a hard refusal, never a queue. */
@@ -91,6 +95,29 @@ function formatMessages(rows: { direction: string; sender_name: string | null; t
     const media = m.media_type ? ` [${m.media_type}]` : ''
     return `[${when}] #${m.msg_id} ${who}:${media} ${m.text}`
   }).join('\n')
+}
+
+/**
+ * One person as a line a model can read.
+ *
+ * The canonical name comes first because that is the one the owner chose; the
+ * Telegram display name is only shown when it differs, since a mismatch is
+ * exactly what makes a person hard to recognise later.
+ */
+function formatPersonLine(p: TgPerson & { status?: string }): string {
+  const parts = [personName(p)]
+  if (p.canonical_name && p.display_name && p.canonical_name !== p.display_name) {
+    parts.push(`(у Telegram: ${p.display_name})`)
+  }
+  if (p.username) parts.push(`@${p.username}`)
+  if (p.role) parts.push(`— ${p.role}`)
+  if (p.is_bot) parts.push('[бот]')
+  const seen = p.seen_last ? new Date(p.seen_last * 1000).toLocaleDateString('uk-UA') : null
+  const tail: string[] = []
+  if (p.msg_count > 0) tail.push(`${p.msg_count} повідомл.`)
+  if (seen) tail.push(`останнє ${seen}`)
+  if (p.note) tail.push(p.note)
+  return `#${p.peer_id} ${parts.join(' ')}${tail.length ? ` · ${tail.join(', ')}` : ''}`
 }
 
 const TOOLS = [
@@ -214,6 +241,117 @@ const TOOLS = [
         own_limit: { type: 'number', description: 'скільки власних повідомлень підтягнути (типово 50, максимум 100)' },
       },
       required: ['chat'],
+    },
+  },
+  {
+    name: 'tg_chat_members',
+    description: 'Хто складається в групі чи супергрупі — саме учасники, а не ті, хто писав. Мовчазного учасника в логу не видно, а той, хто давно вийшов, у логу лишається назавжди. За замовчуванням віддає збережений склад; refresh=true тягне свіжий з Telegram і оновлює довідник людей. Для великих груп Telegram віддає неповний список — це нормальна відповідь, у ній буде сказано скільки з якої кількості видно.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        chat: { type: 'string', description: 'chat_id, @username або назва групи' },
+        refresh: { type: 'boolean', description: 'true — запитати склад у Telegram (типово false: віддати збережений)' },
+        search: { type: 'string', description: 'Фільтр за іменем чи @username' },
+        limit: { type: 'number', description: `Скільки учасників (типово 200, максимум ${MAX_PARTICIPANTS})` },
+      },
+      required: ['chat'],
+    },
+  },
+  {
+    name: 'tg_people',
+    description: 'Довідник людей: канонічне ім\'я, роль, @username, скільки писали, коли востаннє. Наповнюється сам із логу. Питай коли треба зрозуміти, хто така людина, або знайти когось за роллю чи іменем. Без аргументів — найактивніші за останнім контактом.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        search: { type: 'string', description: 'Ім\'я, @username або алаяс' },
+        chat: { type: 'string', description: 'Тільки люди з цього чату' },
+        with_role_only: { type: 'boolean', description: 'Тільки ті, кому проставлено роль' },
+        include_bots: { type: 'boolean', description: 'Включати ботів (типово ні)' },
+        limit: { type: 'number', description: 'Скільки людей (типово 50, максимум 500)' },
+      },
+    },
+  },
+  {
+    name: 'tg_name_person',
+    description: 'Записати, хто ця людина: канонічне ім\'я, роль (дружина, підрядник, замовник), алаяси, нотатка. Канонічне ім\'я витісняє те, як людина підписана в Telegram — саме воно йде далі в аналіз і у факти. Передавай лише ті поля, які змінюєш.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        peer_id: { type: 'string', description: 'id людини з tg_people' },
+        canonical_name: { type: 'string', description: 'Як звати цю людину насправді' },
+        role: { type: 'string', description: 'Ким вона є власнику: дружина, підрядник, замовник, колега' },
+        aliases: { type: 'string', description: 'Інші імена через кому — щоб знаходилась пошуком' },
+        note: { type: 'string', description: 'Коротка нотатка' },
+      },
+      required: ['peer_id'],
+    },
+  },
+  {
+    name: 'tg_contact_note',
+    description: 'Профіль людини в Telegram: нотатка, яку Telegram показує власнику біля контакту («Add notes only visible to you»), чи людина взагалі в контактах, і шлях до її аватара на диску. Аватар качається один раз і кешується — у відповіді шлях до файлу, не саме зображення. Це не наша нотатка з tg_people — для неї є tg_people і tg_name_person.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { peer: { type: 'string', description: 'peer_id або @username' } },
+      required: ['peer'],
+    },
+  },
+  {
+    name: 'tg_write_note',
+    description: 'Записати нотатку в сам профіль контакту в Telegram — вона з\'явиться в клієнтах власника біля цієї людини. Порожній текст стирає нотатку. Працює лише для тих, хто вже в контактах: якщо ні, спершу tg_add_contact. Записує тільки нотатку, імені не чіпає.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        peer: { type: 'string', description: 'peer_id або @username' },
+        note: { type: 'string', description: 'Текст нотатки; порожній рядок — стерти' },
+        sync_local: { type: 'boolean', description: 'Записати той самий текст і в tg_people.note (типово так)' },
+      },
+      required: ['peer', 'note'],
+    },
+  },
+  {
+    name: 'tg_add_contact',
+    description: 'Додати людину в контакти власника, одразу з іменем і (за бажанням) нотаткою. Ім\'я — це як власник її називає, воно витісняє її власний підпис у Telegram. Не додавай без прямої вказівки: це видима зміна в акаунті.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        peer: { type: 'string', description: 'peer_id або @username' },
+        first_name: { type: 'string', description: 'Ім\'я, під яким власник хоче її бачити' },
+        last_name: { type: 'string', description: 'Прізвище, якщо треба' },
+        note: { type: 'string', description: 'Нотатка, видима лише власнику' },
+        phone: { type: 'string', description: 'Номер телефону цієї людини, якщо він відомий. Контакт без номера не можна надіслати карткою' },
+        share_phone: { type: 'boolean', description: 'Відкрити цій людині номер власника. Типово ні — це розкриття даних, а не зручність' },
+      },
+      required: ['peer', 'first_name'],
+    },
+  },
+  {
+    name: 'tg_import_contact',
+    description: 'Додати людину в контакти ЗА НОМЕРОМ ТЕЛЕФОНУ — так, як це робить синхронізація адресної книги телефона. Єдиний спосіб отримати повноцінний контакт із номером: доданий за @ніком номера не має, а без номера його не можна надіслати карткою. Номер вивантажується в Telegram для пошуку збігу; якщо акаунта на ньому немає — просто нічого не знайдеться, повідомлення нікому не піде.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        phone: { type: 'string', description: 'Номер у будь-якому вигляді: +380 73 123 45 67, 380731234567' },
+        first_name: { type: 'string', description: 'Ім\'я, під яким власник хоче її бачити' },
+        last_name: { type: 'string', description: 'Прізвище, якщо треба' },
+        note: { type: 'string', description: 'Нотатка, видима лише власнику' },
+      },
+      required: ['phone', 'first_name'],
+    },
+  },
+  {
+    name: 'tg_send_contact',
+    description: 'Надіслати комусь картку контакту іншої людини — від імені власника. Ім\'я на картці — те, як власник цю людину назвав. Працює тільки для тих, чий номер видно власнику: картки без номера в Telegram не існує, тож для решти надсилай дані текстом (ім\'я, @нік, пояснення). Приватна нотатка з профілю НЕ передається і передана бути не може: те, що має прочитати отримувач, пишеться в comment.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        chat: { type: 'string', description: 'Кому надіслати: chat_id або @username' },
+        peer: { type: 'string', description: 'Чию картку: peer_id або @username' },
+        comment: { type: 'string', description: 'Підпис під карткою, який ПРОЧИТАЄ ОТРИМУВАЧ. Не для приватних нотаток' },
+        attach_note: { type: 'boolean', description: 'Вкласти той самий comment усередину картки (vCard), щоб він лишився в контакті, коли отримувач збереже його в телефон. Типово ні — картка йде без нотатки. Потребує comment' },
+        as_file: { type: 'boolean', description: 'Надіслати не карткою, а файлом .vcf. Єдиний спосіб для людини, чий номер власнику не видно: у файл ідуть ім\'я, @нік як Telegram-профіль і посилання t.me, id та (з attach_note) коментар, і отримувач може імпортувати його в контакти телефона' },
+        mark_read: { type: 'boolean', description: 'false — не позначати чат прочитаним перед відправкою' },
+      },
+      required: ['chat', 'peer'],
     },
   },
   {
@@ -490,6 +628,217 @@ async function callTool(
       return ok(JSON.stringify(state))
     }
 
+    case 'tg_chat_members': {
+      const row = getChat(String(args['chat'] ?? ''))
+      if (!row) return fail(`Чат "${args['chat']}" не знайдено в реєстрі.`)
+      if (row.kind === 'user' || row.kind === 'bot') {
+        return fail(`"${row.title}" — приватний чат, у нього немає складу учасників.`)
+      }
+      if (row.mode === 'ignore') {
+        return fail(`Чат "${row.title}" у режимі ignore — він свідомо поза системою.`)
+      }
+
+      const limit = Math.min(Number(args['limit'] ?? 200) || 200, MAX_PARTICIPANTS)
+      const search = args['search'] ? String(args['search']) : undefined
+      let note = ''
+
+      if (args['refresh']) {
+        const live = needsLive()
+        if (!live) return fail('Telegram не підключений — свіжий склад недоступний.')
+        try {
+          const res = await getParticipants(live, row.chat_id, { limit, search })
+          syncChatMembers(row.chat_id, res.members)
+          if (res.truncated) {
+            note = `\n\nВидно ${res.members.length} з ${res.total} — Telegram не дає перелічити решту цьому акаунту.`
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          return fail(`Не вдалось прочитати склад "${row.title}": ${msg}`)
+        }
+      }
+
+      const stored = listChatMembers(row.chat_id, limit)
+      const filtered = search
+        ? stored.filter(m => m.search_key.includes(search.toLowerCase()))
+        : stored
+      if (filtered.length === 0) {
+        const syncedAt = chatMembersSyncedAt(row.chat_id)
+        return ok(syncedAt === 0
+          ? `Склад "${row.title}" ще не зчитували. Виклич ще раз із refresh=true.`
+          : `У складі "${row.title}" нікого не знайдено${search ? ` за запитом "${search}"` : ''}.`)
+      }
+
+      const when = chatMembersSyncedAt(row.chat_id)
+      const header = `${row.title} — ${filtered.length} учасників (зчитано ${when ? new Date(when * 1000).toLocaleString('uk-UA') : 'невідомо коли'})`
+      return ok(`${header}\n${filtered.map(formatPersonLine).join('\n')}${note}`)
+    }
+
+    case 'tg_people': {
+      const chatRef = args['chat'] ? String(args['chat']) : undefined
+      const chatId = chatRef ? getChat(chatRef)?.chat_id : undefined
+      if (chatRef && !chatId) return fail(`Чат "${chatRef}" не знайдено в реєстрі.`)
+
+      const people = listPeople({
+        search: args['search'] ? String(args['search']) : undefined,
+        chatId,
+        withRoleOnly: args['with_role_only'] === true,
+        includeBots: args['include_bots'] === true,
+        limit: Math.min(Number(args['limit'] ?? 50) || 50, 500),
+      })
+      if (people.length === 0) return ok('Нікого не знайдено.')
+      return ok(people.map(formatPersonLine).join('\n'))
+    }
+
+    case 'tg_name_person': {
+      const peerId = String(args['peer_id'] ?? '')
+      if (!peerId) return fail('Потрібен параметр peer_id')
+      if (!getPerson(peerId)) return fail(`Людину ${peerId} не знайдено в довіднику.`)
+      setPersonProfile(peerId, {
+        canonical_name: args['canonical_name'] !== undefined ? String(args['canonical_name']) : undefined,
+        role: args['role'] !== undefined ? String(args['role']) : undefined,
+        aliases: args['aliases'] !== undefined ? String(args['aliases']) : undefined,
+        note: args['note'] !== undefined ? String(args['note']) : undefined,
+      })
+      const updated = getPerson(peerId)
+      return ok(updated ? `Записано: ${formatPersonLine(updated)}` : 'Записано.')
+    }
+
+    case 'tg_send_contact': {
+      const peer = String(args['peer'] ?? '')
+      if (!peer) return fail('Потрібен параметр peer — чию картку надсилати')
+      const target = requireSendableChat(String(args['chat'] ?? ''))
+      if ('error' in target) return fail(target.error)
+      const limitError = checkSendLimits()
+      if (limitError) return fail(limitError)
+
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений — відправка неможлива.')
+
+      const comment = args['comment'] !== undefined ? String(args['comment']) : ''
+      const attachNote = args['attach_note'] === true
+      const asFile = args['as_file'] === true
+      if (attachNote && !comment.trim()) {
+        return fail('attach_note без comment — нема чого вкладати в картку. Напиши текст у comment.')
+      }
+
+      try {
+        await markReadBeforeSend(live, target.chat_id, args)
+        const send = asFile ? sendVcardFile : sendContact
+        const sent = await send(live, target.chat_id, peer, { comment, attachNote })
+        // The outbox records what left the account, and a contact card is a
+        // disclosure about a third person — it belongs in the journal by name.
+        recordOutbox({
+          chat_id: target.chat_id, kind: 'contact',
+          text: `${asFile ? 'vcf' : 'картка'}: ${sent.display_name}${comment ? ` · ${comment}` : ''}${sent.note_attached ? ' [у картці]' : ''}`,
+          status: 'sent', requested_by: caller, msg_id: sent.msg_id,
+        })
+        const warn = sent.phone_known ? '' : ' Номер цієї людини Telegram нам не показує, тож картка пішла без нього.'
+        const inCard = sent.note_attached ? ' Коментар вкладено і в саму картку.' : ''
+        const what = asFile ? `Файл .vcf з контактом ${sent.display_name}` : `Картку ${sent.display_name}`
+        return ok(`${what} надіслано (msg_id ${sent.msg_id}).${inCard}${asFile ? '' : warn}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        recordOutbox({ chat_id: target.chat_id, kind: 'contact', text: `${asFile ? 'vcf' : 'картка'}: ${peer}`, status: 'failed', error: msg, requested_by: caller })
+        return fail(`Не вдалось надіслати картку: ${msg}`)
+      }
+    }
+
+    case 'tg_contact_note': {
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений.')
+      const peer = String(args['peer'] ?? '')
+      if (!peer) return fail('Потрібен параметр peer')
+
+      const info = await readContactNote(live, peer)
+      if (!info) return fail(`Не вдалось прочитати профіль "${peer}".`)
+
+      const who = info.username ? `${info.display_name} @${info.username}` : info.display_name
+      const status = info.is_contact ? 'у контактах' : 'не в контактах'
+      const note = info.note || '(нотатки немає)'
+      // A path, not the image: the file is already on disk and stays there, so
+      // whoever needs to look at it reads it once instead of pulling it through
+      // the model every time a profile is opened.
+      const avatar = info.avatar ? `\nАватар: ${info.avatar}` : ''
+      return ok(`#${info.peer_id} ${who} — ${status}\nНотатка в Telegram: ${note}${avatar}`)
+    }
+
+    case 'tg_write_note': {
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений.')
+      const peer = String(args['peer'] ?? '')
+      if (!peer) return fail('Потрібен параметр peer')
+      const note = String(args['note'] ?? '')
+
+      // Telegram зберігає нотатки на контактах. Мовчки додати людину в
+      // контакти заради нотатки не можна — це видима зміна в акаунті, і
+      // рішення про неї не наше.
+      const before = await readContactNote(live, peer)
+      if (before && !before.is_contact) {
+        return fail(`${before.display_name} не в контактах власника — Telegram не має де тримати нотатку. Додай через tg_add_contact, якщо власник цього хоче.`)
+      }
+
+      const done = await writeContactNote(live, peer, note)
+      if (!done) return fail(`Telegram не прийняв нотатку для "${peer}".`)
+
+      if (args['sync_local'] !== false && before) {
+        const person = getPerson(before.peer_id)
+        if (person) setPersonProfile(before.peer_id, { note })
+      }
+
+      const name = before?.display_name ?? peer
+      return ok(note ? `Нотатку записано в профіль ${name}.` : `Нотатку в профілі ${name} стерто.`)
+    }
+
+    case 'tg_import_contact': {
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений.')
+      const phone = String(args['phone'] ?? '')
+      const firstName = String(args['first_name'] ?? '').trim()
+      if (!phone) return fail('Потрібен параметр phone')
+      if (!firstName) return fail('Потрібне ім\'я: Telegram показуватиме контакт саме під ним.')
+
+      const note = args['note'] !== undefined ? String(args['note']) : ''
+      const res = await importContactByPhone(live, {
+        phone,
+        firstName,
+        lastName: args['last_name'] !== undefined ? String(args['last_name']) : '',
+        note,
+      })
+
+      if (!res.imported) return fail(`${res.phone}: ${res.reason}`)
+
+      const person = getPerson(res.peer_id!)
+      if (person && note) setPersonProfile(res.peer_id!, { note })
+      return ok(`${res.display_name} (#${res.peer_id}) у контактах із номером ${res.phone}.`)
+    }
+
+    case 'tg_add_contact': {
+      const live = needsLive()
+      if (!live) return fail('Telegram не підключений.')
+      const peer = String(args['peer'] ?? '')
+      const firstName = String(args['first_name'] ?? '').trim()
+      if (!peer) return fail('Потрібен параметр peer')
+      if (!firstName) return fail('Потрібне ім\'я: Telegram показуватиме контакт саме під ним.')
+
+      const res = await addContact(live, peer, {
+        firstName,
+        lastName: args['last_name'] !== undefined ? String(args['last_name']) : '',
+        phone: args['phone'] !== undefined ? String(args['phone']) : '',
+        note: args['note'] !== undefined ? String(args['note']) : '',
+        sharePhone: args['share_phone'] === true,
+      })
+
+      if (!res.is_contact) {
+        return fail(`Telegram прийняв запит, але ${res.display_name} так і не з'явився в контактах — імовірно, налаштування приватності цієї людини не дозволяють.`)
+      }
+
+      const person = getPerson(res.peer_id)
+      if (person && res.note) setPersonProfile(res.peer_id, { note: res.note })
+
+      const tail = res.note ? ` Нотатка: ${res.note}` : ''
+      return ok(`${res.display_name} у контактах.${tail}`)
+    }
+
     default:
       return fail(`Невідомий інструмент: ${name}`)
   }
@@ -559,3 +908,12 @@ export function startMcpSocket(getClient: () => TelegramClient | null): McpSocke
     connections: () => active,
   }
 }
+
+/**
+ * The tool dispatcher, exposed for tests.
+ *
+ * Everything above it is transport; the decisions worth testing — who may be
+ * written to, what is refused, what gets mirrored into our own tables — live
+ * here, and reaching them through a socket handshake would test the socket.
+ */
+export const __testing = { callTool, TOOLS }

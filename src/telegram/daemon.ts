@@ -18,9 +18,14 @@ import { TG_PID_PATH } from './paths.js'
 import { readCredentials, createClient, connectAuthorized, hasSession, RESILIENT_CONNECTION } from './client.js'
 import { handleNewMessage, handleEditedMessage, handleDeletedMessages, syncUnread, catchUp, stats } from './log.js'
 import { startMcpSocket, type McpSocketHandle } from './mcp.js'
-import { getThrottleStats } from './throttle.js'
+import {
+  getThrottleStats, topLabels, countUnpacedCall, configureThrottlePersistence,
+} from './throttle.js'
 import { watchdogAction, nextFailureCount } from './watchdog.js'
-import { getTgDb, closeTgDb, setOwnerId, setOwnerUsername, countForeignRows } from './db.js'
+import {
+  getTgDb, closeTgDb, setOwnerId, setOwnerUsername, countForeignRows,
+  noteApiCall, getApiCalls, pruneApiCalls,
+} from './db.js'
 
 /**
  * Dialog refresh interval.
@@ -158,6 +163,10 @@ async function connectionAlive(c: TelegramClient): Promise<boolean> {
   const expired = new Promise<boolean>(resolve => {
     timer = setTimeout(() => resolve(false), PROBE_TIMEOUT_MS)
   })
+  // Not paced and never refused — see countUnpacedCall. Counted because it is
+  // still a real request to Telegram, and a budget that omits some calls tells
+  // us less than it claims.
+  countUnpacedCall('watchdog.getMe')
   try {
     return await Promise.race([c.getMe().then(() => true, () => false), expired])
   } finally {
@@ -168,6 +177,11 @@ async function connectionAlive(c: TelegramClient): Promise<boolean> {
 async function main(): Promise<void> {
   writePid()
   getTgDb() // create schema before anything can write
+
+  // The day's call tally lives in the database, not in this process, so a
+  // restart resumes the count instead of starting it over.
+  configureThrottlePersistence({ note: noteApiCall, load: getApiCalls })
+  pruneApiCalls()
 
   const creds = readCredentials()
   if (!creds) {
@@ -249,8 +263,12 @@ let tick = 0
 function healthLine(): string {
   const t = getThrottleStats()
   const flood = t.floodUntil ? `, пауза до ${new Date(t.floodUntil).toISOString().slice(11, 19)}` : ''
+  // Who spent the calls, not just how many: a bare total says whether we are
+  // near the ceiling and nothing about what to look at if we are.
+  const top = topLabels(t)
   return `Апдейтів: ${rawUpdates}. Повідомлень: бачено ${stats.seen}, збережено ${stats.stored}, пропущено ${stats.skipped}. `
-    + `Запитів до Telegram сьогодні: ${t.calls}, FloodWait: ${t.floodWaits}${flood}. MCP-з'єднань: ${mcp?.connections() ?? 0}`
+    + `Запитів до Telegram сьогодні: ${t.calls}${top ? ` (${top})` : ''}, FloodWait: ${t.floodWaits}${flood}. `
+    + `MCP-з'єднань: ${mcp?.connections() ?? 0}`
 }
 
 /**

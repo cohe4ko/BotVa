@@ -28,7 +28,7 @@ vi.mock('telegram/Utils.js', () => ({
   getDisplayName: (e: { title?: string; firstName?: string }) => e.title ?? e.firstName ?? '',
 }))
 
-import { classifyEntity, defaultModeFor, mediaTypeOf, readCredentials } from './client.js'
+import { classifyEntity, defaultModeFor, mediaTypeOf, readCredentials, buildVcard, avatarPath, normalizePhone } from './client.js'
 
 describe('classifyEntity', () => {
   it('separates humans from bots', () => {
@@ -110,5 +110,109 @@ describe('readCredentials', () => {
       TELEGRAM_API_HASH: 'abcdef',
     } as unknown as NodeJS.ProcessEnv)
     expect(creds).toEqual({ apiId: 123456, apiHash: 'abcdef' })
+  })
+})
+
+
+describe('buildVcard', () => {
+  const card = (over: Record<string, unknown> = {}) => ({
+    phone: '+380731234567', firstName: 'Капп', lastName: 'Тестовий', note: '', ...over,
+  })
+
+  it('names the person the way the owner named them', () => {
+    const v = buildVcard(card())
+    expect(v).toContain('N:Тестовий;Капп;;;')
+    expect(v).toContain('FN:Капп Тестовий')
+    expect(v).toContain('TEL;TYPE=cell:+380731234567')
+  })
+
+  it('writes the handle the way Apple Contacts itself writes it', () => {
+    // Taken from a real exported vCard: the x-apple: scheme and the itemN.
+    // grouping are what makes the row render as a tappable Telegram entry
+    // rather than being dropped.
+    const v = buildVcard(card({ username: 'teapok' }))
+    expect(v).toContain('item1.IMPP;X-SERVICE-TYPE=Telegram;type=pref:x-apple:teapok')
+    expect(v).toContain('item1.X-ABLabel:Telegram')
+  })
+
+  it('repeats the handle in every field an address book might read', () => {
+    // Clients disagree about where a messaging identity lives, and for someone
+    // with no visible number this is the only way to reach them — so it goes
+    // everywhere, down to plain text in NOTE.
+    const v = buildVcard(card({ username: 'teapok' }))
+    expect(v).toContain('X-SOCIALPROFILE;type=Telegram:x-apple:teapok')
+    expect(v).toContain('item2.URL:https://t.me/teapok')
+    expect(v).toContain('item2.X-ABLabel:Telegram')
+    expect(v).toContain('NOTE:Telegram: @teapok')
+    expect(buildVcard(card())).not.toContain('URL:')
+  })
+
+  it('carries the numeric id, which outlives a renamed handle', () => {
+    expect(buildVcard(card({ telegramId: '1470937341' }))).toContain('X-TELEGRAM-ID:1470937341')
+    expect(buildVcard(card())).not.toContain('X-TELEGRAM-ID')
+  })
+
+  it('keeps the handle and the comment apart inside NOTE', () => {
+    const v = buildVcard(card({ username: 'teapok', note: 'студент КМП-11' }))
+    expect(v).toContain('NOTE:Telegram: @teapok — https://t.me/teapok\\nстудент КМП-11')
+  })
+
+  it('carries a note only when there is one', () => {
+    expect(buildVcard(card())).not.toContain('NOTE:')
+    expect(buildVcard(card({ note: 'покрівельник' }))).toContain('NOTE:покрівельник')
+  })
+
+  it('leaves out a phone Telegram would not give us', () => {
+    // An empty TEL line is worse than none: some clients render it as a blank
+    // number and offer to call it.
+    expect(buildVcard(card({ phone: '' }))).not.toContain('TEL')
+  })
+
+  it('escapes the characters that would otherwise end the field', () => {
+    // A semicolon in a name is not exotic — "Іванов; ФОП" is a real way people
+    // write themselves — and unescaped it silently splits the vCard field.
+    const v = buildVcard(card({ note: 'дах; ремонт, аванс' }))
+    expect(v).toContain('NOTE:дах\\; ремонт\\, аванс')
+  })
+
+  it('keeps a multi-line note inside one field', () => {
+    const v = buildVcard(card({ note: 'перший рядок\nдругий' }))
+    expect(v).toContain('NOTE:перший рядок\\nдругий')
+    expect(v.split('\r\n').filter(l => l.startsWith('NOTE'))).toHaveLength(1)
+  })
+
+  it('uses CRLF, which is what the format actually specifies', () => {
+    expect(buildVcard(card()).startsWith('BEGIN:VCARD\r\nVERSION:3.0')).toBe(true)
+  })
+})
+
+describe('avatarPath', () => {
+  it('keys the file by the photo, not only by the person', () => {
+    // A changed avatar has to be a different file. Keying by peer id alone
+    // would serve yesterday's picture forever, since the cache never expires.
+    expect(avatarPath('900', '5')).not.toBe(avatarPath('900', '6'))
+    expect(avatarPath('900', '5')).toBe(avatarPath('900', '5'))
+    expect(avatarPath('900', '5')).toMatch(/avatars\/900_5\.jpg$/)
+  })
+})
+
+describe('normalizePhone', () => {
+  it('keeps the digits and drops how a person wrote them', () => {
+    // Telegram matches on the bare number. A stray space or dash means the
+    // import silently resolves to nobody.
+    expect(normalizePhone('+380 73 000 00 01')).toBe('+380730000001')
+    expect(normalizePhone('(073) 000-00-01')).toBe('0730000001')
+    expect(normalizePhone(' 380730000001 ')).toBe('380730000001')
+  })
+
+  it('keeps the leading plus, which is not decoration', () => {
+    expect(normalizePhone('+380730000001').startsWith('+')).toBe(true)
+    expect(normalizePhone('380730000001').startsWith('+')).toBe(false)
+  })
+
+  it('reports nothing rather than inventing a number', () => {
+    expect(normalizePhone('')).toBe('')
+    expect(normalizePhone('  ')).toBe('')
+    expect(normalizePhone('не знаю')).toBe('')
   })
 })

@@ -26,7 +26,10 @@ import {
   setChatUnread, touchChatActivity, listUnreadChats, insertMessage, markEdited, markDeleted,
   markDeletedByMsgId, getMessages, getRecentMessages, searchMessages, countMessages,
   getCursor, recordOutbox, listOutbox, countOutboxSince,
+  noteApiCall, getApiCalls, pruneApiCalls,
   getOwnerId, setOwnerId, resetOwnerCache, countForeignRows, purgeForeignRows, LEGACY_OWNER,
+  notePersonSeen, upsertPerson, setPersonProfile, getPerson, listPeople, countPeople,
+  personName, syncChatMembers, listChatMembers, chatMembersSyncedAt,
 } from './db.js'
 
 function resetDb(): void {
@@ -36,6 +39,8 @@ function resetDb(): void {
   d.exec('DELETE FROM tg_chats')
   d.exec('DELETE FROM tg_cursor')
   d.exec('DELETE FROM tg_outbox')
+  d.exec('DELETE FROM tg_people')
+  d.exec('DELETE FROM tg_chat_members')
   d.exec("DELETE FROM tg_meta WHERE key = 'owner_id'")
   resetOwnerCache()
 }
@@ -374,5 +379,190 @@ describe('owner isolation', () => {
     expect(removed).toEqual({ chats: 1, messages: 1 })
     expect(countForeignRows()).toEqual({ chats: 0, messages: 0 })
     expect(countMessages().total).toBe(1)
+  })
+})
+
+describe('people register', () => {
+  beforeEach(() => { resetDb() })
+
+  it('builds itself from what the log already sees', () => {
+    notePersonSeen({ peer_id: '900', display_name: 'Марта', username: 'marta', ts: 1000 })
+    notePersonSeen({ peer_id: '900', display_name: 'Марта', username: 'marta', ts: 2000 })
+
+    const p = getPerson('900')!
+    expect(p.display_name).toBe('Марта')
+    expect(p.username).toBe('marta')
+    expect(p.msg_count).toBe(2)
+    expect(p.seen_first).toBe(1000)
+    expect(p.seen_last).toBe(2000)
+  })
+
+  it('keeps the earliest sighting when messages arrive out of order', () => {
+    // Catch-up walks history backwards, so a newer message is often stored first.
+    notePersonSeen({ peer_id: '900', display_name: 'Марта', ts: 5000 })
+    notePersonSeen({ peer_id: '900', display_name: 'Марта', ts: 1000 })
+
+    const p = getPerson('900')!
+    expect(p.seen_first).toBe(1000)
+    expect(p.seen_last).toBe(5000)
+  })
+
+  it('never lets a Telegram rename wipe the owner\'s own notes', () => {
+    notePersonSeen({ peer_id: '900', display_name: 'марта 🌸', ts: 1000 })
+    setPersonProfile('900', { canonical_name: 'Марта Коваль', role: 'підрядниця' })
+
+    notePersonSeen({ peer_id: '900', display_name: 'M.', ts: 2000 })
+
+    const p = getPerson('900')!
+    expect(p.canonical_name).toBe('Марта Коваль')
+    expect(p.role).toBe('підрядниця')
+    expect(p.display_name).toBe('M.')
+    expect(personName(p)).toBe('Марта Коваль')
+  })
+
+  it('does not blank a known name when a later sighting carries none', () => {
+    // senderNameFromCache returns '' on a cache miss; that is missing data,
+    // not a rename, and must not overwrite what we already know.
+    notePersonSeen({ peer_id: '900', display_name: 'Марта', username: 'marta', ts: 1000 })
+    notePersonSeen({ peer_id: '900', display_name: '', username: '', ts: 2000 })
+
+    const p = getPerson('900')!
+    expect(p.display_name).toBe('Марта')
+    expect(p.username).toBe('marta')
+  })
+
+  it('finds people by canonical name, handle or alias', () => {
+    notePersonSeen({ peer_id: '900', display_name: 'M.', username: 'marta_k', ts: 1000 })
+    setPersonProfile('900', { canonical_name: 'Марта Коваль', aliases: 'Мартуся' })
+
+    expect(listPeople({ search: 'марта коваль' })).toHaveLength(1)
+    expect(listPeople({ search: 'marta_k' })).toHaveLength(1)
+    expect(listPeople({ search: 'мартуся' })).toHaveLength(1)
+    expect(listPeople({ search: 'петро' })).toHaveLength(0)
+  })
+
+  it('hides bots unless asked for them', () => {
+    notePersonSeen({ peer_id: '900', display_name: 'Марта', ts: 1000 })
+    notePersonSeen({ peer_id: '901', display_name: 'SomeBot', is_bot: true, ts: 1000 })
+
+    expect(listPeople()).toHaveLength(1)
+    expect(listPeople({ includeBots: true })).toHaveLength(2)
+  })
+
+  it('scopes people to the session owner', () => {
+    setOwnerId('111')
+    notePersonSeen({ peer_id: '900', display_name: 'Марта', ts: 1000 })
+    setOwnerId('222')
+    expect(listPeople()).toHaveLength(0)
+    expect(countPeople()).toBe(0)
+    setOwnerId('111')
+    expect(countPeople()).toBe(1)
+  })
+})
+
+describe('chat membership', () => {
+  beforeEach(() => { resetDb() })
+
+  it('records members who have never written a word', () => {
+    syncChatMembers('-100500', [
+      { peer_id: '900', display_name: 'Марта' },
+      { peer_id: '901', display_name: 'Олесь' },
+    ])
+
+    const members = listChatMembers('-100500')
+    expect(members.map(m => m.display_name).sort()).toEqual(['Марта', 'Олесь'])
+    // Membership is not activity.
+    expect(members.every(m => m.msg_count === 0)).toBe(true)
+    expect(chatMembersSyncedAt('-100500')).toBeGreaterThan(0)
+  })
+
+  it('drops people who left, instead of merging rosters', () => {
+    syncChatMembers('-100500', [{ peer_id: '900' }, { peer_id: '901' }])
+    syncChatMembers('-100500', [{ peer_id: '900' }])
+
+    expect(listChatMembers('-100500').map(m => m.peer_id)).toEqual(['900'])
+    // The person stays in the register — they existed, and the log still
+    // carries what they said.
+    expect(getPerson('901')).not.toBeNull()
+  })
+
+  it('lists a chat\'s people from both membership and the log', () => {
+    upsertChat({ chat_id: '-100500', title: 'Група', kind: 'group', defaultMode: 'log-only' })
+    // One only ever spoke, the other is only on the roster.
+    notePersonSeen({ peer_id: '902', display_name: 'Гість', ts: 1000 })
+    insertMessage({ chat_id: '-100500', msg_id: 1, direction: 'in', sender_id: '902', text: 'привіт', ts: 1000 })
+    syncChatMembers('-100500', [{ peer_id: '900', display_name: 'Марта' }])
+
+    const ids = listPeople({ chatId: '-100500' }).map(p => p.peer_id).sort()
+    expect(ids).toEqual(['900', '902'])
+  })
+
+  it('leaves the roster untouched when a sync throws midway', () => {
+    syncChatMembers('-100500', [{ peer_id: '900' }])
+    expect(() => syncChatMembers('-100500', [
+      { peer_id: '901' },
+      { peer_id: null as unknown as string },
+      { peer_id: '902' },
+    ])).not.toThrow()
+    // Rows with no id are skipped, not fatal — the rest still lands.
+    expect(listChatMembers('-100500').map(m => m.peer_id).sort()).toEqual(['901', '902'])
+  })
+})
+
+describe('people backfill', () => {
+  it('seeds the register from messages already logged', () => {
+    resetDb()
+    const d = getTgDb()
+    d.exec("DELETE FROM tg_meta WHERE key = 'people_backfill'")
+    setOwnerId('111')
+
+    insertMessage({ chat_id: '1', msg_id: 1, direction: 'in', sender_id: '900', sender_name: 'Марта', text: 'а', ts: 1000 })
+    insertMessage({ chat_id: '1', msg_id: 2, direction: 'in', sender_id: '900', sender_name: 'Марта', text: 'б', ts: 3000 })
+    // The owner's own messages are not entries in his own address book.
+    insertMessage({ chat_id: '1', msg_id: 3, direction: 'out', sender_id: '111', sender_name: 'Я', text: 'в', ts: 2000 })
+
+    // Re-running init is what a restart does; the backfill happens there.
+    closeTgDb()
+    resetOwnerCache()
+    getTgDb()
+    setOwnerId('111')
+
+    const p = getPerson('900')!
+    expect(p.display_name).toBe('Марта')
+    expect(p.msg_count).toBe(2)
+    expect(p.seen_first).toBe(1000)
+    expect(p.seen_last).toBe(3000)
+    expect(getPerson('111')).toBeNull()
+  })
+})
+
+describe('api call accounting', () => {
+  beforeEach(() => { getTgDb().exec('DELETE FROM tg_api_calls') })
+
+  it('adds up calls per day and per call site', () => {
+    noteApiCall('2026-09-06', 'getDialogs')
+    noteApiCall('2026-09-06', 'getMessages')
+    noteApiCall('2026-09-06', 'getMessages')
+    noteApiCall('2026-09-07', 'getDialogs')
+
+    expect(getApiCalls('2026-09-06')).toEqual({
+      total: 3, byLabel: { getDialogs: 1, getMessages: 2 },
+    })
+    expect(getApiCalls('2026-09-07').total).toBe(1)
+  })
+
+  it('reports an untouched day as zero rather than nothing', () => {
+    expect(getApiCalls('2020-01-01')).toEqual({ total: 0, byLabel: {} })
+  })
+
+  it('drops days too old to explain anything', () => {
+    const old = new Date(Date.now() - 40 * 86400_000).toISOString().slice(0, 10)
+    const today = new Date().toISOString().slice(0, 10)
+    noteApiCall(old, 'getDialogs')
+    noteApiCall(today, 'getDialogs')
+
+    expect(pruneApiCalls(14)).toBe(1)
+    expect(getApiCalls(old).total).toBe(0)
+    expect(getApiCalls(today).total).toBe(1)
   })
 })

@@ -52,6 +52,18 @@ export interface TgChat {
    * people, and off for private chats, where everything is addressed to him.
    */
   auto_reply_mention_only: number
+  /**
+   * Bot that receives what Tier 1 extracts here. Empty string = nobody.
+   *
+   * Deliberately separate from auto_reply_bot: answering on the owner's behalf
+   * and writing into a bot's long-term memory are different permissions, and a
+   * chat can sensibly have one without the other.
+   */
+  target_bot: string
+  /** Highest msg_id already put through analysis. */
+  analyzed_msg_id: number
+  /** When this chat was last analysed — feeds the minimum gap between flushes. */
+  last_flush_ts: number
 }
 
 export interface TgMessage {
@@ -217,6 +229,185 @@ function initTgSchema(d: DatabaseSync): void {
   try { d.exec('ALTER TABLE tg_chats ADD COLUMN search_key TEXT NOT NULL DEFAULT \'\'') } catch { /* already exists */ }
   d.exec('CREATE INDEX IF NOT EXISTS idx_tg_chats_recent ON tg_chats(last_msg_ts DESC)')
   backfillSearchKeys(d)
+
+  // People.
+  //
+  // "Приїду в четвер" from a spouse and from a contractor are different facts
+  // with different consequences. Without identity the model writes "he said he
+  // would come" and the fact becomes rubbish. Owner-scoped like everything
+  // else: the same peer_id under another login is another person's record.
+  //
+  // Observed columns (seen_first/seen_last/msg_count) are maintained from the
+  // log and never edited by hand; the named ones are the owner's own notes.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS tg_people (
+      owner_id TEXT NOT NULL DEFAULT 'legacy',
+      peer_id TEXT NOT NULL,
+      display_name TEXT NOT NULL DEFAULT '',
+      username TEXT NOT NULL DEFAULT '',
+      canonical_name TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT '',
+      aliases TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      is_bot INTEGER NOT NULL DEFAULT 0,
+      seen_first INTEGER,
+      seen_last INTEGER,
+      msg_count INTEGER NOT NULL DEFAULT 0,
+      search_key TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (owner_id, peer_id)
+    )
+  `)
+  d.exec('CREATE INDEX IF NOT EXISTS idx_tg_people_seen ON tg_people(owner_id, seen_last DESC)')
+
+  // Membership is a separate fact from having spoken. A group member who never
+  // writes is invisible in the message log, and someone who left is still all
+  // over it — neither can be answered by a GROUP BY over tg_messages.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS tg_chat_members (
+      owner_id TEXT NOT NULL DEFAULT 'legacy',
+      chat_id TEXT NOT NULL,
+      peer_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'member',
+      synced_at INTEGER NOT NULL,
+      PRIMARY KEY (owner_id, chat_id, peer_id)
+    )
+  `)
+  d.exec('CREATE INDEX IF NOT EXISTS idx_tg_members_peer ON tg_chat_members(owner_id, peer_id)')
+  backfillPeople(d)
+
+  // Which bot receives what is extracted here, and how far analysis has got.
+  // Empty target_bot means the chat is logged but never analysed — writing
+  // into a bot's memory is opt-in per chat, not a consequence of logging.
+  for (const ddl of [
+    "ALTER TABLE tg_chats ADD COLUMN target_bot TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE tg_chats ADD COLUMN analyzed_msg_id INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE tg_chats ADD COLUMN last_flush_ts INTEGER NOT NULL DEFAULT 0',
+  ]) {
+    try { d.exec(ddl) } catch { /* already exists */ }
+  }
+
+  // What was extracted from which messages.
+  //
+  // Idempotency lives here: a restart replays catch-up, and without a record of
+  // the analysed range the same conversation yields the same facts again. The
+  // range is also how an edit or a deletion finds its derived facts later.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS tg_extractions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_id TEXT NOT NULL DEFAULT 'legacy',
+      chat_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      target_bot TEXT NOT NULL DEFAULT '',
+      text TEXT NOT NULL DEFAULT '',
+      who TEXT NOT NULL DEFAULT '',
+      topic TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '',
+      quote TEXT NOT NULL DEFAULT '',
+      msg_ids TEXT NOT NULL DEFAULT '',
+      when_due TEXT,
+      confidence REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('saved','pending','declined','dropped','duplicate','stale')),
+      fact_id INTEGER,
+      reminder_id INTEGER,
+      created_at INTEGER NOT NULL,
+      decided_at INTEGER
+    )
+  `)
+  d.exec('CREATE INDEX IF NOT EXISTS idx_tg_extr_chat ON tg_extractions(owner_id, chat_id, created_at DESC)')
+  d.exec('CREATE INDEX IF NOT EXISTS idx_tg_extr_status ON tg_extractions(owner_id, status, created_at DESC)')
+
+  // Spend, per day. A 24/7 account is thousands of messages; without a ceiling
+  // the cost is invisible until the bill arrives.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS tg_budget (
+      date TEXT PRIMARY KEY,
+      tier1_calls INTEGER NOT NULL DEFAULT 0,
+      tier1_chunks INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0
+    )
+  `)
+
+  // Telegram API calls, per day and per call site.
+  //
+  // The daily ceiling used to live only in the daemon's memory, so every
+  // restart handed it a clean slate — on 6 Sep 2026 the process came up 24
+  // times and the number in the health line was never the day's total. A budget
+  // a runaway loop can reset by crashing is not a budget.
+  //
+  // Split by label because a total answers "are we near the limit" and nothing
+  // else. When usage jumped by 193 calls in fifteen minutes that day, there was
+  // no way to say what had made them.
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS tg_api_calls (
+      day TEXT NOT NULL,
+      label TEXT NOT NULL,
+      calls INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, label)
+    )
+  `)
+}
+
+/**
+ * Seed the people register from messages already in the log.
+ *
+ * Without this the register starts empty and only fills as new messages
+ * arrive, so everyone the owner has talked to for months would be missing
+ * until they happen to write again. Runs once, guarded by a meta flag rather
+ * than by "is the table empty" — an emptied table is a decision, not a reason
+ * to rebuild.
+ */
+function backfillPeople(d: DatabaseSync): void {
+  const done = d.prepare('SELECT value FROM tg_meta WHERE key = ?').get('people_backfill') as
+    { value: string } | undefined
+  if (done) return
+
+  d.exec(`
+    INSERT INTO tg_people (owner_id, peer_id, display_name, username, canonical_name, role,
+                           aliases, note, is_bot, seen_first, seen_last, msg_count,
+                           search_key, created_at, updated_at)
+    SELECT owner_id, sender_id,
+           COALESCE(MAX(sender_name), ''), '', '', '', '', '', 0,
+           MIN(ts), MAX(ts), COUNT(*),
+           lower(trim(COALESCE(MAX(sender_name), ''))),
+           strftime('%s','now'), strftime('%s','now')
+    FROM tg_messages
+    WHERE direction = 'in' AND sender_id IS NOT NULL AND sender_id != ''
+    GROUP BY owner_id, sender_id
+    ON CONFLICT(owner_id, peer_id) DO UPDATE SET
+      seen_first = MIN(COALESCE(seen_first, excluded.seen_first), excluded.seen_first),
+      seen_last  = MAX(COALESCE(seen_last, 0), excluded.seen_last),
+      msg_count  = MAX(msg_count, excluded.msg_count),
+      display_name = CASE WHEN display_name = '' THEN excluded.display_name ELSE display_name END
+  `)
+
+  d.prepare('INSERT OR REPLACE INTO tg_meta (key, value) VALUES (?, ?)')
+    .run('people_backfill', '1')
+  rebuildPeopleSearchKeys(d)
+}
+
+/**
+ * Rebuild every search key in JavaScript.
+ *
+ * The backfill builds its rows in one SQL statement, where LOWER() folds ASCII
+ * and nothing else: "Денисенко Олександр" stayed capitalised and a lowercased
+ * query silently matched nothing. Rebuilding here is both the repair for rows
+ * already written that way and the guarantee that keys have exactly one origin.
+ */
+function rebuildPeopleSearchKeys(d: DatabaseSync): void {
+  const done = d.prepare('SELECT value FROM tg_meta WHERE key = ?').get('people_keys_v2') as
+    { value: string } | undefined
+  if (done) return
+
+  const rows = d.prepare('SELECT owner_id, peer_id, display_name, username, canonical_name, aliases FROM tg_people')
+    .all() as unknown as Pick<TgPerson, 'owner_id' | 'peer_id' | 'display_name' | 'username' | 'canonical_name' | 'aliases'>[]
+  const upd = d.prepare('UPDATE tg_people SET search_key = ? WHERE owner_id = ? AND peer_id = ?')
+  for (const r of rows) upd.run(personSearchKey(r), r.owner_id, r.peer_id)
+
+  d.prepare('INSERT OR REPLACE INTO tg_meta (key, value) VALUES (?, ?)')
+    .run('people_keys_v2', '1')
 }
 
 /**
@@ -992,4 +1183,540 @@ export function countOutboxSince(sinceTs: number): number {
     "SELECT COUNT(*) AS n FROM tg_outbox WHERE status = 'sent' AND created_at >= ?"
   ).get(sinceTs) as { n: number }
   return row.n
+}
+
+// --- People ---
+
+export interface TgPerson {
+  owner_id: string
+  peer_id: string
+  /** Name as Telegram shows it — refreshed on sight, may change under us. */
+  display_name: string
+  username: string
+  /** The owner's own name for this person; wins over display_name everywhere. */
+  canonical_name: string
+  role: string
+  aliases: string
+  note: string
+  is_bot: number
+  seen_first: number | null
+  seen_last: number | null
+  msg_count: number
+  search_key: string
+  created_at: number
+  updated_at: number
+}
+
+/** The name to use in a prompt or a list: the owner's own, or Telegram's. */
+export function personName(p: Pick<TgPerson, 'canonical_name' | 'display_name' | 'peer_id'>): string {
+  return p.canonical_name || p.display_name || p.peer_id
+}
+
+function personSearchKey(p: { display_name: string; username: string; canonical_name: string; aliases: string }): string {
+  return `${p.canonical_name} ${p.display_name} ${p.username} ${p.aliases}`.toLowerCase().trim()
+}
+
+/**
+ * Insert or update one person, merging observed fields in JavaScript.
+ *
+ * The merge deliberately does not happen in SQL. SQLite's LOWER() folds ASCII
+ * only, so a search key built there leaves "Денисенко" capitalised and a
+ * lowercased query never matches it — the exact trap already documented for
+ * chat search keys. Reading the row first costs one small query and keeps the
+ * Unicode-aware toLowerCase() as the single place a key is ever built.
+ *
+ * A blank incoming name is missing data, not a rename, and never overwrites
+ * what is already known. The owner's own annotations are untouched here.
+ */
+function writePerson(
+  peerId: string,
+  seen: { display_name: string; username: string; is_bot: boolean },
+  opts: { ts?: number; countMessage: boolean },
+): void {
+  const d = getTgDb()
+  const owner = getOwnerId()
+  const ts = now()
+  const current = d.prepare('SELECT * FROM tg_people WHERE owner_id = ? AND peer_id = ?')
+    .get(owner, peerId) as TgPerson | undefined
+
+  const display_name = seen.display_name || current?.display_name || ''
+  const username = seen.username || current?.username || ''
+  const is_bot = (seen.is_bot ? 1 : 0) || (current?.is_bot ?? 0)
+  const key = personSearchKey({
+    display_name,
+    username,
+    canonical_name: current?.canonical_name ?? '',
+    aliases: current?.aliases ?? '',
+  })
+
+  if (!current) {
+    d.prepare(`
+      INSERT INTO tg_people (owner_id, peer_id, display_name, username, is_bot,
+                             seen_first, seen_last, msg_count, search_key, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      owner, peerId, display_name, username, is_bot,
+      opts.ts ?? null, opts.ts ?? null, opts.countMessage ? 1 : 0, key, ts, ts,
+    )
+    return
+  }
+
+  const seenFirst = opts.ts === undefined
+    ? current.seen_first
+    : Math.min(current.seen_first ?? opts.ts, opts.ts)
+  const seenLast = opts.ts === undefined
+    ? current.seen_last
+    : Math.max(current.seen_last ?? 0, opts.ts)
+
+  d.prepare(`
+    UPDATE tg_people
+    SET display_name = ?, username = ?, is_bot = ?, seen_first = ?, seen_last = ?,
+        msg_count = ?, search_key = ?, updated_at = ?
+    WHERE owner_id = ? AND peer_id = ?
+  `).run(
+    display_name, username, is_bot, seenFirst, seenLast,
+    current.msg_count + (opts.countMessage ? 1 : 0), key, ts, owner, peerId,
+  )
+}
+
+/**
+ * Record that a person was seen writing.
+ *
+ * Called for every logged incoming message, so it must stay a single upsert.
+ * Observed fields accumulate; the owner's own notes are never touched here —
+ * a Telegram display name change must not wipe the role he typed in.
+ */
+export function notePersonSeen(peer: {
+  peer_id: string
+  display_name?: string
+  username?: string
+  is_bot?: boolean
+  ts: number
+}): void {
+  if (!peer.peer_id) return
+  writePerson(peer.peer_id, {
+    display_name: peer.display_name ?? '',
+    username: peer.username ?? '',
+    is_bot: peer.is_bot === true,
+  }, { ts: peer.ts, countMessage: true })
+}
+
+/**
+ * Record a person from a membership sync rather than from a message.
+ *
+ * Unlike notePersonSeen this does not bump msg_count or seen_last: being in a
+ * group is not the same as having said anything, and conflating the two would
+ * make a silent member look active.
+ */
+export function upsertPerson(peer: {
+  peer_id: string
+  display_name?: string
+  username?: string
+  is_bot?: boolean
+}): void {
+  if (!peer.peer_id) return
+  writePerson(peer.peer_id, {
+    display_name: peer.display_name ?? '',
+    username: peer.username ?? '',
+    is_bot: peer.is_bot === true,
+  }, { countMessage: false })
+}
+
+/** The owner's own annotations. Observed fields are left alone. */
+export function setPersonProfile(peerId: string, p: {
+  canonical_name?: string
+  role?: string
+  aliases?: string
+  note?: string
+}): void {
+  const owner = getOwnerId()
+  const current = getTgDb().prepare('SELECT * FROM tg_people WHERE owner_id = ? AND peer_id = ?')
+    .get(owner, peerId) as TgPerson | undefined
+  if (!current) return
+  const next = {
+    canonical_name: p.canonical_name ?? current.canonical_name,
+    role: p.role ?? current.role,
+    aliases: p.aliases ?? current.aliases,
+    note: p.note ?? current.note,
+  }
+  getTgDb().prepare(`
+    UPDATE tg_people SET canonical_name = ?, role = ?, aliases = ?, note = ?, search_key = ?, updated_at = ?
+    WHERE owner_id = ? AND peer_id = ?
+  `).run(
+    next.canonical_name, next.role, next.aliases, next.note,
+    personSearchKey({ ...next, display_name: current.display_name, username: current.username }),
+    now(), owner, peerId,
+  )
+}
+
+export function getPerson(peerId: string): TgPerson | null {
+  return getTgDb().prepare('SELECT * FROM tg_people WHERE owner_id = ? AND peer_id = ?')
+    .get(getOwnerId(), peerId) as TgPerson | undefined ?? null
+}
+
+export interface ListPeopleOptions {
+  /** Matches canonical name, display name, @username or an alias. */
+  search?: string
+  /** Only people who have written in this chat, or belong to it. */
+  chatId?: string
+  withRoleOnly?: boolean
+  includeBots?: boolean
+  limit?: number
+  offset?: number
+}
+
+export function listPeople(opts: ListPeopleOptions = {}): TgPerson[] {
+  const args: unknown[] = [getOwnerId()]
+  let clause = 'owner_id = ?'
+  if (!opts.includeBots) clause += ' AND is_bot = 0'
+  if (opts.withRoleOnly) clause += " AND role != ''"
+  if (opts.search) {
+    clause += ' AND search_key LIKE ?'
+    args.push(`%${opts.search.toLowerCase().trim()}%`)
+  }
+  if (opts.chatId) {
+    clause += ` AND (peer_id IN (SELECT peer_id FROM tg_chat_members WHERE owner_id = tg_people.owner_id AND chat_id = ?)
+                  OR peer_id IN (SELECT DISTINCT sender_id FROM tg_messages WHERE owner_id = tg_people.owner_id AND chat_id = ?))`
+    args.push(opts.chatId, opts.chatId)
+  }
+  args.push(Math.min(opts.limit ?? 50, 500), opts.offset ?? 0)
+  return getTgDb().prepare(
+    `SELECT * FROM tg_people WHERE ${clause} ORDER BY seen_last DESC NULLS LAST, msg_count DESC LIMIT ? OFFSET ?`
+  ).all(...args as never[]) as unknown as TgPerson[]
+}
+
+export function countPeople(): number {
+  const row = getTgDb().prepare('SELECT COUNT(*) AS n FROM tg_people WHERE owner_id = ?')
+    .get(getOwnerId()) as { n: number }
+  return row.n
+}
+
+// --- Chat membership ---
+
+export interface ChatMemberRow extends TgPerson {
+  status: string
+  synced_at: number
+}
+
+/**
+ * Replace the known membership of a chat.
+ *
+ * A full replace, not a merge: the point of a sync is to learn who left, and
+ * merging would keep former members forever. Runs in one transaction so a
+ * failed sync never leaves a chat with an empty roster.
+ */
+export function syncChatMembers(chatId: string, members: Array<{
+  peer_id: string
+  display_name?: string
+  username?: string
+  is_bot?: boolean
+  status?: string
+}>): number {
+  const d = getTgDb()
+  const owner = getOwnerId()
+  const ts = now()
+  d.exec('BEGIN')
+  try {
+    d.prepare('DELETE FROM tg_chat_members WHERE owner_id = ? AND chat_id = ?').run(owner, chatId)
+    const ins = d.prepare(
+      'INSERT OR REPLACE INTO tg_chat_members (owner_id, chat_id, peer_id, status, synced_at) VALUES (?, ?, ?, ?, ?)'
+    )
+    for (const m of members) {
+      if (!m.peer_id) continue
+      upsertPerson(m)
+      ins.run(owner, chatId, m.peer_id, m.status ?? 'member', ts)
+    }
+    d.exec('COMMIT')
+  } catch (err) {
+    d.exec('ROLLBACK')
+    throw err
+  }
+  return members.length
+}
+
+export function listChatMembers(chatId: string, limit = 200): ChatMemberRow[] {
+  return getTgDb().prepare(`
+    SELECT p.*, m.status, m.synced_at
+    FROM tg_chat_members m
+    JOIN tg_people p ON p.owner_id = m.owner_id AND p.peer_id = m.peer_id
+    WHERE m.owner_id = ? AND m.chat_id = ?
+    ORDER BY p.is_bot ASC, p.msg_count DESC, p.display_name ASC
+    LIMIT ?
+  `).all(getOwnerId(), chatId, limit) as unknown as ChatMemberRow[]
+}
+
+/** When the roster was last pulled from Telegram, or 0 if never. */
+export function chatMembersSyncedAt(chatId: string): number {
+  const row = getTgDb().prepare(
+    'SELECT MAX(synced_at) AS ts FROM tg_chat_members WHERE owner_id = ? AND chat_id = ?'
+  ).get(getOwnerId(), chatId) as { ts: number | null }
+  return row?.ts ?? 0
+}
+
+// --- Analysis: routing, buffer state, extractions, budget ---
+
+export interface AnalysisTarget {
+  chat_id: string
+  title: string
+  kind: ChatKind
+  mode: ChatMode
+  target_bot: string
+  analyzed_msg_id: number
+  last_flush_ts: number
+  pending: number
+  oldest_ts: number
+  newest_ts: number
+}
+
+/** Modes whose messages may be turned into facts. */
+const ANALYSED_MODES: ChatMode[] = ['facts-only', 'full']
+
+export function setAnalysisTarget(chatId: string, bot: string): void {
+  const d = getTgDb()
+  const chat = getChat(chatId)
+  if (!chat) return
+  // Turning analysis on must not sweep up months of backlog: start from what
+  // is already logged and look forward only.
+  if (bot && !chat.target_bot) {
+    const row = d.prepare(
+      'SELECT COALESCE(MAX(msg_id), 0) AS m FROM tg_messages WHERE owner_id = ? AND chat_id = ?'
+    ).get(getOwnerId(), chatId) as { m: number }
+    d.prepare('UPDATE tg_chats SET analyzed_msg_id = ? WHERE chat_id = ?').run(row.m, chatId)
+  }
+  d.prepare('UPDATE tg_chats SET target_bot = ?, updated_at = ? WHERE chat_id = ?')
+    .run(bot, now(), chatId)
+}
+
+/**
+ * Chats this bot is responsible for, with their unanalysed backlog.
+ *
+ * One query rather than a per-chat loop: the runner wakes on a timer and must
+ * not turn "is anything due" into N round trips.
+ */
+export function listAnalysisTargets(bot: string): AnalysisTarget[] {
+  const modes = ANALYSED_MODES.map(() => '?').join(',')
+  return getTgDb().prepare(`
+    SELECT c.chat_id, c.title, c.kind, c.mode, c.target_bot, c.analyzed_msg_id, c.last_flush_ts,
+           COUNT(m.id) AS pending,
+           COALESCE(MIN(m.ts), 0) AS oldest_ts,
+           COALESCE(MAX(m.ts), 0) AS newest_ts
+    FROM tg_chats c
+    LEFT JOIN tg_messages m
+      ON m.owner_id = c.owner_id AND m.chat_id = c.chat_id
+     AND m.msg_id > c.analyzed_msg_id AND m.deleted_ts IS NULL
+    WHERE c.owner_id = ? AND c.target_bot = ? AND c.mode IN (${modes})
+    GROUP BY c.chat_id
+  `).all(getOwnerId(), bot, ...ANALYSED_MODES) as unknown as AnalysisTarget[]
+}
+
+/** Messages waiting to be analysed in this chat, oldest first. */
+export function getUnanalysedMessages(chatId: string, afterMsgId: number, limit = 60): TgMessage[] {
+  return getTgDb().prepare(`
+    SELECT * FROM tg_messages
+    WHERE owner_id = ? AND chat_id = ? AND msg_id > ? AND deleted_ts IS NULL
+    ORDER BY msg_id ASC LIMIT ?
+  `).all(getOwnerId(), chatId, afterMsgId, limit) as unknown as TgMessage[]
+}
+
+export function markAnalysed(chatId: string, msgId: number, ts = now()): void {
+  getTgDb().prepare(`
+    UPDATE tg_chats SET analyzed_msg_id = MAX(analyzed_msg_id, ?), last_flush_ts = ?, updated_at = ?
+    WHERE chat_id = ?
+  `).run(msgId, ts, ts, chatId)
+}
+
+export type ExtractionStatus = 'saved' | 'pending' | 'declined' | 'dropped' | 'duplicate' | 'stale'
+
+export interface Extraction {
+  id: number
+  owner_id: string
+  chat_id: string
+  kind: string
+  target_bot: string
+  text: string
+  who: string
+  topic: string
+  tags: string
+  quote: string
+  msg_ids: string
+  when_due: string | null
+  confidence: number
+  status: ExtractionStatus
+  fact_id: number | null
+  reminder_id: number | null
+  created_at: number
+  decided_at: number | null
+}
+
+export function recordExtraction(e: {
+  chat_id: string
+  kind: string
+  target_bot: string
+  text: string
+  who?: string
+  topic?: string
+  tags?: string
+  quote?: string
+  msg_ids?: number[]
+  when_due?: string | null
+  confidence: number
+  status: ExtractionStatus
+  fact_id?: number | null
+  reminder_id?: number | null
+}): number {
+  const res = getTgDb().prepare(`
+    INSERT INTO tg_extractions (owner_id, chat_id, kind, target_bot, text, who, topic, tags,
+                                quote, msg_ids, when_due, confidence, status, fact_id, reminder_id,
+                                created_at, decided_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    getOwnerId(), e.chat_id, e.kind, e.target_bot, e.text, e.who ?? '', e.topic ?? '', e.tags ?? '',
+    e.quote ?? '', JSON.stringify(e.msg_ids ?? []), e.when_due ?? null, e.confidence, e.status,
+    e.fact_id ?? null, e.reminder_id ?? null, now(),
+    e.status === 'pending' ? null : now(),
+  )
+  return Number((res as unknown as { lastInsertRowid: bigint }).lastInsertRowid)
+}
+
+export interface ListExtractionsOptions {
+  status?: ExtractionStatus
+  chatId?: string
+  limit?: number
+  offset?: number
+}
+
+export function listExtractions(opts: ListExtractionsOptions = {}): Extraction[] {
+  const args: unknown[] = [getOwnerId()]
+  let clause = 'owner_id = ?'
+  if (opts.status) { clause += ' AND status = ?'; args.push(opts.status) }
+  if (opts.chatId) { clause += ' AND chat_id = ?'; args.push(opts.chatId) }
+  args.push(Math.min(opts.limit ?? 50, 500), opts.offset ?? 0)
+  return getTgDb().prepare(
+    `SELECT * FROM tg_extractions WHERE ${clause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+  ).all(...args as never[]) as unknown as Extraction[]
+}
+
+export function getExtraction(id: number): Extraction | null {
+  return getTgDb().prepare('SELECT * FROM tg_extractions WHERE owner_id = ? AND id = ?')
+    .get(getOwnerId(), id) as Extraction | undefined ?? null
+}
+
+export function setExtractionStatus(id: number, status: ExtractionStatus, ids: {
+  fact_id?: number | null
+  reminder_id?: number | null
+} = {}): void {
+  getTgDb().prepare(`
+    UPDATE tg_extractions
+    SET status = ?, decided_at = ?,
+        fact_id = COALESCE(?, fact_id), reminder_id = COALESCE(?, reminder_id)
+    WHERE owner_id = ? AND id = ?
+  `).run(status, now(), ids.fact_id ?? null, ids.reminder_id ?? null, getOwnerId(), id)
+}
+
+export function countExtractions(): Record<string, number> {
+  const rows = getTgDb().prepare(
+    'SELECT status, COUNT(*) AS n FROM tg_extractions WHERE owner_id = ? GROUP BY status'
+  ).all(getOwnerId()) as unknown as { status: string; n: number }[]
+  const out: Record<string, number> = {}
+  for (const r of rows) out[r.status] = r.n
+  return out
+}
+
+/**
+ * Mark every extraction that came from a message as needing another look.
+ *
+ * A fact whose source was edited or deleted is not wrong yet, but it is no
+ * longer supported by what the log says. It is flagged, never removed
+ * silently — a fact that vanishes without a trace is worse than a stale one.
+ */
+export function markExtractionsStale(msgId: number, chatId?: string): number {
+  const args: unknown[] = [getOwnerId(), `%${msgId}%`]
+  let clause = "owner_id = ? AND status IN ('saved','pending') AND msg_ids LIKE ?"
+  if (chatId) { clause += ' AND chat_id = ?'; args.push(chatId) }
+  const rows = getTgDb().prepare(`SELECT id, msg_ids FROM tg_extractions WHERE ${clause}`)
+    .all(...args as never[]) as unknown as { id: number; msg_ids: string }[]
+
+  // LIKE on the JSON text is a coarse filter — "12" matches "123" — so the
+  // real membership test happens here, on parsed ids.
+  let touched = 0
+  for (const r of rows) {
+    let ids: number[] = []
+    try { ids = JSON.parse(r.msg_ids) as number[] } catch { continue }
+    if (!ids.includes(msgId)) continue
+    setExtractionStatus(r.id, 'stale')
+    touched++
+  }
+  return touched
+}
+
+// --- Budget ---
+
+const budgetDay = (): string => new Date().toISOString().slice(0, 10)
+
+export interface BudgetRow {
+  date: string
+  tier1_calls: number
+  tier1_chunks: number
+  cost_usd: number
+}
+
+// --- Telegram API call accounting ---
+
+export interface ApiCallDay {
+  total: number
+  byLabel: Record<string, number>
+}
+
+export function noteApiCall(day: string, label: string): void {
+  getTgDb().prepare(`
+    INSERT INTO tg_api_calls (day, label, calls) VALUES (?, ?, 1)
+    ON CONFLICT(day, label) DO UPDATE SET calls = calls + 1
+  `).run(day, label)
+}
+
+export function getApiCalls(day: string): ApiCallDay {
+  const rows = getTgDb().prepare(
+    'SELECT label, calls FROM tg_api_calls WHERE day = ?').all(day) as unknown as
+    { label: string; calls: number }[]
+
+  const byLabel: Record<string, number> = {}
+  let total = 0
+  for (const r of rows) {
+    byLabel[r.label] = r.calls
+    total += r.calls
+  }
+  return { total, byLabel }
+}
+
+/** Keep the table from growing without bound; a fortnight is plenty to explain a spike. */
+export function pruneApiCalls(keepDays = 14): number {
+  const cutoff = new Date(Date.now() - keepDays * 86400_000).toISOString().slice(0, 10)
+  return Number(getTgDb().prepare('DELETE FROM tg_api_calls WHERE day < ?').run(cutoff).changes ?? 0)
+}
+
+export function noteTier1Call(costUsd = 0): BudgetRow {
+  const d = getTgDb()
+  const day = budgetDay()
+  d.prepare(`
+    INSERT INTO tg_budget (date, tier1_calls, tier1_chunks, cost_usd) VALUES (?, 1, 1, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      tier1_calls = tier1_calls + 1,
+      tier1_chunks = tier1_chunks + 1,
+      cost_usd = cost_usd + excluded.cost_usd
+  `).run(day, costUsd)
+  return getBudget()
+}
+
+export function getBudget(day = budgetDay()): BudgetRow {
+  const row = d_budget(day)
+  return row ?? { date: day, tier1_calls: 0, tier1_chunks: 0, cost_usd: 0 }
+}
+
+function d_budget(day: string): BudgetRow | undefined {
+  return getTgDb().prepare('SELECT * FROM tg_budget WHERE date = ?').get(day) as BudgetRow | undefined
+}
+
+export function listBudget(days = 14): BudgetRow[] {
+  return getTgDb().prepare('SELECT * FROM tg_budget ORDER BY date DESC LIMIT ?')
+    .all(days) as unknown as BudgetRow[]
 }

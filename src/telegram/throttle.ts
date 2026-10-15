@@ -60,6 +60,39 @@ export interface ThrottleStats {
   floodWaits: number
   budgetDate: string
   floodUntil: number | null
+  /** Calls today per call site, so a spike can be attributed to something. */
+  byLabel: Record<string, number>
+}
+
+/**
+ * Where the day's tally lives between restarts.
+ *
+ * Injected rather than imported so this module stays free of the database and
+ * of any particular storage. Without it the counters are per-process, which is
+ * the old behaviour and is what tests get.
+ */
+export interface ThrottlePersistence {
+  note(day: string, label: string): void
+  load(day: string): { total: number; byLabel: Record<string, number> }
+}
+
+let persistence: ThrottlePersistence | null = null
+
+/**
+ * Attach durable counting, and adopt whatever today already holds.
+ *
+ * A budget the process forgets on restart is not a ceiling: on 6 Sep 2026 the
+ * daemon came up 24 times, and each start reported a few dozen calls while the
+ * real day was several hundred. A loop that spends the account and crashes
+ * would clear its own tally every time.
+ */
+export function configureThrottlePersistence(p: ThrottlePersistence | null): void {
+  persistence = p
+  if (!p) return
+  budgetDate = today()
+  const seen = p.load(budgetDate)
+  callsToday = seen.total
+  labelCounts = { ...seen.byLabel }
 }
 
 let queue: Promise<unknown> = Promise.resolve()
@@ -68,17 +101,36 @@ let floodUntil = 0
 let callsToday = 0
 let budgetDate = ''
 let floodWaitCount = 0
+let labelCounts: Record<string, number> = {}
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const today = (): string => new Date().toISOString().slice(0, 10)
 
-function noteCall(): void {
+function noteCall(label: string): void {
   const date = today()
   if (date !== budgetDate) {
     budgetDate = date
-    callsToday = 0
+    const seen = persistence?.load(date)
+    callsToday = seen?.total ?? 0
+    labelCounts = { ...(seen?.byLabel ?? {}) }
   }
   callsToday++
+  labelCounts[label] = (labelCounts[label] ?? 0) + 1
+  persistence?.note(date, label)
+}
+
+/**
+ * Count a call that must not be paced or refused.
+ *
+ * The watchdog's liveness probe is the only such call. Putting it through the
+ * queue would make it wait out a FLOOD_WAIT pause longer than its own timeout,
+ * and a budget refusal would read as a dead connection — the daemon would
+ * restart itself over an accounting number. But leaving it uncounted was worse:
+ * one probe every five minutes is 288 calls a day, which on a quiet day is more
+ * than everything the counter did see.
+ */
+export function countUnpacedCall(label: string): void {
+  noteCall(label)
 }
 
 /** Telegram reports the penalty inside the message; default high if unparseable. */
@@ -98,6 +150,7 @@ export function getThrottleStats(): ThrottleStats {
     floodWaits: floodWaitCount,
     budgetDate,
     floodUntil: floodUntil > Date.now() ? floodUntil : null,
+    byLabel: budgetDate === today() ? { ...labelCounts } : {},
   }
 }
 
@@ -109,8 +162,16 @@ export function resetThrottle(): void {
   callsToday = 0
   budgetDate = ''
   floodWaitCount = 0
+  labelCounts = {}
+  persistence = null
   minIntervalMs = DEFAULT_MIN_INTERVAL_MS
   jitterMs = DEFAULT_JITTER_MS
+}
+
+/** Top call sites today, biggest first — what a health line has room for. */
+export function topLabels(stats: ThrottleStats, n = 4): string {
+  const rows = Object.entries(stats.byLabel).sort((a, b) => b[1] - a[1]).slice(0, n)
+  return rows.map(([label, calls]) => `${label} ${calls}`).join(', ')
 }
 
 /**
@@ -141,7 +202,7 @@ export function throttled<T>(label: string, fn: () => Promise<T>): Promise<T> {
     if (since < gap) await sleep(gap - since)
 
     lastCallAt = Date.now()
-    noteCall()
+    noteCall(label)
 
     try {
       return await fn()

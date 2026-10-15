@@ -249,10 +249,17 @@ async function main(): Promise<void> {
   // Unattended Telegram replies. Only started when the observer has a database:
   // otherwise every bot process would open a store it has no reason to touch.
   let stopAutoReply: (() => void) | undefined
+  let stopTier1: (() => void) | undefined
   if (existsSync(TG_DB_PATH)) {
     const mod = await import('./telegram-autoreply.js')
     mod.initAutoReply()
     stopAutoReply = mod.stopAutoReply
+
+    // Turning conversations into facts. Idle unless a chat names this bot in
+    // target_bot, so starting it costs nothing on a bot nobody assigned.
+    const tier1 = await import('./telegram-tier1.js')
+    tier1.initTier1()
+    stopTier1 = tier1.stopTier1
   }
 
   // Start relay listener for bot-to-bot communication in groups
@@ -287,6 +294,7 @@ async function main(): Promise<void> {
     stopSocketListener()
     stopScheduler()
     stopAutoReply?.()
+    stopTier1?.()
     stopDeduplication()
     allowSleep()
     runner.stop()

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -52,6 +52,12 @@ beforeEach(() => {
       command: 'node',
       args: ['api.js'],
       envVars: ['API_KEY'],
+      enabled: true,
+    },
+    'file-server': {
+      command: 'node',
+      args: ['obs.js'],
+      requiresFile: ['store/telegram.session'],
       enabled: true,
     },
   }
@@ -121,5 +127,45 @@ describe('getMcpServer', () => {
     const server = getMcpServer('test-server')
     expect(server).not.toBeNull()
     expect(server!.command).toBe('node')
+  })
+})
+
+describe('servers gated on a file rather than a setting', () => {
+  const sessionPath = join(testDir, 'store', 'telegram.session')
+
+  beforeEach(() => {
+    rmSync(join(testDir, 'store'), { recursive: true, force: true })
+  })
+
+  it('withholds the server until the thing has actually been set up', () => {
+    // Nothing was connected, so the tools must not exist at all — an agent
+    // should never be offered a capability it cannot use.
+    const s = getMcpServersConfig().find(x => x.name === 'file-server')
+    expect(s?.enabled).toBe(false)
+    expect(s?.userEnabled).toBe(true)
+  })
+
+  it('offers it once the session file is there', () => {
+    mkdirSync(join(testDir, 'store'), { recursive: true })
+    writeFileSync(sessionPath, 'session')
+    expect(getMcpServersConfig().find(x => x.name === 'file-server')?.enabled).toBe(true)
+  })
+
+  it('keeps it through a connection loss, because the file outlives one', () => {
+    // The marker is deliberately the session file and not the socket: a dropped
+    // connection or a restarting daemon must not make the tools vanish.
+    mkdirSync(join(testDir, 'store'), { recursive: true })
+    writeFileSync(sessionPath, 'session')
+    rmSync(join(testDir, 'store', 'telegram.sock'), { force: true })
+    expect(getMcpServersConfig().find(x => x.name === 'file-server')?.enabled).toBe(true)
+  })
+
+  it('names the condition in a way a person can read', () => {
+    expect(getMcpServersConfig().find(x => x.name === 'file-server')?.condition)
+      .toBe('Telegram підключено')
+  })
+
+  it('leaves servers without the requirement alone', () => {
+    expect(getMcpServersConfig().find(x => x.name === 'test-server')?.enabled).toBe(true)
   })
 })

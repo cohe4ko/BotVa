@@ -13,6 +13,18 @@ export interface McpServerConfig {
   command: string
   args: string[]
   envVars?: string[]       // env var names required (checked at runtime)
+  /**
+   * Files that must exist for this server to be offered at all, relative to the
+   * project root.
+   *
+   * Some servers are not configured by an env var but by an act — logging a
+   * Telegram account in writes store/telegram.session, and until that has
+   * happened the server has nothing to talk to. A file is the right marker
+   * because it outlives a dropped connection and a daemon restart: the tools
+   * stay put through an outage and appear only once the thing was actually set
+   * up.
+   */
+  requiresFile?: string[]
   envPassthrough?: string[] // env var names to pass to the process
   enabled: boolean          // user toggle
   persistent?: boolean      // keep subprocess alive between agent queries (for stateful servers like browsers)
@@ -96,6 +108,15 @@ export function ensureMcpConfig(): void {
   writeConfig(defaults)
 }
 
+/** Human-readable condition for a required file, for the admin listing. */
+function fileCondition(rel: string): string {
+  return rel === 'store/telegram.session' ? 'Telegram підключено' : rel
+}
+
+function filesPresent(files: string[]): boolean {
+  return files.every(f => existsSync(resolve(PROJECT_ROOT, f)))
+}
+
 // --- Public API ---
 
 export function getMcpServersConfig(env: Record<string, string> = process.env as Record<string, string>): McpServerEntry[] {
@@ -105,13 +126,16 @@ export function getMcpServersConfig(env: Record<string, string> = process.env as
   return Object.entries(config).map(([name, s]) => {
     const envVars = s.envVars ?? []
     const envOk = envVars.length === 0 || envVars.every(v => !!env[v])
-    const condition = envVars.length === 0 ? 'always' : envVars.join(' + ')
+    const files = s.requiresFile ?? []
+    const filesOk = filesPresent(files)
+    const parts = [...envVars, ...files.map(fileCondition)]
+    const condition = parts.length === 0 ? 'always' : parts.join(' + ')
 
     return {
       name,
       command: s.command,
       args: s.args,
-      enabled: s.enabled && envOk,
+      enabled: s.enabled && envOk && filesOk,
       userEnabled: s.enabled,
       condition,
       persistent: s.persistent ?? false,
@@ -172,6 +196,11 @@ export async function buildMcpServers(env: Record<string, string> = process.env 
     // Check env vars
     const envVars = s.envVars ?? []
     if (envVars.length > 0 && !envVars.every(v => !!env[v])) continue
+
+    // A server whose precondition is an act, not a setting: without the file
+    // the tools are not offered, so the agent never sees a capability it cannot
+    // use and never has to be told about it in a prompt.
+    if (!filesPresent(s.requiresFile ?? [])) continue
 
     // Remote HTTP/SSE servers
     const serverType = s.type ?? 'stdio'

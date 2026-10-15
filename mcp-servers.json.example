@@ -62,6 +62,9 @@
     "args": [
       "/ABSOLUTE/PATH/TO/BotVa/mcp-servers/telegram/build/index.js"
     ],
-    "enabled": false
+    "enabled": false,
+    "requiresFile": [
+      "store/telegram.session"
+    ]
   }
 }

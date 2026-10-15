@@ -9,9 +9,13 @@
 import type { TelegramClient, Api } from 'telegram'
 import {
   upsertChat, getChat, insertMessage, markEdited, markDeletedByMsgId,
-  setChatUnread, bumpUnread, touchChatActivity, getCursor, listChats, type ChatMode,
+  setChatUnread, bumpUnread, touchChatActivity, getCursor, listChats, notePersonSeen,
+  markExtractionsStale, type ChatMode,
 } from './db.js'
-import { classifyEntity, defaultModeFor, mediaTypeOf, senderNameFromCache, MAX_HISTORY } from './client.js'
+import {
+  classifyEntity, defaultModeFor, mediaTypeOf, senderNameFromCache,
+  senderProfileFromCache, MAX_HISTORY,
+} from './client.js'
 import { throttled, parseFloodWait } from './throttle.js'
 
 /** Modes in which a message is written to the log. */
@@ -79,11 +83,12 @@ export async function handleNewMessage(message: Api.Message): Promise<void> {
     return
   }
 
+  const senderId = message.senderId ? String(message.senderId) : null
   const stored = insertMessage({
     chat_id: chat.chat_id,
     msg_id: message.id,
     direction: message.out ? 'out' : 'in',
-    sender_id: message.senderId ? String(message.senderId) : null,
+    sender_id: senderId,
     sender_name: senderNameOf(message),
     text,
     media_type: media,
@@ -93,6 +98,19 @@ export async function handleNewMessage(message: Api.Message): Promise<void> {
 
   if (stored) {
     stats.stored++
+    // The people register is built from what the log already sees, so it costs
+    // no extra request and fills in retroactively as conversations happen.
+    // Only incoming: the owner is not a person in his own address book.
+    if (!message.out && senderId) {
+      const who = senderProfileFromCache(message)
+      notePersonSeen({
+        peer_id: senderId,
+        display_name: who.name,
+        username: who.username,
+        is_bot: who.isBot,
+        ts: message.date,
+      })
+    }
     // Track read state as it happens. The dialog sync only corrects this every
     // few minutes, and a policy that waits on unread cannot use a stale count.
     if (message.out) setChatUnread(chat.chat_id, 0)
@@ -104,11 +122,18 @@ export async function handleEditedMessage(message: Api.Message): Promise<void> {
   const chat = await resolveChatFor(message)
   if (!chat || !LOGGING_MODES.includes(chat.mode)) return
   markEdited(chat.chat_id, message.id, message.message ?? '')
+  // Anything already extracted from this message rests on text that no longer
+  // exists. It is flagged for another look, never removed behind the owner's
+  // back — a fact that vanishes silently is worse than a stale one.
+  markExtractionsStale(message.id, chat.chat_id)
 }
 
 /** Telegram gives no chat for deletions outside channels — match on id alone. */
 export function handleDeletedMessages(ids: number[]): void {
-  for (const id of ids) markDeletedByMsgId(id)
+  for (const id of ids) {
+    markDeletedByMsgId(id)
+    markExtractionsStale(id)
+  }
 }
 
 /** How many messages to pull for a chat the log has never seen. */
@@ -189,20 +214,33 @@ export async function catchUp(
 
         // Never resolve senders one by one here: this loop runs across many
         // chats at startup, and a per-message lookup would multiply the cost.
+        const senderId = m.senderId ? String(m.senderId) : null
         const senderName = senderNameFromCache(m)
 
         const stored = insertMessage({
           chat_id: chat.chat_id,
           msg_id: m.id,
           direction: m.out ? 'out' : 'in',
-          sender_id: m.senderId ? String(m.senderId) : null,
+          sender_id: senderId,
           sender_name: senderName,
           text,
           media_type: media,
           reply_to: m.replyTo?.replyToMsgId ?? null,
           ts: m.date,
         })
-        if (stored) storedHere++
+        if (stored) {
+          storedHere++
+          if (!m.out && senderId) {
+            const who = senderProfileFromCache(m)
+            notePersonSeen({
+              peer_id: senderId,
+              display_name: who.name,
+              username: who.username,
+              is_bot: who.isBot,
+              ts: m.date,
+            })
+          }
+        }
       }
 
       if (storedHere > 0) {
