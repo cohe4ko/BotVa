@@ -77,14 +77,14 @@ export const TGAP_DRAFT_TOOLS = (env['TGAP_DRAFT_TOOLS'] ?? '').split(',').map(s
 // Rich messages (Bot API 10.1) — structured answers + draft streaming in private chats.
 // Default enabled; set RICH_MESSAGES_ENABLED=0 to disable and keep the HTML/chunked path.
 export const RICH_MESSAGES_ENABLED = (env['RICH_MESSAGES_ENABLED'] ?? '1') !== '0'
-// Draft-стрімінг (sendRichMessageDraft). Десктопні клієнти Telegram (07.2026)
-// крашились при швидких оновленнях rich-чернетки, тому дефолт off —
-// вся відповідь надсилається в кінці, як і без стрімінгу. Вмикається per-chat
+// Draft-стрімінг (sendRichMessageDraft). У 07.2026 десктопні клієнти Telegram
+// крашились — ймовірно через наш тодішній обхід (новий draft_id на кожне
+// оновлення; tdesktop #30945). Тепер id стабільний на хід і є кнопка «стоп»,
+// але дефолт лишається off до ручної перевірки на Desktop. Вмикається per-chat
 // у /settings (setting `rich_draft`) або цим env: RICH_DRAFT_ENABLED=1.
 export const RICH_DRAFT_ENABLED = env['RICH_DRAFT_ENABLED'] === '1'
-// Тротлінг чернеток вимкнено: кожен завершений блок стрімиться одразу (0 мс).
-// За потреби можна повернути затримку через env RICH_DRAFT_THROTTLE_MS.
-export const RICH_DRAFT_THROTTLE_MS = Math.max(0, Number(env['RICH_DRAFT_THROTTLE_MS'] ?? 0) || 0)
+// Пауза між оновленнями чернетки (мс). 700 — плавно і без шторму запитів.
+export const RICH_DRAFT_THROTTLE_MS = Math.max(0, Number(env['RICH_DRAFT_THROTTLE_MS'] ?? 700) || 0)
 
 // Full process log — chained progress messages without eviction.
 // When enabled, the progress reporter never drops lines: once a message

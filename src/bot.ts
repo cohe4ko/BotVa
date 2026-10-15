@@ -33,6 +33,7 @@ import { chatT, getChatLang, createBotT, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
 import { initTgap, tgapMiddleware } from './tgap/runtime.js'
 import { teamBotIds } from './team-bots.js'
+import { chatForStoppedDraft } from './draft-stop.js'
 import { hasSessionTitle } from './session-titles.js'
 import { getUserNudge } from './workspace-files.js'
 import { classifyReaction } from './auto-react.js'
@@ -1374,6 +1375,18 @@ export function createBot(): Bot {
       try {
         await ctx.editMessageText(_t('admin.stopped'))
       } catch {}
+      return
+    }
+    // Stop button on a streaming draft (Bot API 10.3) — same soft stop as the
+    // status-message button. Only a draft this process registered for this
+    // chat can stop anything.
+    const stopped = (ctx.update as any).stopped_message_generation as { chat?: { id: number }; draft_id?: number } | undefined
+    if (stopped) {
+      const chatIdStr = String(stopped.chat?.id ?? '')
+      if (stopped.draft_id && chatForStoppedDraft(stopped.draft_id, chatIdStr)) {
+        const result = await interruptRequest(chatIdStr)
+        logger.info({ chatId: chatIdStr, draftId: stopped.draft_id, interrupted: result.interrupted }, 'Draft stop pressed')
+      }
       return
     }
     // Stop button callback (soft — asks agent to wrap up, keeps partial)

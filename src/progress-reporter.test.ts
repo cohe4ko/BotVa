@@ -255,3 +255,43 @@ describe('ProgressReporter — chained rollover', () => {
     expect(r.lines.length).toBe(45) // untouched
   })
 })
+
+describe('ProgressReporter — rich draft streaming', () => {
+  const delta = (text: string) => ({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } })
+
+  function draftReporter() {
+    const api = { ...makeApi(), sendRichMessageDraft: vi.fn(async () => true) }
+    const r = new ProgressReporter(123, api as any, Infinity, false, 'uk', true, false, 0) as any
+    return { r, api }
+  }
+
+  it('keeps one draft id for the whole turn and offers the stop button', async () => {
+    const { r, api } = draftReporter()
+    r.formatEvent(delta('First sentence. Second'))
+    await r.flushDraft()
+    r.formatEvent(delta(' sentence. Third'))
+    await r.flushDraft()
+    expect(api.sendRichMessageDraft).toHaveBeenCalledTimes(2)
+    const [a, b] = api.sendRichMessageDraft.mock.calls as any[]
+    expect(a[1]).toBe(b[1])
+    expect(a[3]).toMatchObject({ can_stop: true, keep_on_stop: true })
+  })
+
+  it('registers the draft so a stop press finds its chat, and forgets it at cleanup', async () => {
+    const { chatForStoppedDraft } = await import('./draft-stop.js')
+    const { r } = draftReporter()
+    r.formatEvent(delta('Some text. More'))
+    await r.flushDraft()
+    expect(chatForStoppedDraft(r.draftId, '123')).toBe('123')
+    expect(chatForStoppedDraft(r.draftId, '999')).toBeNull()
+    await r.cleanup()
+    expect(chatForStoppedDraft(r.draftId, '123')).toBeNull()
+  })
+
+  it('starts a new draft for a follow-up turn', async () => {
+    const { r } = draftReporter()
+    const first = r.draftId
+    r.addFollowupMarker('next question')
+    expect(r.draftId).not.toBe(first)
+  })
+})

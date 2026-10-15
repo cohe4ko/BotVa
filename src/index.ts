@@ -274,7 +274,8 @@ async function main(): Promise<void> {
     runner: {
       fetch: {
         // guest_message: Bot API 10.0 guest mode (обробник у bot.ts)
-        allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer', 'guest_message'],
+        // stopped_message_generation: кнопка «стоп» на чернетці (Bot API 10.3)
+        allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer', 'guest_message', 'stopped_message_generation'] as any,
       },
     },
   })

@@ -5,6 +5,12 @@ import { logger } from './logger.js'
 import { createBotT, type BotLang, type BotT } from './bot-i18n.js'
 import { isInterrupted } from './request-queue.js'
 import { draftRichMessage } from './rich-message.js'
+import { registerDraft, unregisterDraft } from './draft-stop.js'
+
+/** A non-zero draft id, as Telegram requires. */
+function newDraftId(): number {
+  return Math.floor(Math.random() * 2_000_000_000) + 1
+}
 
 const THROTTLE_MS = 1500
 const MAX_LINES = 20
@@ -274,10 +280,14 @@ export class ProgressReporter {
     this.t = createBotT(lang ?? 'uk')
     this.richDraft = richDraft ?? false
     this.fullLog = fullLog ?? false
-    // Тротлінг чернеток вимкнено (0 мс): стрімимо кожен завершений блок одразу
     this.draftThrottleMs = Math.max(0, draftThrottleMs ?? 0)
     // draft_id має бути ненульовим і стабільним у межах одного ходу
-    this.draftId = Math.floor(Math.random() * 2_000_000_000) + 1
+    this.draftId = newDraftId()
+  }
+
+  /** Forget this turn's draft: a stop press for it must no longer stop anything. */
+  private retireDraft(): void {
+    unregisterDraft(this.draftId)
   }
 
   handleEvent = (event: SDKMessage): void => {
@@ -297,6 +307,10 @@ export class ProgressReporter {
     this.retryLineIdx = null // new turn — don't reuse a previous turn's retry line
     this.thinkingText = ''
     this.thinkingLineIdx = null
+    // Новий хід — нове повідомлення, отже й нова чернетка
+    this.retireDraft()
+    this.draftId = newDraftId()
+    this.lastDraftText = ''
     const preview = message.replace(/\n/g, ' ').trim().slice(0, 100)
     this.addLine(`\n💬 <b>→ ${escapeHtml(preview)}${message.length > 100 ? '...' : ''}</b>`)
     this.dirty = true
@@ -314,6 +328,7 @@ export class ProgressReporter {
   /** Freeze: stop updating, remove Stop button, keep message forever */
   async freeze(): Promise<void> {
     this.stopped = true
+    this.retireDraft()
     if (this.editTimer) {
       clearTimeout(this.editTimer)
       this.editTimer = null
@@ -335,6 +350,7 @@ export class ProgressReporter {
 
   async cleanup(): Promise<void> {
     this.stopped = true
+    this.retireDraft()
     if (this.editTimer) {
       clearTimeout(this.editTimer)
       this.editTimer = null
@@ -902,10 +918,10 @@ export class ProgressReporter {
     if (this.draftDisabled || this.stopped) return
     const partial = this.streamingText.trim()
     if (!partial) return
-    // Блочні оновлення замість потоку: клієнт анімує зміни чернетки з тим самим
-    // draft_id ПОБУКВЕНО, і ця анімація крашить десктопні клієнти (07.2026).
-    // Тому: (1) шлемо лише до останньої завершеної межі (абзац або речення),
-    // (2) щоразу з НОВИМ draft_id — заміна блоку миттєва, без анімації.
+    // Шлемо лише до останньої завершеної межі (абзац або речення) — рідші й
+    // осмисленіші оновлення. draft_id стабільний на весь хід: так вимагає
+    // Telegram (tdesktop #30945 — різні id для одного повідомлення ламають
+    // рендер), і саме за ним приходить натиск кнопки «стоп».
     const boundary = Math.max(
       partial.lastIndexOf('\n\n'),
       partial.lastIndexOf('. '),
@@ -916,8 +932,9 @@ export class ProgressReporter {
     if (chunk === this.lastDraftText) return
     this.lastDraftText = chunk
     try {
-      this.draftId = Math.floor(Math.random() * 2_000_000_000) + 1
-      await this.api.sendRichMessageDraft(this.chatId, this.draftId, draftRichMessage(chunk))
+      registerDraft(this.draftId, String(this.chatId))
+      // can_stop / keep_on_stop — Bot API 10.3; grammY 1.44 передає їх як є
+      await this.api.sendRichMessageDraft(this.chatId, this.draftId, draftRichMessage(chunk), { can_stop: true, keep_on_stop: true } as any)
       this.lastDraftTime = Date.now()
     } catch (err) {
       // Помилка чернетки не критична — вимикаємо стрімінг чернеток на цей хід
