@@ -2,6 +2,7 @@ import cronParser from 'cron-parser'
 import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent, markReminderFailed, deleteReminder, advanceReminderNextRun } from './db.js'
 import { runAgent } from './agent.js'
 import { getBackgroundModel } from './model.js'
+import { telegramSendingToolIds } from './telegram/tool-names.js'
 import { logger } from './logger.js'
 import { chatT } from './bot-i18n.js'
 import type { Api } from 'grammy'
@@ -42,6 +43,21 @@ export function computeNextRun(cronExpression: string): number {
 
 const REMINDER_MAX_ATTEMPTS = 3
 
+/**
+ * MCP servers a scheduled agent may use.
+ *
+ * This was an empty array, which reads like "no restriction" and means the
+ * opposite: `buildMcpServers` skips every server not in the list, so scheduled
+ * agents ran with no integrations at all. A cron job written around
+ * `tg_read_chat` reported, correctly, that it was an ordinary Claude Code
+ * session with a filesystem and nothing else.
+ *
+ * Telegram is on the list because the whole point of some scheduled jobs is to
+ * read chats. The tools that write to other people are withheld separately, by
+ * name — see `telegramSendingToolIds`.
+ */
+const SCHEDULER_MCP_SERVERS = ['telegram']
+
 async function executeReminderAgent(r: { id: number; chat_id: string; text: string }): Promise<void> {
   if (runningAgentReminders.has(r.id)) {
     logger.info({ reminderId: r.id }, 'Agent reminder already running, skipping')
@@ -54,11 +70,13 @@ async function executeReminderAgent(r: { id: number; chat_id: string; text: stri
       try {
         const { createBuiltinMcpServer } = await import('./builtin-tools.js')
         const ctx = createSchedulerCtx(botApi, Number(r.chat_id))
+        // No AskUser here on purpose: a scheduled run has nobody to ask, and a
+        // question posed to an empty room is a hung job.
         const SCHEDULER_TOOLS = [
           'SearchMemory', 'SaveFact', 'GetCurrentTime',
           'SendMedia', 'TextToSpeech', 'PublishTelegraph',
           'GenerateImage', 'CurrencyRates', 'RunPython',
-          'ReadWorkspaceFile',
+          'ReadWorkspaceFile', 'WriteWorkspaceFile',
         ]
         const builtin = await createBuiltinMcpServer(ctx, Number(r.chat_id), undefined, SCHEDULER_TOOLS)
         builtinServer = builtin?.server
@@ -68,7 +86,8 @@ async function executeReminderAgent(r: { id: number; chat_id: string; text: stri
     }
     const { text: result } = await runAgent(
       r.text, undefined, undefined, r.chat_id,
-      undefined, getBackgroundModel(r.chat_id), builtinServer, undefined, undefined, []
+      undefined, getBackgroundModel(r.chat_id), builtinServer, undefined, undefined,
+      SCHEDULER_MCP_SERVERS, undefined, undefined, undefined, telegramSendingToolIds()
     )
     const output = result ?? '(no response)'
     if (sender && !output.includes('{{agent.crash}}')) {

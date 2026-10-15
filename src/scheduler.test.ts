@@ -178,6 +178,45 @@ describe('runDueTasks', () => {
   })
 })
 
+describe('what a scheduled agent is given', () => {
+  const runReminderAgent = async () => {
+    const sender = vi.fn(async () => {})
+    initScheduler(sender, { fake: true } as never)
+    mockGetDueTasks.mockReturnValue([])
+    mockGetDueReminders.mockReturnValue([
+      { id: 9, chat_id: '123', text: 'Прочитай чат і онови трекер', remind_at: 100,
+        created_at: 50, status: 'pending', run_agent: 1 },
+    ])
+    await runDueTasks()
+    stopScheduler()
+    return mockRunAgent.mock.calls[0] as unknown[]
+  }
+
+  it('gets Telegram, which it used to be denied entirely', async () => {
+    // The allow list was an empty array, which reads like "no restriction" and
+    // means the opposite: buildMcpServers skips everything not in it. A cron job
+    // written around tg_read_chat ran as a plain shell session and said so.
+    const args = await runReminderAgent()
+    expect(args[9]).toEqual(['telegram'])
+  })
+
+  it('is not given the tools that message other people', async () => {
+    // It runs at three in the morning with nobody watching, and a message from
+    // the owner's own account cannot be recalled.
+    const disallowed = (await runReminderAgent())[13] as string[]
+    expect(disallowed).toContain('mcp__telegram__tg_send_message')
+    expect(disallowed).toContain('mcp__telegram__tg_send_file')
+    expect(disallowed).toContain('mcp__telegram__tg_send_contact')
+  })
+
+  it('keeps the tools that only touch the owner\'s own account', async () => {
+    const disallowed = (await runReminderAgent())[13] as string[]
+    expect(disallowed).not.toContain('mcp__telegram__tg_write_note')
+    expect(disallowed).not.toContain('mcp__telegram__tg_add_contact')
+    expect(disallowed).not.toContain('mcp__telegram__tg_read_chat')
+  })
+})
+
 describe('initScheduler / stopScheduler', () => {
   it('starts and stops interval', () => {
     vi.useFakeTimers()

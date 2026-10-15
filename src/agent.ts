@@ -88,7 +88,8 @@ async function runAgentOnce(
   mcpAllowList?: string[],
   agents?: Record<string, AgentDefinition>,
   effort?: 'low' | 'medium' | 'high' | 'max',
-  resumeAt?: string
+  resumeAt?: string,
+  disallowedTools?: string[]
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -259,6 +260,7 @@ async function runAgentOnce(
         ...(sessionId ? { resume: sessionId } : {}),
         ...(sessionId && resumeAt ? { resumeSessionAt: resumeAt } : {}),
         ...(agents && Object.keys(agents).length > 0 ? { agents } : {}),
+        ...(disallowedTools && disallowedTools.length > 0 ? { disallowedTools } : {}),
         // Opt-in only (SANDBOX_ENABLED): sandbox the agent's Bash tool and mask
         // sensitive API keys present in the environment. Flag off → no sandbox
         // key at all, default behaviour unchanged.
@@ -428,7 +430,15 @@ export async function runAgent(
   mcpAllowList?: string[],
   agents?: Record<string, AgentDefinition>,
   effort?: 'low' | 'medium' | 'high' | 'max',
-  resumeAt?: string
+  resumeAt?: string,
+  /**
+   * Tool names the SDK must drop from the model's context entirely.
+   *
+   * Used to hand a narrower Telegram to unattended runs: they may read and may
+   * edit the owner's own notes and contacts, but the tools that speak to other
+   * people are not merely refused — they are never offered.
+   */
+  disallowedTools?: string[]
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
@@ -444,7 +454,7 @@ export async function runAgent(
     }
   }
 
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, resumeAt)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, resumeAt, disallowedTools)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -452,7 +462,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, undefined, disallowedTools)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }
