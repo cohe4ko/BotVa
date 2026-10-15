@@ -1244,7 +1244,8 @@ To REMOVE the bot's reaction from the message, set remove=true (emoji is then ig
       'RunPython',
       `Execute Python code in a persistent sandbox. Use when user asks to calculate, analyze data, or build a chart. Triggers: "порахуй", "побудуй графік", "проаналізуй дані", "скільки буде", any math/statistics task.
 
-Available: pandas, numpy, matplotlib, sympy. Charts auto-sent to chat (use plt.savefig). Variables persist between calls.
+Available: pandas, numpy, matplotlib. Charts auto-sent to chat (use plt.savefig). Variables persist between calls.
+Isolated: no network, no environment secrets; writes only in the working directory. Files the user sent are readable (read-only) at their uploads path.
 
 Use RunPython instead of manual calculation when: percentages, currency conversion, date math, statistics, or anything with >2 numbers. NOT for simple single-number answers you can compute in your head.`,
       { code: z.string().describe('Python code to execute') },
@@ -1255,8 +1256,9 @@ Use RunPython instead of manual calculation when: percentages, currency conversi
           if (!sandbox) {
             const { PythonSandbox } = await import('./python-sandbox.js')
             const { BOT_DIR } = await import('./env.js')
+            const { UPLOADS_DIR } = await import('./media.js')
             const sandboxDir = resolve(BOT_DIR, 'workspace', 'sandbox')
-            sandbox = new PythonSandbox(sandboxDir)
+            sandbox = new PythonSandbox(sandboxDir, undefined, [UPLOADS_DIR])
           }
           const result = await sandbox.execute(args.code)
 
