@@ -1,6 +1,9 @@
 import { marked } from 'marked'
 import type { Token, Tokens } from 'marked'
-import type { InputRichMessage } from '@grammyjs/types'
+import type { InputRichMessage as InputRichMessageOf } from '@grammyjs/types'
+
+// Лише html, без вкладених медіа — тому тип файлу не потрібен.
+type InputRichMessage = InputRichMessageOf<never>
 
 // --- Ліміти Rich Message (Bot API 10.1, див. node_modules/@grammyjs/types/rich.d.ts) ---
 // До 32768 UTF-8 символів у тексті rich-повідомлення. Тримаємо запас під розмітку.

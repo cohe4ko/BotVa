@@ -801,7 +801,8 @@ For albums: "надішли останні 5 фото з галереї", "ві�
                   return InputMediaBuilder.document(inputFile, { caption: cap })
               }
             })
-            await ctx.replyWithMediaGroup(media)
+            // Змішаний альбом із документами Telegram відхилить сам — помилка повернеться моделі.
+            await ctx.replyWithMediaGroup(media as Parameters<typeof ctx.replyWithMediaGroup>[0])
             return { content: [{ type: 'text' as const, text: `Album sent (${args.files.length} items)` }] }
           }
 
