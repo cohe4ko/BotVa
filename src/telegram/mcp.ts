@@ -33,9 +33,7 @@ import {
   MAX_HISTORY, MAX_PARTICIPANTS,
 } from './client.js'
 
-/** Outgoing action limits — a hard refusal, never a queue. */
-const SEND_LIMIT_HOUR = 10
-const SEND_LIMIT_DAY = 30
+import { checkSendLimits } from './send-policy.js'
 
 /** Minimal JSON-RPC transport over a duplex socket, mirroring StdioServerTransport. */
 class SocketTransport implements Transport {
@@ -397,17 +395,6 @@ async function markReadBeforeSend(
     await markRead(client, chatId)
     setChatUnread(chatId, 0)
   } catch { /* read receipts are cosmetic; the message still goes out */ }
-}
-
-function checkSendLimits(): string | null {
-  const nowTs = Math.floor(Date.now() / 1000)
-  if (countOutboxSince(nowTs - 3600) >= SEND_LIMIT_HOUR) {
-    return `Ліміт вихідних вичерпано: ${SEND_LIMIT_HOUR} на годину.`
-  }
-  if (countOutboxSince(nowTs - 86400) >= SEND_LIMIT_DAY) {
-    return `Ліміт вихідних вичерпано: ${SEND_LIMIT_DAY} на добу.`
-  }
-  return null
 }
 
 async function callTool(

@@ -19,6 +19,7 @@ import { getSession, setSession } from './db.js'
 import { logger } from './logger.js'
 import { openObserver, type ObserverSession } from './telegram/bridge.js'
 import { businessRouteFor } from './telegram/business.js'
+import { checkSendLimits, isSendAllowed } from './telegram/send-policy.js'
 import { GrammyError, type Api } from 'grammy'
 import { findAutoReplyCandidates, type AutoReplyCandidate } from './telegram/autoreply.js'
 import {
@@ -517,6 +518,14 @@ export async function sendAnswer(obs: ObserverSession, c: AutoReplyCandidate, te
   const chatId = c.chat.chat_id
   const route = businessApi && c.chat.kind === 'user' ? businessRouteFor(chatId) : null
   if (route && businessApi) {
+    // The observer enforces these inside tg_send_message; this route must not
+    // be a way around the owner's allowlist or the shared limits.
+    if (!isSendAllowed(chatId)) throw new Error(`sending to chat ${chatId} is not allowed (admin: Telegram → Chats)`)
+    const limit = checkSendLimits()
+    if (limit) throw new Error(limit)
+    // Read before answering, as a person would — and as the observer does.
+    await (businessApi.raw as any).readBusinessMessage({ business_connection_id: route, chat_id: Number(chatId), message_id: c.trigger.msg_id })
+      .catch(() => { /* read receipts are cosmetic; the reply still goes out */ })
     try {
       const m = await businessApi.sendMessage(Number(chatId), text, { business_connection_id: route })
       recordOutbox({ chat_id: chatId, kind: 'auto-reply', text: text.slice(0, 500), status: 'sent', requested_by: `${BOT_NAME} (business)`, msg_id: m.message_id })
