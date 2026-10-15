@@ -11,6 +11,7 @@ import {
   RICH_DRAFT_ENABLED,
   RICH_DRAFT_THROTTLE_MS,
   PROGRESS_FULL_LOG,
+  PROJECT_ROOT,
 } from './config.js'
 import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup, setPendingRewind, getPendingRewind, clearPendingRewind } from './db.js'
 import { computeUndoAnchor } from './disk-sessions.js'
@@ -30,6 +31,8 @@ import { editImage } from './imagen.js'
 import { getModel, getEffort } from './model.js'
 import { chatT, getChatLang, createBotT, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
+import { initTgap, tgapMiddleware } from './tgap/runtime.js'
+import { teamBotIds } from './team-bots.js'
 import { hasSessionTitle } from './session-titles.js'
 import { getUserNudge } from './workspace-files.js'
 import { classifyReaction } from './auto-react.js'
@@ -321,8 +324,9 @@ function shouldProcessGroupMessage(ctx: Context): boolean {
   if (!isBotMentioned(ctx) && !isReplyToBot(ctx)) return false
   const sender = ctx.message?.from
   if (!sender) return false
-  // Allow bots (for multi-bot ping-pong dialogue)
-  if (sender.is_bot) return true
+  // Allow our own bots (multi-bot ping-pong dialogue) — not every bot that
+  // can reach us now that Telegram delivers bot-to-bot messages.
+  if (sender.is_bot) return teamBotIds(PROJECT_ROOT).has(sender.id)
   // Allow authorised users (their user ID = their private chat ID in ALLOWED_CHAT_ID)
   return isAuthorised(sender.id)
 }
@@ -1260,6 +1264,11 @@ export function createBot(): Bot {
   }
 
   const bot = new Bot(TELEGRAM_BOT_TOKEN)
+
+  // TGAP first: other bots' private messages must never reach the handlers
+  // below (see tgap/runtime.ts), and approval-card buttons are handled here.
+  initTgap(bot)
+  bot.use(tgapMiddleware)
 
 
   // Pre-middleware: handle stop/cancel immediately, bypass grammy's sequential processing

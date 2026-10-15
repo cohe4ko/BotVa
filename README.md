@@ -157,13 +157,19 @@ Cron-задачі: `/schedule 0 9 * * * Що в мене на сьогодні?`
 
 Менеджер координує роботу, боти спілкуються через Colleague MCP (Unix-сокети). Кожен бот може звернутись до менеджера через `ask_manager()`.
 
+### Боти інших людей (TGAP)
+
+Бот може напряму спитати бота іншої людини (`AskExternalBot`): «спитай у @petro_bot, коли Петро вільний». Бот друга готує чернетку з read-only інструментами, показує її власнику з кнопками «Надіслати / Змінити / Відхилити / Заблокувати», і лише після підтвердження відповідає. Відповідь чесно позначає, чи її підтвердив власник. Невідомі боти, ліміти ходів і rate limit, захист від зациклення — за протоколом [TGAP](docs/tgap-spec.md). `ManageExternalBots` — список ботів і рівні довіри.
+
+Вмикається `TGAP_ENABLED=1` у `.env` бота; потрібен Bot-to-Bot Communication Mode у @BotFather для обох ботів. `TGAP_OWNER_NAME` — ім'я у «візитці» бота (порожнє — анонімно), `TGAP_ACCEPT_FROM=known_only` — відмовляти невідомим ботам, `TGAP_DRAFT_TOOLS` — додаткові read-only MCP-інструменти для чернетки (`mcp__<server>__<tool>`, через кому).
+
 ### Telegram
 
 SendMedia (фото, документи, альбоми), SendChecklist (список задач/покупок з чекбоксами), ForwardMessage, SetReaction (реакція emoji + зняття реакції), PinMessage, OpenWebApp (Mini App), AskUser (кнопки, poll із зображеннями в опціях).
 
 ### Утиліти
 
-CurrencyRates (готівкові курси), GetCurrentTime, RunPython (sandbox), SendEmail (SMTP), PublishTelegraph, ShareFile (файл, папка або `.zip`/`.tar.gz` -- багатофайлова сторінка розгортається на сервері в окрему теку з `index.html`).
+CurrencyRates (готівкові курси), GetCurrentTime, RunPython (ізольований: без мережі й ключів, пише лише у свій каталог, файли користувача — тільки на читання), SendEmail (SMTP), PublishTelegraph, ShareFile (файл, папка або `.zip`/`.tar.gz` -- багатофайлова сторінка розгортається на сервері в окрему теку з `index.html`).
 
 ### Workspace Files
 

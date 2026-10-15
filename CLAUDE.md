@@ -111,6 +111,7 @@ CreateBot, DeleteBot, ListBots,
 CurrencyRates, GetCurrentTime,
 CreateReminder, ListReminders, DeleteReminder,
 RunPython, AskUser, TakeScreenshot, NameSession,
+AskExternalBot, ManageExternalBots,
 AskGemini, GeminiSearch,
 PinMessage, OpenWebApp, SendLocation, SendSticker, SendAnimation,
 ReadWorkspaceFile, WriteWorkspaceFile

@@ -61,6 +61,19 @@ export const MAX_ASSISTANT_MEMORY_LEN = parseInt(env['MAX_ASSISTANT_MEMORY_LEN']
 // Guest mode (Bot API 10.0)
 export const GUEST_MODE_ENABLED = (env['GUEST_MODE_ENABLED'] ?? 'true') === 'true'
 
+// TGAP — talking to other owners' bots (docs/tgap-spec.md). Off by default:
+// it needs Bot-to-Bot Communication Mode switched on in @BotFather first.
+export const TGAP_ENABLED = (env['TGAP_ENABLED'] ?? '0') === '1'
+// The name other bots see in this bot's card. Nothing else about the owner is
+// published, so leave it empty to stay anonymous ("the owner").
+export const TGAP_OWNER_NAME = (env['TGAP_OWNER_NAME'] ?? '').trim()
+// 'anyone' — unknown bots reach the owner for approval; 'known_only' — they get a polite refusal.
+export const TGAP_ACCEPT_FROM: 'anyone' | 'known_only' = env['TGAP_ACCEPT_FROM'] === 'known_only' ? 'known_only' : 'anyone'
+// Extra read-only MCP tools a reply draft may use, e.g. a calendar lookup:
+// comma-separated full names (mcp__<server>__<tool>). Builtin SearchMemory,
+// GetCurrentTime and CurrencyRates are always available.
+export const TGAP_DRAFT_TOOLS = (env['TGAP_DRAFT_TOOLS'] ?? '').split(',').map(s => s.trim()).filter(s => s.startsWith('mcp__'))
+
 // Rich messages (Bot API 10.1) — structured answers + draft streaming in private chats.
 // Default enabled; set RICH_MESSAGES_ENABLED=0 to disable and keep the HTML/chunked path.
 export const RICH_MESSAGES_ENABLED = (env['RICH_MESSAGES_ENABLED'] ?? '1') !== '0'

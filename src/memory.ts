@@ -79,6 +79,28 @@ export function appendToDailyLog(userMsg: string, assistantMsg: string): void {
   }
 }
 
+/**
+ * Note something that happened outside the conversation — another bot's
+ * answer, a sent request — so the next turn knows about it. It lands in the
+ * same daily log, which reaches the model as context, never as instructions.
+ */
+export function appendEventToDailyLog(event: string): void {
+  mkdirSync(MEMORIES_DIR, { recursive: true })
+  const today = memoryDate()
+  const path = dailyFilePath(today)
+  if (!existsSync(path)) {
+    appendFileSync(path, `# ${today} — Щоденник\n\n`, 'utf-8')
+  }
+  const now = new Date()
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  try {
+    appendFileSync(path, `\n## ${hh}:${mm}\n**[подія]** ${event.replace(/\n/g, ' ')}\n`, 'utf-8')
+  } catch (err) {
+    logger.error({ err }, 'Failed to append event to daily log')
+  }
+}
+
 export interface MemoryContext {
   text: string
   injectedFactIds: number[]

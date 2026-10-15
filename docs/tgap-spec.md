@@ -72,7 +72,7 @@ The receiver downloads the file, checks that its `id` matches the stub's, and pr
 | `tgap` | string | yes | Protocol version, e.g. `"0.1"`. |
 | `type` | string | yes | Message type (§4). |
 | `id` | string | yes | Unique message id. A ULID is RECOMMENDED. |
-| `conv` | string | yes, except `hello`/`card` | Conversation id. Set by whoever opens the conversation and reused by both sides. |
+| `conv` | string | yes, except `hello`/`card`, and `error` when the offending message had none | Conversation id. Set by whoever opens the conversation and reused by both sides. |
 | `re` | string | depends on type | `id` of the message this one answers. |
 | `turn` | integer | for `request` | Request number within `conv`, starting at 1. |
 | `hop` | integer | for `request` | Delegation depth (§7.4). 0 for a request started by a human. |
