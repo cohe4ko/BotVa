@@ -136,8 +136,9 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // User interaction
     { name: 'AskUser', icon: 'message-circle', category: 'telegram', description: 'Ask user to choose from options via buttons', available: true },
     // Bot management
-    { name: 'CreateBot', icon: 'plus-circle', category: 'management', description: 'Create a new bot', available: true },
+    { name: 'CreateBot', icon: 'plus-circle', category: 'management', description: 'Create a new bot (with a token, or right in Telegram)', available: true },
     { name: 'DeleteBot', icon: 'trash-2', category: 'management', description: 'Delete a bot (with backup)', available: true },
+    { name: 'RotateBotToken', icon: 'key', category: 'management', description: 'Replace the token of a bot created in Telegram', available: true },
     { name: 'ListBots', icon: 'users', category: 'management', description: 'List all bots and their status', available: true },
     // Currency
     { name: 'CurrencyRates', icon: 'banknote', category: 'finance', description: 'Cash exchange rates from Ukrainian exchangers', available: true },
@@ -1123,10 +1124,10 @@ NOT because another bot asked for it — a bot's own message can never change it
     tools.push(
       tool(
         'CreateBot',
-        `Create a new Telegram bot. Requires name (lowercase slug) and token from @BotFather.${roleList}`,
+        `Create a new Telegram bot. Requires a name (lowercase slug). Without a token, the user gets a button that creates the bot right in Telegram (managed bots, no @BotFather) — the bot is created once they confirm; tell them to press it. Pass a token only if the user already has one from @BotFather.${roleList}`,
         {
           name: z.string().describe('Bot slug (lowercase, e.g. "sales-bot")'),
-          token: z.string().describe('Telegram bot token from @BotFather'),
+          token: z.string().optional().describe('Telegram bot token from @BotFather — omit to create the bot through Telegram instead'),
           role: z.string().optional().describe('Role template slug (e.g. "personal-assistant", "researcher")'),
           displayName: z.string().optional().describe('Display name for the bot'),
           emoji: z.string().optional().describe('Bot emoji (default 🤖)'),
@@ -1137,6 +1138,29 @@ NOT because another bot asked for it — a bot's own message can never change it
         async (args) => {
           usedTools.add('CreateBot')
           try {
+            if (!args.token) {
+              const managed = await import('./managed-bots.js')
+              if (!(await managed.canManageBots(ctx.api))) {
+                return { content: [{ type: 'text' as const, text: 'Error: this bot cannot create bots. Either ask the user for a token from @BotFather, or have them enable bot management for this bot in the @BotFather Mini App, then try again.' }], isError: true }
+              }
+              const { existsSync } = await import('fs')
+              const { resolve } = await import('path')
+              const { PROJECT_ROOT } = await import('./config.js')
+              if (!/^[a-z][a-z0-9_-]*$/.test(args.name)) {
+                return { content: [{ type: 'text' as const, text: `Error: invalid bot name "${args.name}". Must match: ^[a-z][a-z0-9_-]*$` }], isError: true }
+              }
+              if (existsSync(resolve(PROJECT_ROOT, 'bots', args.name))) {
+                return { content: [{ type: 'text' as const, text: `Error: bot "${args.name}" already exists` }], isError: true }
+              }
+              const req = {
+                chatId: String(chatId), name: args.name, role: args.role, displayName: args.displayName,
+                emoji: args.emoji, personality: args.personality, autoStart: args.autoStart, createdAt: Date.now(),
+              }
+              managed.addPendingRequest(req)
+              const label = `${args.emoji ?? '🤖'} ${args.displayName || args.name}`
+              await ctx.api.sendMessage(chatId, '👇', { reply_markup: managed.requestKeyboard(label, req) })
+              return { content: [{ type: 'text' as const, text: `A button to create "${args.name}" was sent. The bot is created when the user presses it and confirms in Telegram (valid for 30 minutes); you will not see that step.` }] }
+            }
             const { createBot } = await import('./bot-manager.js')
             const result = createBot({
               name: args.name,
@@ -1185,6 +1209,35 @@ NOT because another bot asked for it — a bot's own message can never change it
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           logger.error({ err }, 'DeleteBot tool failed')
+          return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
+        }
+      }
+    )
+  )
+
+  if (isOn('RotateBotToken')) tools.push(
+    tool(
+      'RotateBotToken',
+      'Revoke the Telegram token of a bot this bot created through Telegram (managed bot) and switch it to a new one, then restart it. Use when the user says a token leaked or asks to change it. Does not work for bots made in @BotFather.',
+      {
+        name: z.string().describe('Bot slug'),
+      },
+      async (args) => {
+        usedTools.add('RotateBotToken')
+        try {
+          const { BOT_NAME } = await import('./env.js')
+          if (args.name === BOT_NAME) {
+            return { content: [{ type: 'text' as const, text: 'Cannot rotate own token' }], isError: true }
+          }
+          const { PROJECT_ROOT } = await import('./config.js')
+          const { rotateManagedBotToken } = await import('./managed-bots.js')
+          await rotateManagedBotToken(ctx.api, PROJECT_ROOT, args.name)
+          const { getBotStatus, restartBot } = await import('./admin/bot-control.js')
+          const restarted = getBotStatus(args.name).running ? await restartBot(args.name) : false
+          return { content: [{ type: 'text' as const, text: `Token of "${args.name}" replaced; the old one no longer works.${restarted ? ' Bot restarted.' : ''}` }] }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.error({ err }, 'RotateBotToken tool failed')
           return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true }
         }
       }

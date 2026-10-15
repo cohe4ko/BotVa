@@ -107,7 +107,7 @@ GenerateImage, EditImage, TextToSpeech, TranscribeAudio, SendMedia, SendChecklis
 ListGalleryImages, SendGalleryImage, DeleteGalleryImage,
 CreateBackup, ListBackups, VerifyBackup, RestoreBackup, DeleteBackup, SendEmail,
 SaveFact, SearchMemory, DeleteFact, BoostFact,
-CreateBot, DeleteBot, ListBots,
+CreateBot, DeleteBot, ListBots, RotateBotToken,
 CurrencyRates, GetCurrentTime,
 CreateReminder, ListReminders, DeleteReminder,
 RunPython, AskUser, TakeScreenshot, NameSession,

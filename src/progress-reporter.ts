@@ -467,7 +467,7 @@ export class ProgressReporter {
               SaveFact: 'progress.cute.savefact', SearchMemory: 'progress.cute.searchmemory',
               DeleteFact: 'progress.cute.deletefact',
               CreateBot: 'progress.cute.botmanage', DeleteBot: 'progress.cute.botmanage',
-              ListBots: 'progress.cute.botmanage',
+              ListBots: 'progress.cute.botmanage', RotateBotToken: 'progress.cute.botmanage',
               CurrencyRates: 'progress.cute.currencyrates', GetCurrentTime: 'progress.cute.getcurrenttime',
               CreateReminder: 'progress.cute.reminder', ListReminders: 'progress.cute.reminder',
               DeleteReminder: 'progress.cute.reminder',

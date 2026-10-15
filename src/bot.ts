@@ -16,6 +16,7 @@ import {
 import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup, setPendingRewind, getPendingRewind, clearPendingRewind } from './db.js'
 import { computeUndoAnchor } from './disk-sessions.js'
 import { runAgent, type UsageStats, type LiveHooks } from './agent.js'
+import { takePendingRequest, completeManagedBot } from './managed-bots.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, transcribeAudioLong, voiceCapabilities, synthesizeSpeech } from './voice.js'
 import { getProvider as getTtsProvider, extractToneMarker } from './tts-providers/index.js'
@@ -1343,6 +1344,33 @@ export function createBot(): Bot {
     }
     if (u.edited_business_message || u.deleted_business_messages) return
     return next()
+  })
+
+  // Managed bots: the owner pressed our "create bot" button and confirmed in
+  // Telegram. Both a service message and a managed_bot update announce it; the
+  // pending request is taken once, so whichever comes first creates the bot.
+  bot.use(async (ctx, next) => {
+    const u = ctx.update as any
+    const created = u.managed_bot
+      ? { chatId: String(u.managed_bot.user?.id ?? ''), bot: u.managed_bot.bot }
+      : ctx.message && (ctx.message as any).managed_bot_created
+        ? { chatId: String(ctx.chat?.id ?? ''), bot: (ctx.message as any).managed_bot_created.bot }
+        : undefined
+    if (!created) return next()
+    if (!created.chatId || !isAuthorised(Number(created.chatId)) || !created.bot?.id) return
+    const req = takePendingRequest(created.chatId)
+    if (!req) {
+      logger.info({ bot: created.bot.username }, 'Managed bot event without a pending request')
+      return
+    }
+    const t = chatT(created.chatId)
+    try {
+      const line = await completeManagedBot(bot.api, req, created.bot)
+      await bot.api.sendMessage(created.chatId, t('managed.created', { bot: line }), { reply_markup: { remove_keyboard: true } })
+    } catch (err) {
+      logger.error({ err, name: req.name }, 'Managed bot creation failed')
+      await bot.api.sendMessage(created.chatId, t('managed.failed', { err: err instanceof Error ? err.message : String(err) }), { reply_markup: { remove_keyboard: true } }).catch(() => {})
+    }
   })
 
 

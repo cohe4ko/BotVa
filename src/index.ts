@@ -278,7 +278,9 @@ async function main(): Promise<void> {
         // stopped_message_generation: кнопка «стоп» на чернетці (Bot API 10.3)
         allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer', 'guest_message', 'stopped_message_generation',
           // Telegram Business (Chat Automation) — telegram/business.ts
-          'business_connection', 'business_message', 'edited_business_message', 'deleted_business_messages'] as any,
+          'business_connection', 'business_message', 'edited_business_message', 'deleted_business_messages',
+          // Managed bots: a bot the owner created through our button — managed-bots.ts
+          'managed_bot'] as any,
       },
     },
   })

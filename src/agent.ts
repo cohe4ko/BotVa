@@ -257,7 +257,7 @@ async function runAgentOnce(
       'DeleteFact',
       'WriteWorkspaceFile',
       'GenerateImage', 'EditImage', 'TextToSpeech',
-      'CreateBot', 'DeleteBot',
+      'CreateBot', 'DeleteBot', 'RotateBotToken',
       'CreateBackup', 'DeleteBackup', 'RestoreBackup',
       'DeleteGalleryImage',
     ])

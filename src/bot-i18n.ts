@@ -139,6 +139,8 @@ const translations: Record<BotLang, Record<string, string>> = {
 
     // Progress reporter
     'progress.stop': '⏹ Stop',
+    'managed.created': '✅ Bot created: {bot}',
+    'managed.failed': '❌ Could not create the bot: {err}',
     'progress.background': '⏩ To background',
     'cb.backgrounded': 'Moved to the background — it keeps running, I will report when it finishes',
     'cb.nothingToBackground': 'Nothing to move to the background',
@@ -514,6 +516,8 @@ const translations: Record<BotLang, Record<string, string>> = {
 
     // Progress reporter
     'progress.stop': '⏹ Стоп',
+    'managed.created': '✅ Бота створено: {bot}',
+    'managed.failed': '❌ Не вдалося створити бота: {err}',
     'progress.background': '⏩ У фон',
     'cb.backgrounded': 'Перевів у фон — працює далі, повідомлю, коли завершиться',
     'cb.nothingToBackground': 'Нічого переводити у фон',

@@ -40,6 +40,7 @@ const MUTATING_TOOLS = new Set<string>([
   'NameSession',
   'CreateBot',
   'DeleteBot',
+  'RotateBotToken',
   'CreateBackup',
   'RestoreBackup',
   'DeleteBackup',
