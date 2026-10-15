@@ -13,6 +13,7 @@ import { execSync } from 'child_process'
 import { resolve, join } from 'path'
 import { guideBlock } from '../views/components.js'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
+import { jsonOutput, resultPayload, SYSTEM_DIAGNOSTICS_SCHEMA } from '../../structured-output.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -795,9 +796,7 @@ System snapshot:
 async function collectQueryResult(conversation: AsyncIterable<SDKMessage>): Promise<string> {
   let result = ''
   for await (const event of conversation) {
-    if (event.type === 'result') {
-      result = event.subtype === 'success' ? event.result : (event.errors?.join('\n') ?? 'Error')
-    }
+    if (event.type === 'result') result = resultPayload(event)
   }
   return result
 }
@@ -888,6 +887,7 @@ app.post('/diagnostics/run', async (c) => {
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         model: 'sonnet',
+        outputFormat: jsonOutput(SYSTEM_DIAGNOSTICS_SCHEMA),
       },
     })
     analysisRaw = await collectQueryResult(conversation)

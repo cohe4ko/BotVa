@@ -16,6 +16,7 @@ import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { getBackgroundModel, parseModelConfig } from '../model.js'
 import { ALLOWED_CHAT_ID } from '../config.js'
 import { normalizeTopic } from '../listener-analyze.js'
+import { jsonOutput, structuredOf, CONVERSATION_ANALYSIS_SCHEMA } from '../structured-output.js'
 
 /** Categories Tier 1 may return. Order matters only for stable output. */
 export const ITEM_KINDS = [
@@ -231,9 +232,14 @@ export async function analyzeConversation(chunk: ConversationChunk): Promise<Ana
 
   for await (const event of query({
     prompt: buildPrompt(chunk),
-    options: { model, maxTurns: 1 },
+    // maxTurns 3: a schema miss is retried by the SDK as another turn
+    options: { model, maxTurns: 3, outputFormat: jsonOutput(CONVERSATION_ANALYSIS_SCHEMA) },
   })) {
     const msg = event as SDKMessage
+    // Structured output is the answer when present; the text blocks are the
+    // fallback for a model that answered in prose anyway.
+    const so = structuredOf(msg)
+    if (so && typeof so === 'object') { resultText = JSON.stringify(so); break }
     if (msg.type === 'assistant' && msg.message?.content) {
       for (const block of msg.message.content) {
         if (block.type === 'text') resultText += block.text

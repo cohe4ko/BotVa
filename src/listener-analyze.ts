@@ -6,6 +6,7 @@
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { getBackgroundModel, parseModelConfig } from './model.js'
 import { ALLOWED_CHAT_ID } from './config.js'
+import { jsonOutput, structuredOf, LISTENER_ANALYSIS_SCHEMA } from './structured-output.js'
 
 export interface AnalysisItem {
   text: string
@@ -183,10 +184,14 @@ export async function analyzeTranscript(text: string): Promise<AnalysisResult> {
       prompt: prompt,
       options: {
         model: sdkModel,
-        maxTurns: 1,
+        // A schema miss is retried by the SDK as another turn — leave room for it
+        maxTurns: 3,
+        outputFormat: jsonOutput(LISTENER_ANALYSIS_SCHEMA),
       },
     })) {
       const msg = event as SDKMessage
+      const so = structuredOf(msg)
+      if (so && typeof so === 'object') return so as AnalysisResult
       if (msg.type === 'assistant' && msg.message?.content) {
         for (const block of msg.message.content) {
           if (block.type === 'text') {

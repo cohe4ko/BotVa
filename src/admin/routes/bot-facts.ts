@@ -8,6 +8,7 @@ import type { TFunc, Lang, I18nEnv } from '../i18n.js'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { logger } from '../../logger.js'
+import { jsonOutput, structuredOf, REBUILT_FACTS_SCHEMA } from '../../structured-output.js'
 
 const app = new Hono<I18nEnv>()
 const PAGE_SIZE = 30
@@ -535,13 +536,16 @@ Return ONLY the JSON array.`
             permissionMode: 'bypassPermissions',
             allowDangerouslySkipPermissions: true,
             abortController: state.abort,
+            outputFormat: jsonOutput(REBUILT_FACTS_SCHEMA),
           },
         })
 
         for await (const event of conversation) {
           if (state.abort.signal.aborted) break
           if (event.type === 'result') {
-            resultText = event.subtype === 'success' ? event.result : ''
+            const so = structuredOf(event) as { facts?: unknown[] } | undefined
+            // Structured: {facts:[…]} → the bare array the parser below expects
+            resultText = so?.facts ? JSON.stringify(so.facts) : event.subtype === 'success' ? event.result : ''
             break  // result received, stop consuming events
           }
         }

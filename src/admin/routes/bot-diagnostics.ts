@@ -8,6 +8,7 @@ import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { spawn } from 'child_process'
 import { resolve } from 'path'
 import type { TFunc, Lang, I18nEnv } from '../i18n.js'
+import { jsonOutput, resultPayload, BOT_DIAGNOSTICS_SCHEMA } from '../../structured-output.js'
 
 const app = new Hono<I18nEnv>()
 
@@ -165,7 +166,7 @@ async function collectQueryResult(conversation: AsyncIterable<SDKMessage>): Prom
   let usage: UsageInfo | undefined
   for await (const event of conversation) {
     if (event.type === 'result') {
-      result = event.subtype === 'success' ? event.result : (event.errors?.join('\n') ?? 'Error')
+      result = resultPayload(event)
       const models = Object.values(event.modelUsage ?? {})
       if (models.length > 0) {
         const totals = models.reduce(
@@ -252,6 +253,7 @@ async function runDiagnostics(botName: string, lang: Lang): Promise<DiagnosticRe
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         model: 'haiku',
+        outputFormat: jsonOutput(BOT_DIAGNOSTICS_SCHEMA),
       },
     })
     const analysisResult = await collectQueryResult(analysisConversation)
