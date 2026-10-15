@@ -26,31 +26,37 @@ const processingFlags: Map<string, boolean> = new Map()
 const cancelledChats: Set<string> = new Set()
 const interruptedChats: Set<string> = new Set()
 const followupMessages: Map<string, string[]> = new Map()
-// Task (subagent) ids currently running inside a session's query. Subagents live
-// inside the parent query, so a session-wide q.interrupt() would tear them down
-// mid-work. We track them per session so addFollowup can skip the interrupt while
-// any subagent is in flight (Variant 2 / protect_subagents setting).
-const subagentsInFlight: Map<string, Set<string>> = new Map()
-
-export function subagentStarted(sessionKey: string, taskId: string): void {
-  let set = subagentsInFlight.get(sessionKey)
-  if (!set) {
-    set = new Set()
-    subagentsInFlight.set(sessionKey, set)
-  }
-  set.add(taskId)
+/**
+ * The live run of a session, while its streaming input is open. A follow-up
+ * pushed here reaches the model at the next step boundary instead of
+ * interrupting the run (see live-input.ts).
+ */
+export interface LiveRun {
+  /** Queue a user message into the running query; false once its input is closed. */
+  push(text: string): boolean
 }
 
-export function subagentFinished(sessionKey: string, taskId: string): void {
-  const set = subagentsInFlight.get(sessionKey)
-  if (!set) return
-  set.delete(taskId)
-  if (set.size === 0) subagentsInFlight.delete(sessionKey)
+/** A background task of a live run, as the SDK reports it in background_tasks_changed. */
+export interface BackgroundTask {
+  taskId: string
+  type: string
+  description: string
 }
 
-export function hasSubagentsInFlight(sessionKey: string): boolean {
-  const set = subagentsInFlight.get(sessionKey)
-  return !!set && set.size > 0
+const liveRuns: Map<string, LiveRun> = new Map()
+const backgroundTasks: Map<string, BackgroundTask[]> = new Map()
+
+export function setLiveRun(sessionKey: string, run: LiveRun): void {
+  liveRuns.set(sessionKey, run)
+}
+
+export function setBackgroundTasks(sessionKey: string, tasks: BackgroundTask[]): void {
+  if (tasks.length > 0) backgroundTasks.set(sessionKey, tasks)
+  else backgroundTasks.delete(sessionKey)
+}
+
+export function getBackgroundTasks(sessionKey: string): BackgroundTask[] {
+  return backgroundTasks.get(sessionKey) ?? []
 }
 
 /**
@@ -78,7 +84,8 @@ export function setActiveQuery(sessionKey: string, q: Query): void {
 export function clearActiveQuery(sessionKey: string): void {
   activeQueries.delete(sessionKey)
   abortControllers.delete(sessionKey)
-  subagentsInFlight.delete(sessionKey)
+  liveRuns.delete(sessionKey)
+  backgroundTasks.delete(sessionKey)
 }
 
 export function isCancelled(sessionKey: string): boolean {
@@ -87,6 +94,11 @@ export function isCancelled(sessionKey: string): boolean {
 
 export function isInterrupted(sessionKey: string): boolean {
   return interruptedChats.has(sessionKey)
+}
+
+/** A stop ends one turn; the turns after it (a background task reporting back) are not stopped. */
+export function clearInterrupted(sessionKey: string): void {
+  interruptedChats.delete(sessionKey)
 }
 
 export function clearCancelled(sessionKey: string): void {
@@ -195,31 +207,49 @@ export async function interruptRequest(sessionKey: string): Promise<InterruptRes
   return { interrupted: false, stillQueued: 0 }
 }
 
-// Queue a follow-up message and interrupt agent so it picks up the message
-// Agent finishes current tool call, then resumes with the follow-up in same session
-export async function addFollowup(
-  sessionKey: string,
-  text: string,
-  protectSubagents = false
-): Promise<void> {
+/**
+ * A message the user sent while the agent works.
+ *
+ * With a live run it goes straight into the running query: the model picks it
+ * up at the next step boundary, nothing is interrupted and no work is lost.
+ * Otherwise (the run has not started yet, or its input already closed) it is
+ * kept, and the handler starts the next run with it once this one ends.
+ */
+export async function addFollowup(sessionKey: string, text: string): Promise<void> {
+  if (liveRuns.get(sessionKey)?.push(text)) return
   let msgs = followupMessages.get(sessionKey)
   if (!msgs) {
     msgs = []
     followupMessages.set(sessionKey, msgs)
   }
   msgs.push(text)
+}
 
-  // Interrupt only on first followup — agent wraps up current step.
-  if (msgs.length === 1) {
-    // Variant 2: while a subagent is in flight, skip the interrupt — a
-    // session-wide q.interrupt() would tear the subagent down and discard its
-    // work. The followup stays queued and is picked up at the natural end of the
-    // current turn. With no subagent running, interrupt as before for
-    // responsiveness (only a cheap top-level tool call is lost).
-    if (protectSubagents && hasSubagentsInFlight(sessionKey)) {
-      return
-    }
-    await interruptRequest(sessionKey)
+/**
+ * Ctrl+B: move what runs in the foreground (Bash commands, subagents) into the
+ * background, so the turn goes on — and gets to the user's queued message —
+ * without waiting. With `toolUseId`, only the task that tool call started.
+ * Returns whether anything was moved.
+ */
+export async function backgroundRequest(sessionKey: string, toolUseId?: string): Promise<boolean> {
+  const q = activeQueries.get(sessionKey)
+  if (!q) return false
+  try {
+    return await q.backgroundTasks(toolUseId)
+  } catch {
+    return false
+  }
+}
+
+/** Stop one background task of the live run. */
+export async function stopBackgroundTask(sessionKey: string, taskId: string): Promise<boolean> {
+  const q = activeQueries.get(sessionKey)
+  if (!q) return false
+  try {
+    await q.stopTask(taskId)
+    return true
+  } catch {
+    return false
   }
 }
 

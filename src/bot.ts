@@ -15,14 +15,14 @@ import {
 } from './config.js'
 import { getSession, setSession, clearSession, logUsage, getUsageSince, getChatSetting, deleteChatSetting, logAudit, getApprovedGroups, addApprovedGroup, removeApprovedGroup, setPendingRewind, getPendingRewind, clearPendingRewind } from './db.js'
 import { computeUndoAnchor } from './disk-sessions.js'
-import { runAgent, type UsageStats } from './agent.js'
+import { runAgent, type UsageStats, type LiveHooks } from './agent.js'
 import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, transcribeAudioLong, voiceCapabilities, synthesizeSpeech } from './voice.js'
 import { getProvider as getTtsProvider, extractToneMarker } from './tts-providers/index.js'
 import { isLongText } from './tts-providers/chunking.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage, buildAlbumMessage, buildFollowupText, type AlbumItem } from './media.js'
 import { logger } from './logger.js'
-import { queueRequest, cancelRequest, interruptRequest, clearQueue, isProcessing, addFollowup, getAndClearFollowup, clearCancelled, isInterrupted } from './request-queue.js'
+import { queueRequest, cancelRequest, interruptRequest, clearQueue, isProcessing, addFollowup, getAndClearFollowup, clearCancelled, isInterrupted, backgroundRequest, stopBackgroundTask, getBackgroundTasks } from './request-queue.js'
 import { ProgressReporter } from './progress-reporter.js'
 import { isStaleMessage } from './stale-filter.js'
 import { isDuplicate, markProcessed } from './deduplication.js'
@@ -249,10 +249,10 @@ async function dispatchAlbum(buf: AlbumBuffer): Promise<void> {
   if (items.length === 0) return
   const message = buildAlbumMessage(items, buf.caption)
   try {
-    if (isProcessing(chatIdStr)) {
+    const runKey = keyOf(buf.ctx)
+    if (isProcessing(runKey)) {
       // Scenario 2: agent busy -> a single followup for the whole album.
-      const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
-      await addFollowup(chatIdStr, message, protectSubagents)
+      await addFollowup(runKey, message)
       await buf.ctx.react('👀').catch(() => {})
     } else {
       // Scenario 1: agent idle -> a single request with all files.
@@ -800,8 +800,14 @@ async function handleMessage(
     const richDraftEnabled = richDraftSetting === '1'
       || (RICH_DRAFT_ENABLED && richDraftSetting !== '0')
     const richDraft = RICH_MESSAGES_ENABLED && ctx.chat?.type === 'private' && richDraftEnabled
-    const reporter = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang, richDraft, PROGRESS_FULL_LOG, RICH_DRAFT_THROTTLE_MS)
-    reporter.runKey = sKey
+    // One reporter per turn: a live run can answer several (follow-ups the model
+    // took as turns of their own, background tasks reporting back).
+    const newReporter = () => {
+      const r = new ProgressReporter(chatId, ctx.api, delayMs, cuteMode, lang, richDraft, PROGRESS_FULL_LOG, RICH_DRAFT_THROTTLE_MS)
+      r.runKey = sKey
+      return r
+    }
+    let reporter = newReporter()
 
     // Loop: run agent, check for follow-up messages (like typing in CLI while agent runs)
     while (true) {
@@ -1019,11 +1025,144 @@ async function handleMessage(
       // Create builtin MCP server (image gen, voice, telegraph, media sending)
       const builtin = await createBuiltinMcpServer(ctx, chatId, askUserCallback)
 
+      // Deliver one answered turn: the reply, memory, usage, voice.
+      // `quietIfEmpty`: a later turn of a live run (a background task reporting
+      // back) that produced no text says nothing rather than "(no reply)".
+      const deliverTurn = async (resultText: string | null, usage: UsageStats | undefined, interrupted: boolean, userText: string, responseTimeMs: number, quietIfEmpty = false): Promise<void> => {
+        let text = resultText
+        if (!text && quietIfEmpty && !interrupted) return
+        if (!text) {
+          // Юзер зупинив агента до появи тексту — «⏹ Зупинено», не «(без відповіді)»
+          const wasStopped = interrupted
+          await ctx.reply(wasStopped ? '⏹ Зупинено' : chatT(chatIdStr)('auth.noReply'))
+          return
+        }
+
+        // Translate agent error markers {{key}} to localized text
+        const t = chatT(chatIdStr)
+        text = text.replace(/\{\{([a-z._]+)\}\}/g, (_, key) => t(key))
+
+        // Extract agent-provided voice tone marker ([[tone: ...]]) — TTS-only
+        // metadata, stripped before display/memory, applied to Gemini synthesis
+        const toneExtract = extractToneMarker(text)
+        text = toneExtract.text
+        const voiceTone = toneExtract.tone
+
+        // Save memory
+        await saveConversationTurn(chatIdStr, userText, text)
+
+        // Log usage
+        if (usage) {
+          logUsage(chatIdStr, usage.inputTokens, usage.outputTokens, usage.cacheReadTokens, usage.cacheCreationTokens, usage.costUSD, responseTimeMs)
+          logger.info({ chatId: chatIdStr, ms: responseTimeMs, cost: `$${usage.costUSD.toFixed(4)}`, in: usage.inputTokens, out: usage.outputTokens }, 'Response sent')
+        }
+
+        // Send text
+        if (inGroup) {
+          // Group mode: telegraph for debates, chunked otherwise
+          await sendGroupChunked(ctx, text)
+        } else {
+          // Private chat: telegraph for long messages
+          // (з rich messages поріг вищий — середні відповіді лишаються в чаті)
+          const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
+          const shouldTelegraph = TELEGRAPH_ENABLED && shouldUseTelegraph(text, RICH_MESSAGES_ENABLED) && !agentUsedTelegraph
+          if (shouldTelegraph) {
+            const url = await createTelegraphPage(BOT_NAME, text)
+            if (url) {
+              await ctx.reply(url)
+            } else {
+              await sendChunked(ctx, text)
+            }
+          } else {
+            // Rich Messages (Bot API 10.1) — структуровані відповіді у приватних чатах.
+            // За вимкненого прапорця або будь-якої помилки — старий HTML/chunked шлях.
+            const isPrivate = ctx.chat?.type === 'private'
+            // Дуже довгі відповіді (> порогу, але нижче Telegraph-ліміту) отримують
+            // інлайн-кнопку «В Telegraph» на ОСТАННЄ повідомлення. Тільки приватні чати.
+            let telegraphMarkup: InlineKeyboard | undefined
+            if (isPrivate && TELEGRAPH_ENABLED && shouldOfferTelegraphButton(text)) {
+              const id = makeTelegraphId()
+              pendingTelegraphTexts.set(id, { text })
+              telegraphMarkup = new InlineKeyboard().text(
+                chatT(chatIdStr)('cb.toTelegraph'),
+                `tg2ph:${id}`
+              )
+            }
+            const sentRich = RICH_MESSAGES_ENABLED && isPrivate && await trySendRich(ctx, text, telegraphMarkup)
+            if (!sentRich) {
+              await sendChunked(ctx, text, telegraphMarkup)
+            }
+          }
+        }
+
+        // Usage stats footer
+        if (usage && getChatSetting(chatIdStr, 'stats') === '1') {
+          const statsLine = formatUsageStats(usage)
+          await ctx.reply(statsLine, { parse_mode: 'HTML' })
+        }
+
+        // Voice reply async — skip if agent already used TextToSpeech
+        const shouldVoice = (forceVoiceReply || getChatSetting(chatIdStr, 'voice') === '1')
+          && !builtin?.usedTools.has('TextToSpeech')
+        if (shouldVoice) {
+          const ttsProvider = getTtsProvider('reply')
+          // In auto mode, long texts require explicit user choice (ElevenLabs = silver bullet)
+          if (ttsProvider === 'auto' && isLongText(text)) {
+            const id = String(++ttsPromptCounter)
+            const chatIdNum = ctx.chat!.id
+            const timeout = setTimeout(() => pendingTtsPrompts.delete(id), 10 * 60 * 1000)
+            pendingTtsPrompts.set(id, { text, chatId: chatIdNum, timeout, tone: voiceTone })
+            const _t = chatT(chatIdStr)
+            ctx.reply(
+              _t('tts.longPrompt', { chars: String(text.length) }),
+              {
+                reply_markup: {
+                  inline_keyboard: [[
+                    { text: '🎙 ElevenLabs', callback_data: `tts:el:${id}` },
+                    { text: '✨ Gemini', callback_data: `tts:gem:${id}` },
+                    { text: '🤖 Edge', callback_data: `tts:edge:${id}` },
+                    { text: '❌', callback_data: `tts:skip:${id}` },
+                  ]],
+                },
+              },
+            ).catch(err => logger.error({ err }, 'tts prompt failed'))
+          } else {
+            synthesizeSpeech(text, { useCase: 'reply', styleOverride: voiceTone })
+              .then(async (paths) => {
+                for (const p of paths) {
+                  await ctx.replyWithVoice(new InputFile(p))
+                  if (paths.length > 1) await new Promise(res => setTimeout(res, 400))
+                }
+              })
+              .catch(err => logger.error({ err }, 'TTS failed'))
+          }
+        }
+      }
+
       // Run agent
-      let text: string | null
       let newSessionId: string | undefined
       let usage: UsageStats | undefined
-      const startTime = Date.now()
+      let deliveredAny = false
+      let turnStart = Date.now()
+      let turnMessage = currentMessage
+      const liveHooks: LiveHooks = {
+        formatFollowup: (followupText) => chatT(chatIdStr)('followup.prefix', { text: followupText }),
+        onFollowup: (followupText) => {
+          reporter.addFollowupMarker(followupText)
+          turnMessage = turnMessage ? `${turnMessage}\n\n${followupText}` : followupText
+        },
+        onTurnResult: async (r) => {
+          const laterTurn = deliveredAny
+          deliveredAny = true
+          const done = reporter
+          reporter = newReporter()
+          await done.cleanup()
+          await deliverTurn(r.text, r.usage, r.interrupted, turnMessage || '[background task finished]', Date.now() - turnStart, laterTurn && !turnMessage)
+          builtin?.usedTools.clear()
+          turnMessage = ''
+          turnStart = Date.now()
+        },
+      }
       try {
         const auditHandler = (event: import('@anthropic-ai/claude-agent-sdk').SDKMessage) => {
           reporter.handleEvent(event)
@@ -1085,10 +1224,11 @@ async function handleMessage(
           ? buildAgentDefinitions(matched, getChatLang(chatIdStr))
           : undefined
 
-        const result = await runAgent(fullMessage, sessionId, sendTyping, sKey, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs, currentEffort, resumeAt)
-        text = result.text
+        const result = await runAgent(fullMessage, sessionId, sendTyping, sKey, auditHandler, currentModel, builtin?.server, permissionMode, onPermissionRequest, undefined, agentDefs, currentEffort, resumeAt, undefined, undefined, liveHooks)
         newSessionId = result.newSessionId
         usage = result.usage
+        // Nothing reached the user as a turn (a crash, a hard cancel): say so now
+        if (!deliveredAny) await deliverTurn(result.text, result.usage, isInterrupted(sKey), turnMessage, Date.now() - turnStart)
       } catch (err) {
         logAudit(chatIdStr, 'error', err instanceof Error ? err.message : String(err))
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -1133,134 +1273,33 @@ async function handleMessage(
         }
       }
 
-      // Check for follow-up BEFORE cleanup — reuse reporter if continuing
+      // A follow-up that came after the run's input closed starts the next run
       const followup = getAndClearFollowup(sKey)
       if (followup) {
-        // Add separator line, keep writing to same progress message
         reporter.addFollowupMarker(followup)
         clearCancelled(sKey)
-        logger.info({ chatId: chatIdStr }, 'Follow-up received, resuming with new message')
-        // Wrap follow-up so agent processes it AND continues original task
+        logger.info({ chatId: chatIdStr }, 'Follow-up received after the run closed, starting the next one')
         currentMessage = chatT(chatIdStr)('followup.prefix', { text: followup })
         continue
       }
 
-      // No follow-up — normal cleanup (delayed delete)
       await reporter.cleanup()
       builtin?.cleanup?.()
-
-      // No follow-up — send the result
-      if (!text) {
-        // Юзер зупинив агента до появи тексту — «⏹ Зупинено», не «(без відповіді)»
-        const wasStopped = isInterrupted(sKey)
-        await ctx.reply(wasStopped ? '⏹ Зупинено' : chatT(chatIdStr)('auth.noReply'))
-        return
-      }
-
-      // Translate agent error markers {{key}} to localized text
-      const t = chatT(chatIdStr)
-      text = text.replace(/\{\{([a-z._]+)\}\}/g, (_, key) => t(key))
-
-      // Extract agent-provided voice tone marker ([[tone: ...]]) — TTS-only
-      // metadata, stripped before display/memory, applied to Gemini synthesis
-      const toneExtract = extractToneMarker(text)
-      text = toneExtract.text
-      const voiceTone = toneExtract.tone
-
-      // Save memory
-      await saveConversationTurn(chatIdStr, currentMessage, text)
-
-      // Log usage
-      const responseTimeMs = Date.now() - startTime
-      if (usage) {
-        logUsage(chatIdStr, usage.inputTokens, usage.outputTokens, usage.cacheReadTokens, usage.cacheCreationTokens, usage.costUSD, responseTimeMs)
-        logger.info({ chatId: chatIdStr, ms: responseTimeMs, cost: `$${usage.costUSD.toFixed(4)}`, in: usage.inputTokens, out: usage.outputTokens }, 'Response sent')
-      }
-
-      // Send text
-      if (inGroup) {
-        // Group mode: telegraph for debates, chunked otherwise
-        await sendGroupChunked(ctx, text)
-      } else {
-        // Private chat: telegraph for long messages
-        // (з rich messages поріг вищий — середні відповіді лишаються в чаті)
-        const agentUsedTelegraph = builtin?.usedTools.has('PublishTelegraph')
-        const shouldTelegraph = TELEGRAPH_ENABLED && shouldUseTelegraph(text, RICH_MESSAGES_ENABLED) && !agentUsedTelegraph
-        if (shouldTelegraph) {
-          const url = await createTelegraphPage(BOT_NAME, text)
-          if (url) {
-            await ctx.reply(url)
-          } else {
-            await sendChunked(ctx, text)
-          }
-        } else {
-          // Rich Messages (Bot API 10.1) — структуровані відповіді у приватних чатах.
-          // За вимкненого прапорця або будь-якої помилки — старий HTML/chunked шлях.
-          const isPrivate = ctx.chat?.type === 'private'
-          // Дуже довгі відповіді (> порогу, але нижче Telegraph-ліміту) отримують
-          // інлайн-кнопку «В Telegraph» на ОСТАННЄ повідомлення. Тільки приватні чати.
-          let telegraphMarkup: InlineKeyboard | undefined
-          if (isPrivate && TELEGRAPH_ENABLED && shouldOfferTelegraphButton(text)) {
-            const id = makeTelegraphId()
-            pendingTelegraphTexts.set(id, { text })
-            telegraphMarkup = new InlineKeyboard().text(
-              chatT(chatIdStr)('cb.toTelegraph'),
-              `tg2ph:${id}`
-            )
-          }
-          const sentRich = RICH_MESSAGES_ENABLED && isPrivate && await trySendRich(ctx, text, telegraphMarkup)
-          if (!sentRich) {
-            await sendChunked(ctx, text, telegraphMarkup)
-          }
-        }
-      }
-
-      // Usage stats footer
-      if (usage && getChatSetting(chatIdStr, 'stats') === '1') {
-        const statsLine = formatUsageStats(usage)
-        await ctx.reply(statsLine, { parse_mode: 'HTML' })
-      }
-
-      // Voice reply async — skip if agent already used TextToSpeech
-      const shouldVoice = (forceVoiceReply || getChatSetting(chatIdStr, 'voice') === '1')
-        && !builtin?.usedTools.has('TextToSpeech')
-      if (shouldVoice) {
-        const ttsProvider = getTtsProvider('reply')
-        // In auto mode, long texts require explicit user choice (ElevenLabs = silver bullet)
-        if (ttsProvider === 'auto' && isLongText(text)) {
-          const id = String(++ttsPromptCounter)
-          const chatIdNum = ctx.chat!.id
-          const timeout = setTimeout(() => pendingTtsPrompts.delete(id), 10 * 60 * 1000)
-          pendingTtsPrompts.set(id, { text, chatId: chatIdNum, timeout, tone: voiceTone })
-          const _t = chatT(chatIdStr)
-          ctx.reply(
-            _t('tts.longPrompt', { chars: String(text.length) }),
-            {
-              reply_markup: {
-                inline_keyboard: [[
-                  { text: '🎙 ElevenLabs', callback_data: `tts:el:${id}` },
-                  { text: '✨ Gemini', callback_data: `tts:gem:${id}` },
-                  { text: '🤖 Edge', callback_data: `tts:edge:${id}` },
-                  { text: '❌', callback_data: `tts:skip:${id}` },
-                ]],
-              },
-            },
-          ).catch(err => logger.error({ err }, 'tts prompt failed'))
-        } else {
-          synthesizeSpeech(text, { useCase: 'reply', styleOverride: voiceTone })
-            .then(async (paths) => {
-              for (const p of paths) {
-                await ctx.replyWithVoice(new InputFile(p))
-                if (paths.length > 1) await new Promise(res => setTimeout(res, 400))
-              }
-            })
-            .catch(err => logger.error({ err }, 'TTS failed'))
-        }
-      }
-
       break // done — no more follow-ups
     }
   })
+}
+
+/** The /tasks list: what runs in the background, one stop button per task. */
+function tasksView(key: string, t: ReturnType<typeof chatT>): { text: string; keyboard?: InlineKeyboard } {
+  const tasks = getBackgroundTasks(key)
+  if (tasks.length === 0) return { text: t('tasks.none') }
+  const lines = tasks.map(task => `• ${escapeHtml(task.description || task.type || task.taskId)}`)
+  const keyboard = new InlineKeyboard()
+  for (const task of tasks) {
+    keyboard.text(t('tasks.stop', { name: (task.description || task.taskId).slice(0, 40) }), `task:${task.taskId}`).row()
+  }
+  return { text: `${t('tasks.header')}\n\n${lines.join('\n')}`, keyboard }
 }
 
 // --- Bot creation ---
@@ -1441,6 +1480,32 @@ export function createBot(): Bot {
       }
       return // don't pass to next middleware
     }
+    // "⏩ To background" (Ctrl+B): the running command or subagent keeps going in
+    // the background and the turn moves on — to the follow-up the user queued.
+    if (ctx.callbackQuery?.data?.startsWith('bg:')) {
+      const targetChatId = ctx.callbackQuery.data.split(':')[1]
+      if (String(ctx.chat?.id) === targetChatId) {
+        const moved = await backgroundRequest(keyOf(ctx))
+        const _t = chatT(targetChatId)
+        await ctx.answerCallbackQuery({ text: moved ? _t('cb.backgrounded') : _t('cb.nothingToBackground') })
+      }
+      return
+    }
+    // Stop one background task from the /tasks list
+    if (ctx.callbackQuery?.data?.startsWith('task:')) {
+      if (!isAuthorised(ctx.chat!.id)) return
+      const taskId = ctx.callbackQuery.data.slice('task:'.length)
+      const key = keyOf(ctx)
+      const known = getBackgroundTasks(key).some(t => t.taskId === taskId)
+      const stopped = known && await stopBackgroundTask(key, taskId)
+      const _t = chatT(String(ctx.chat!.id))
+      await ctx.answerCallbackQuery({ text: stopped ? _t('cb.taskStopped') : _t('cb.taskGone') })
+      try {
+        const { text, keyboard } = tasksView(key, _t)
+        await ctx.editMessageText(text, { parse_mode: 'HTML', ...(keyboard ? { reply_markup: keyboard } : {}) })
+      } catch { /* the list did not change */ }
+      return
+    }
     // Interrupt button callback (hard — aborts the agent process immediately)
     // TTS provider choice for long texts (auto mode)
     if (ctx.callbackQuery?.data?.startsWith('tts:')) {
@@ -1504,9 +1569,8 @@ export function createBot(): Bot {
           await ctx.editMessageText(`🎤 ${pending.transcript}\n\n${_t('voice.confirm.ok')}`)
         } catch {}
         // If agent is currently processing, inject as follow-up instead of new request
-        if (isProcessing(chatIdStr)) {
-          const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
-          await addFollowup(chatIdStr, `[Voice transcribed]: ${pending.transcript}`, protectSubagents)
+        if (isProcessing(keyOf(ctx))) {
+          await addFollowup(keyOf(ctx), `[Voice transcribed]: ${pending.transcript}`)
         } else {
           await handleMessage(ctx, `[Voice transcribed]: ${pending.transcript}`, true)
         }
@@ -1733,8 +1797,7 @@ export function createBot(): Bot {
         // For media: download file first so Claude gets a real path, not just a marker
         const followupText = await buildFollowupText(ctx.message, (fileId, name) => downloadMedia(TELEGRAM_BOT_TOKEN, fileId, name))
         if (followupText) {
-          const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
-          await addFollowup(runKey, followupText, protectSubagents)
+          await addFollowup(runKey, followupText)
           // Visual feedback: react with 👀 so user knows it was captured
           await ctx.react('👀').catch(() => {})
         }
@@ -2019,6 +2082,13 @@ export function createBot(): Bot {
     })
 
     await replyWithAdminUrl(t('admin.started'), url)
+  })
+
+  // /tasks — background tasks of this conversation, each with its own stop button
+  bot.command('tasks', async (ctx) => {
+    if (!isAuthorised(ctx.chat.id)) return
+    const { text, keyboard } = tasksView(keyOf(ctx), chatT(String(ctx.chat.id)))
+    await ctx.reply(text, { parse_mode: 'HTML', ...(keyboard ? { reply_markup: keyboard } : {}) })
   })
 
   // /restart — restart bot process (watchdog will auto-restart)
@@ -2627,6 +2697,7 @@ export function createBot(): Bot {
     { command: 'usage', description: t('menu.usage') },
     { command: 'settings', description: t('menu.settings') },
     { command: 'session', description: t('menu.session') },
+    { command: 'tasks', description: t('menu.tasks') },
     { command: 'admin', description: t('menu.admin') },
     { command: 'restart', description: t('menu.restart') },
     { command: 'update', description: t('menu.update') },

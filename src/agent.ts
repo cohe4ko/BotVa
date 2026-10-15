@@ -1,5 +1,5 @@
 import { query, type SDKMessage, type McpSdkServerConfigWithInstance, type AgentDefinition, type CanUseTool, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
-import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS, SANDBOX_ENABLED } from './config.js'
+import { BOT_DIR, BOT_NAME, PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_WATCHDOG_WARN_SECONDS, AGENT_WATCHDOG_TIMEOUT_MS, SANDBOX_ENABLED, BACKGROUND_TASK_MAX_MS } from './config.js'
 import { buildSandboxSettings } from './sandbox-config.js'
 import { parseModelConfig, getFallbackModel } from './model.js'
 import { buildMcpServers } from './mcp-config.js'
@@ -7,7 +7,8 @@ import { refreshClaudeMd } from './workspace-files.js'
 import { readEnvFile } from './env.js'
 import { isManager } from './team.js'
 import { logger } from './logger.js'
-import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted, subagentStarted, subagentFinished } from './request-queue.js'
+import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted, clearInterrupted, setLiveRun, setBackgroundTasks, type BackgroundTask } from './request-queue.js'
+import { LiveInput } from './live-input.js'
 import { AgentWatchdog } from './agent-watchdog.js'
 import { getClaudeProjectDir } from './disk-sessions.js'
 import { buildRestrictedOptions, type RunRestrictions } from './run-restrictions.js'
@@ -76,6 +77,73 @@ export interface UsageStats {
   lastTurnContextTokens: number  // actual context used in last API call
 }
 
+/** One answered turn of a live run. */
+export interface TurnResult {
+  text: string | null
+  usage?: UsageStats
+  /** The turn ended because the user pressed stop. */
+  interrupted: boolean
+}
+
+/**
+ * Hooks for a run that talks to a person. Without them a run behaves as a
+ * one-shot: one message in, the last answer out.
+ */
+export interface LiveHooks {
+  /**
+   * Every answered turn, as it ends. A live run can have several: one per
+   * follow-up the model took as a turn of its own, and one each time a
+   * background task finishes and the model reports on it.
+   */
+  onTurnResult?: (r: TurnResult) => Promise<void>
+  /** A follow-up was pushed into the run (for the progress view). */
+  onFollowup?: (text: string) => void
+  /** Wrap a follow-up before it reaches the model. */
+  formatFollowup?: (text: string) => string
+}
+
+/**
+ * After the last background task ends, the model reports on it in a turn of
+ * its own. Give that turn a moment to start before the input is closed.
+ */
+const BACKGROUND_SETTLE_MS = 3000
+
+/** modelUsage of a result counts the whole process; one turn is the difference. */
+type UsageTotals = Omit<UsageStats, 'lastTurnContextTokens'>
+function sumModelUsage(modelUsage: Record<string, any>): UsageTotals | undefined {
+  const models = Object.values(modelUsage ?? {})
+  if (models.length === 0) return undefined
+  return models.reduce(
+    (acc: UsageTotals, m: any) => ({
+      inputTokens: acc.inputTokens + m.inputTokens,
+      outputTokens: acc.outputTokens + m.outputTokens,
+      cacheReadTokens: acc.cacheReadTokens + m.cacheReadInputTokens,
+      cacheCreationTokens: acc.cacheCreationTokens + m.cacheCreationInputTokens,
+      contextWindow: Math.max(acc.contextWindow, m.contextWindow),
+      costUSD: acc.costUSD + m.costUSD,
+    }),
+    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, contextWindow: 0, costUSD: 0 },
+  )
+}
+
+export function usageDelta(now: UsageTotals, before: UsageTotals | undefined): UsageTotals {
+  if (!before) return now
+  return {
+    inputTokens: Math.max(0, now.inputTokens - before.inputTokens),
+    outputTokens: Math.max(0, now.outputTokens - before.outputTokens),
+    cacheReadTokens: Math.max(0, now.cacheReadTokens - before.cacheReadTokens),
+    cacheCreationTokens: Math.max(0, now.cacheCreationTokens - before.cacheCreationTokens),
+    contextWindow: now.contextWindow,
+    costUSD: Math.max(0, now.costUSD - before.costUSD),
+  }
+}
+
+/** Events that mean the main thread is working (not a background subagent). */
+function isMainTurnActivity(event: SDKMessage): boolean {
+  if (event.type !== 'assistant' && event.type !== 'user' && event.type !== 'stream_event') return false
+  return !(event as { parent_tool_use_id?: string | null }).parent_tool_use_id
+}
+
 async function runAgentOnce(
   message: string,
   sessionId: string | undefined,
@@ -91,17 +159,51 @@ async function runAgentOnce(
   effort?: 'low' | 'medium' | 'high' | 'max',
   resumeAt?: string,
   disallowedTools?: string[],
-  restrictions?: RunRestrictions
+  restrictions?: RunRestrictions,
+  hooks?: LiveHooks
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
-  const recentAssistantTexts: string[] = []  // collect assistant text blocks for interrupt
+  let recentAssistantTexts: string[] = []  // this turn's assistant text blocks, for interrupt
   let usage: UsageStats | undefined
   let sessionFailed = false
   let lastTurnContextTokens = 0
+  let usageBefore: UsageTotals | undefined
 
+  // Streaming input: the run stays open for follow-ups and background tasks,
+  // and closes once it is idle (see closeIfIdle below).
+  const input = new LiveInput()
+  let turnRunning = true
+  const background = new Map<string, BackgroundTask>()
+  let settleTimer: ReturnType<typeof setTimeout> | undefined
+  let maxWaitTimer: ReturnType<typeof setTimeout> | undefined
+  const clearIdleTimers = () => {
+    if (settleTimer) clearTimeout(settleTimer)
+    if (maxWaitTimer) clearTimeout(maxWaitTimer)
+    settleTimer = maxWaitTimer = undefined
+  }
+  input.onPush = () => { turnRunning = true; clearIdleTimers() }
+  // No turn running: close now, or — while background tasks run — wait for
+  // them, and for the turn in which the model reports on the last one.
+  const closeIfIdle = (justSettled = false) => {
+    if (input.isClosed || turnRunning) return
+    if (background.size === 0) {
+      if (!justSettled) { input.close(); return }
+      if (maxWaitTimer) clearTimeout(maxWaitTimer)
+      maxWaitTimer = undefined
+      settleTimer ??= setTimeout(() => { settleTimer = undefined; if (!turnRunning) input.close() }, BACKGROUND_SETTLE_MS)
+      return
+    }
+    maxWaitTimer ??= setTimeout(() => {
+      logger.warn({ chatId, tasks: [...background.values()].map(t => t.description) }, 'Background tasks outlived the wait limit, closing the run')
+      input.close()
+    }, BACKGROUND_TASK_MAX_MS)
+  }
+  input.push(stripLoneSurrogates(message))
+
+  // Typing only while a turn runs — not while the run waits for background work
   const typingInterval = onTyping
-    ? setInterval(onTyping, TYPING_REFRESH_MS)
+    ? setInterval(() => { if (turnRunning) onTyping() }, TYPING_REFRESH_MS)
     : undefined
 
   const watchdog = new AgentWatchdog({
@@ -244,8 +346,11 @@ async function runAgentOnce(
     const fallbackModel = baseModel ? getFallbackModel(baseModel) : undefined
 
     const conversation = query({
-      prompt: stripLoneSurrogates(message),
+      prompt: input,
       options: {
+        // Stop ends the turn, not the background tasks; those are stopped one
+        // by one (/tasks), or all at once by the hard interrupt.
+        perTaskStopAffordance: true,
         cwd: BOT_DIR,
         // Ask mode needs 'default' so the SDK consults canUseTool; all other
         // modes keep the historical bypass behaviour (plan/debate gate via hooks).
@@ -280,10 +385,23 @@ async function runAgentOnce(
     })
 
     setActiveQuery(chatId, conversation)
+    setLiveRun(chatId, {
+      push: (text) => {
+        const clean = stripLoneSurrogates(text)
+        if (!input.push(hooks?.formatFollowup ? hooks.formatFollowup(clean) : clean)) return false
+        hooks?.onFollowup?.(clean)
+        logger.info({ chatId }, 'Follow-up pushed into the live run')
+        return true
+      },
+    })
     watchdog.start()
 
     for await (const event of conversation) {
       watchdog.recordActivity()
+      if (isMainTurnActivity(event) && !turnRunning) {
+        turnRunning = true
+        clearIdleTimers()
+      }
       onEvent?.(event)
 
       // Hard cancel — abort immediately, discard result
@@ -308,11 +426,18 @@ async function runAgentOnce(
       if (event.type === 'system') {
         const sys = event as any
         if (sys.subtype === 'task_started') {
-          if (sys.task_id) subagentStarted(chatId, String(sys.task_id))
           logger.info({ chatId, taskId: sys.task_id, description: sys.description }, 'Subtask started')
         } else if (sys.subtype === 'task_notification') {
-          if (sys.task_id) subagentFinished(chatId, String(sys.task_id))
           logger.info({ chatId, taskId: sys.task_id, status: sys.status }, 'Subtask finished')
+        } else if (sys.subtype === 'background_tasks_changed') {
+          // Replace semantics: the payload is the full set of live tasks
+          const hadTasks = background.size > 0
+          background.clear()
+          for (const t of (sys.tasks ?? []) as any[]) {
+            if (t?.task_id) background.set(String(t.task_id), { taskId: String(t.task_id), type: String(t.task_type ?? ''), description: String(t.description ?? '') })
+          }
+          setBackgroundTasks(chatId, [...background.values()])
+          closeIfIdle(hadTasks && background.size === 0)
         }
       }
 
@@ -357,21 +482,24 @@ async function runAgentOnce(
         if (modelIds.length > 0) {
           logger.info({ chatId, requestedModel: model, requestedEffort: effort, actualModels: modelIds }, 'Agent completed with models')
         }
-        const models = Object.values(event.modelUsage)
-        if (models.length > 0) {
-          const totals = models.reduce(
-            (acc, m) => ({
-              inputTokens: acc.inputTokens + m.inputTokens,
-              outputTokens: acc.outputTokens + m.outputTokens,
-              cacheReadTokens: acc.cacheReadTokens + m.cacheReadInputTokens,
-              cacheCreationTokens: acc.cacheCreationTokens + m.cacheCreationInputTokens,
-              contextWindow: Math.max(acc.contextWindow, m.contextWindow),
-              costUSD: acc.costUSD + m.costUSD,
-            }),
-            { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, contextWindow: 0, costUSD: 0 }
-          )
-          usage = { ...totals, lastTurnContextTokens }
+        const totals = sumModelUsage(event.modelUsage)
+        if (totals) {
+          usage = { ...usageDelta(totals, usageBefore), lastTurnContextTokens }
+          usageBefore = totals
         }
+
+        const interrupted = isInterrupted(chatId)
+        recentAssistantTexts = []
+        turnRunning = false
+        if (hooks?.onTurnResult) {
+          try {
+            await hooks.onTurnResult({ text: resultText, usage, interrupted })
+          } catch (err) {
+            logger.error({ err, chatId }, 'Delivering a turn result failed')
+          }
+        }
+        if (interrupted) clearInterrupted(chatId)
+        closeIfIdle()
       }
     }
   } catch (err) {
@@ -410,6 +538,8 @@ async function runAgentOnce(
       }
     }
   } finally {
+    input.close()
+    clearIdleTimers()
     watchdog.stop()
     clearActiveQuery(chatId)
     if (typingInterval) clearInterval(typingInterval)
@@ -454,7 +584,9 @@ export async function runAgent(
    * Confine the run to an allowlist of tools (see run-restrictions.ts). For
    * runs driven by text the owner did not write: guest queries, other bots.
    */
-  restrictions?: RunRestrictions
+  restrictions?: RunRestrictions,
+  /** Follow-ups, background tasks and per-turn delivery (see LiveHooks). */
+  hooks?: LiveHooks
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
@@ -470,7 +602,7 @@ export async function runAgent(
     }
   }
 
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, resumeAt, disallowedTools, restrictions)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, resumeAt, disallowedTools, restrictions, hooks)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -478,7 +610,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, undefined, disallowedTools, restrictions)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, undefined, disallowedTools, restrictions, hooks)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }

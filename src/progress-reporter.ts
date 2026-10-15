@@ -229,6 +229,9 @@ function formatDuration(ms: number): string {
   return `${m}m ${s % 60}s`
 }
 
+/** Tools the SDK can move to the background (Query.backgroundTasks). */
+const BACKGROUNDABLE_TOOLS = new Set(['Bash', 'Agent', 'Task'])
+
 export class ProgressReporter {
   private chatId: number
   private api: Api
@@ -247,6 +250,8 @@ export class ProgressReporter {
   private flushing = false
   private subagentTools = new Set<string>()
   private toolResults = new Map<string, string>() // tool_use_id -> result preview
+  // Main-thread Bash commands and subagents still running — what "⏩ To background" can move
+  private foreground = new Set<string>()
   // Streaming text accumulator
   private streamingText = ''
   private streamingLineIdx: number | null = null
@@ -398,6 +403,15 @@ export class ProgressReporter {
     const isSubagent = 'parent_tool_use_id' in event && event.parent_tool_use_id != null
     const indent = isSubagent ? '  ' : ''
 
+    // A main-thread tool result: that tool is no longer in the foreground
+    if (event.type === 'user' && !isSubagent && Array.isArray(event.message?.content) && this.foreground.size > 0) {
+      let settled = false
+      for (const b of event.message.content as any[]) {
+        if (b?.type === 'tool_result' && this.foreground.delete(b.tool_use_id)) settled = true
+      }
+      if (settled && event.tool_use_result === undefined) return true
+    }
+
     // --- Assistant message: tool calls and text blocks ---
     if (event.type === 'assistant') {
       const msg = event.message
@@ -428,6 +442,7 @@ export class ProgressReporter {
           this.toolLines.set(block.id, idx)
           this.toolNames.set(block.id, name)
           if (name === 'Agent') this.subagentTools.add(block.id)
+          if (!isSubagent && BACKGROUNDABLE_TOOLS.has(name)) this.foreground.add(block.id)
           const detailStr = detail ? ` ${escapeHtml(detail)}` : ''
           if (this.cuteMode) {
             const cuteToolKeys: Record<string, string> = {
@@ -962,9 +977,12 @@ export class ProgressReporter {
     const stopLabel = this.cuteMode ? this.t('progress.cute.stop') : this.t('progress.stop')
     const interruptLabel = this.cuteMode ? this.t('progress.cute.interrupt') : this.t('progress.interrupt')
     // Two buttons side-by-side: soft Stop (ESC — keeps partial) + hard Interrupt (kills process)
-    return new InlineKeyboard()
+    const kb = new InlineKeyboard()
       .text(stopLabel, `stop:${this.chatId}`)
       .text(interruptLabel, `intr:${this.chatId}`)
+    // Ctrl+B: while a command or subagent holds the turn, offer to move it to the background
+    if (this.foreground.size > 0) kb.row().text(this.t('progress.background'), `bg:${this.chatId}`)
+    return kb
   }
 
   /** Full-log: does the current message need to roll over into a fresh link? */

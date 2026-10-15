@@ -295,3 +295,30 @@ describe('ProgressReporter — rich draft streaming', () => {
     expect(r.draftId).not.toBe(first)
   })
 })
+
+describe('ProgressReporter — "To background" button', () => {
+  const callbacks = (r: any) => r.buildKeyboard().inline_keyboard.flat().map((b: any) => b.callback_data)
+
+  it('appears while a main-thread Bash command runs and goes once it returns', () => {
+    const r = makeReporter()
+    expect(callbacks(r)).not.toContain('bg:123')
+    r.formatEvent({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'make' } }] } })
+    expect(callbacks(r)).toContain('bg:123')
+    r.formatEvent({ type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } })
+    expect(callbacks(r)).not.toContain('bg:123')
+  })
+
+  it('is offered for a subagent, not for tools the SDK cannot background', () => {
+    const r = makeReporter()
+    r.formatEvent({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 't2', name: 'Read', input: { file_path: '/x' } }] } })
+    expect(callbacks(r)).not.toContain('bg:123')
+    r.formatEvent({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 't3', name: 'Agent', input: { description: 'research' } }] } })
+    expect(callbacks(r)).toContain('bg:123')
+  })
+
+  it('ignores commands a subagent runs inside its own thread', () => {
+    const r = makeReporter()
+    r.formatEvent({ type: 'assistant', parent_tool_use_id: 'parent', message: { content: [{ type: 'tool_use', id: 't4', name: 'Bash', input: { command: 'ls' } }] } })
+    expect(callbacks(r)).not.toContain('bg:123')
+  })
+})

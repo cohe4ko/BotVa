@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Query } from '@anthropic-ai/claude-agent-sdk'
-import { setActiveQuery, interruptRequest, addFollowup, subagentStarted, subagentFinished, hasSubagentsInFlight, clearActiveQuery, backgroundKey, createAbortController, isCancelled, cancelRequest } from './request-queue.js'
+import { setActiveQuery, interruptRequest, addFollowup, getAndClearFollowup, setLiveRun, setBackgroundTasks, getBackgroundTasks, backgroundRequest, stopBackgroundTask, clearActiveQuery, backgroundKey, createAbortController, isCancelled, cancelRequest } from './request-queue.js'
 
 function makeQuery(interruptImpl: () => Promise<unknown>): Query {
   return { interrupt: vi.fn(interruptImpl) } as unknown as Query
@@ -48,55 +48,76 @@ describe('interruptRequest', () => {
   })
 })
 
-describe('subagent in-flight tracking', () => {
-  it('tracks started/finished task ids per session', () => {
-    const key = 'sub-1'
-    expect(hasSubagentsInFlight(key)).toBe(false)
-    subagentStarted(key, 't1')
-    subagentStarted(key, 't2')
-    expect(hasSubagentsInFlight(key)).toBe(true)
-    subagentFinished(key, 't1')
-    expect(hasSubagentsInFlight(key)).toBe(true)
-    subagentFinished(key, 't2')
-    expect(hasSubagentsInFlight(key)).toBe(false)
+describe('addFollowup', () => {
+  it('pushes into the live run and never interrupts it', async () => {
+    const key = 'fu-1'
+    const q = makeQuery(async () => undefined)
+    const pushed: string[] = []
+    setActiveQuery(key, q)
+    setLiveRun(key, { push: (t) => { pushed.push(t); return true } })
+    await addFollowup(key, 'hi')
+    expect(pushed).toEqual(['hi'])
+    expect(q.interrupt).not.toHaveBeenCalled()
+    expect(getAndClearFollowup(key)).toBeUndefined()
+    clearActiveQuery(key)
   })
 
-  it('clearActiveQuery drops any leftover subagents', () => {
-    const key = 'sub-2'
-    subagentStarted(key, 't1')
-    expect(hasSubagentsInFlight(key)).toBe(true)
+  it('keeps the message for the next run when the live input is closed', async () => {
+    const key = 'fu-2'
+    setLiveRun(key, { push: () => false })
+    await addFollowup(key, 'one')
+    await addFollowup(key, 'two')
+    expect(getAndClearFollowup(key)).toBe('one\n\ntwo')
     clearActiveQuery(key)
-    expect(hasSubagentsInFlight(key)).toBe(false)
+  })
+
+  it('keeps the message when no run is live yet', async () => {
+    await addFollowup('fu-3', 'early')
+    expect(getAndClearFollowup('fu-3')).toBe('early')
+  })
+
+  it('clearActiveQuery drops the live run and its background tasks', async () => {
+    const key = 'fu-4'
+    setLiveRun(key, { push: () => true })
+    setBackgroundTasks(key, [{ taskId: 'b1', type: 'local_bash', description: 'x' }])
+    clearActiveQuery(key)
+    expect(getBackgroundTasks(key)).toEqual([])
+    await addFollowup(key, 'after')
+    expect(getAndClearFollowup(key)).toBe('after')
   })
 })
 
-describe('addFollowup interrupt gating', () => {
-  it('skips interrupt while a subagent runs and protectSubagents is on', async () => {
-    const key = 'fu-1'
-    const q = makeQuery(async () => undefined)
+describe('background controls', () => {
+  it('backgroundRequest calls Query.backgroundTasks with the tool id', async () => {
+    const key = 'bg-1'
+    const q = { backgroundTasks: vi.fn(async () => true) } as unknown as Query
     setActiveQuery(key, q)
-    subagentStarted(key, 't1')
-    await addFollowup(key, 'hi', true)
-    expect(q.interrupt).not.toHaveBeenCalled()
+    expect(await backgroundRequest(key, 'tool-7')).toBe(true)
+    expect(q.backgroundTasks).toHaveBeenCalledWith('tool-7')
     clearActiveQuery(key)
   })
 
-  it('interrupts when no subagent is running even with protection on', async () => {
-    const key = 'fu-2'
-    const q = makeQuery(async () => undefined)
-    setActiveQuery(key, q)
-    await addFollowup(key, 'hi', true)
-    expect(q.interrupt).toHaveBeenCalledOnce()
+  it('backgroundRequest is false with no run or when the SDK refuses', async () => {
+    expect(await backgroundRequest('bg-none')).toBe(false)
+    const key = 'bg-2'
+    setActiveQuery(key, { backgroundTasks: vi.fn(async () => { throw new Error('disabled') }) } as unknown as Query)
+    expect(await backgroundRequest(key)).toBe(false)
     clearActiveQuery(key)
   })
 
-  it('interrupts despite a running subagent when protection is off', async () => {
-    const key = 'fu-3'
-    const q = makeQuery(async () => undefined)
+  it('stopBackgroundTask stops one task', async () => {
+    const key = 'bg-3'
+    const q = { stopTask: vi.fn(async () => undefined) } as unknown as Query
     setActiveQuery(key, q)
-    subagentStarted(key, 't1')
-    await addFollowup(key, 'hi', false)
-    expect(q.interrupt).toHaveBeenCalledOnce()
+    expect(await stopBackgroundTask(key, 'b1')).toBe(true)
+    expect(q.stopTask).toHaveBeenCalledWith('b1')
     clearActiveQuery(key)
+  })
+
+  it('an empty task list clears the entry', () => {
+    setBackgroundTasks('bg-4', [{ taskId: 'b1', type: 't', description: 'd' }])
+    expect(getBackgroundTasks('bg-4')).toHaveLength(1)
+    setBackgroundTasks('bg-4', [])
+    expect(getBackgroundTasks('bg-4')).toEqual([])
   })
 })

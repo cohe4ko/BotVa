@@ -17,6 +17,7 @@ vi.mock('./config.js', () => ({
   AGENT_WATCHDOG_WARN_SECONDS: 60,
   AGENT_WATCHDOG_TIMEOUT_MS: 600000,
   SANDBOX_ENABLED: false,
+  BACKGROUND_TASK_MAX_MS: 1800000,
 }))
 
 vi.mock('./logger.js', () => ({
@@ -69,7 +70,11 @@ vi.mock('./request-queue.js', () => ({
   clearActiveQuery: vi.fn(),
   isCancelled: (...args: unknown[]) => (mockIsCancelled as Function)(...args),
   isInterrupted: (...args: unknown[]) => (mockIsInterrupted as Function)(...args),
+  clearInterrupted: vi.fn(),
+  setLiveRun: (key: string, run: { push(text: string): boolean }) => { liveRuns.set(key, run) },
+  setBackgroundTasks: vi.fn(),
 }))
+const liveRuns = vi.hoisted(() => new Map<string, { push(text: string): boolean }>())
 
 // Mock the SDK query function — yields events in sequence
 const mockQuery = vi.fn()
@@ -388,4 +393,108 @@ describe('runAgent', () => {
     })
   })
 
+})
+
+// --- Streaming input ---
+
+const usageOf = (cost: number) => ({ m: { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200000, costUSD: cost } })
+const textOf = (m: any) => typeof m.message.content === 'string' ? m.message.content : ''
+
+/**
+ * A fake query that reads its streaming input like the CLI does: one turn
+ * per user message, a result after each, and it ends when the input ends.
+ */
+function liveQuery(onMessage: (text: string, n: number) => any[]) {
+  mockQuery.mockImplementation(({ prompt }: { prompt: AsyncIterable<any> }) => (async function* () {
+    let n = 0
+    for await (const m of prompt) {
+      n++
+      for (const e of onMessage(textOf(m), n)) yield e
+    }
+  })())
+}
+
+describe('runAgent streaming input', () => {
+  it('passes an async iterable, not a string, and ends after the only turn', async () => {
+    liveQuery((text) => [{ type: 'result', subtype: 'success', result: `echo ${text}`, modelUsage: usageOf(0.01) }])
+    const res = await runAgent('hello', undefined, undefined, 'live1')
+    expect(typeof mockQuery.mock.calls[0][0].prompt).not.toBe('string')
+    expect(mockQuery.mock.calls[0][0].options.perTaskStopAffordance).toBe(true)
+    expect(res.text).toBe('echo hello')
+  })
+
+  it('a follow-up pushed during a turn reaches the same run, formatted, and is answered', async () => {
+    const delivered: (string | null)[] = []
+    const followups: string[] = []
+    mockQuery.mockImplementation(({ prompt }: { prompt: AsyncIterable<any> }) => (async function* () {
+      const it = prompt[Symbol.asyncIterator]()
+      const first = await it.next()
+      // The user writes while the first turn is still running
+      expect(liveRuns.get('live2')!.push('also this')).toBe(true)
+      yield { type: 'result', subtype: 'success', result: `A:${textOf(first.value)}`, modelUsage: usageOf(0.01) }
+      const second = await it.next()
+      yield { type: 'result', subtype: 'success', result: `B:${textOf(second.value)}`, modelUsage: usageOf(0.03) }
+      expect((await it.next()).done).toBe(true)
+    })())
+    const res = await runAgent('task', undefined, undefined, 'live2', undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+      formatFollowup: (t) => `[follow-up] ${t}`,
+      onFollowup: (t) => followups.push(t),
+      onTurnResult: async (r) => { delivered.push(r.text) },
+    })
+    expect(followups).toEqual(['also this'])
+    expect(delivered).toEqual(['A:task', 'B:[follow-up] also this'])
+    expect(res.text).toBe('B:[follow-up] also this')
+  })
+
+  it('reports each turn its own share of the cumulative usage', async () => {
+    const costs: number[] = []
+    mockQuery.mockImplementation(({ prompt }: { prompt: AsyncIterable<any> }) => (async function* () {
+      const it = prompt[Symbol.asyncIterator]()
+      await it.next()
+      liveRuns.get('live3')!.push('more')
+      yield { type: 'result', subtype: 'success', result: 'one', modelUsage: usageOf(0.01) }
+      await it.next()
+      yield { type: 'result', subtype: 'success', result: 'two', modelUsage: usageOf(0.04) }
+    })())
+    await runAgent('x', undefined, undefined, 'live3', undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+      onTurnResult: async (r) => { costs.push(Number(r.usage!.costUSD.toFixed(2))) },
+    })
+    expect(costs).toEqual([0.01, 0.03])
+  })
+
+  it('keeps the input open while a background task runs and closes after it reports back', async () => {
+    vi.useFakeTimers()
+    try {
+      const delivered: (string | null)[] = []
+      let inputDone = false
+      mockQuery.mockImplementation(({ prompt }: { prompt: AsyncIterable<any> }) => (async function* () {
+        const it = prompt[Symbol.asyncIterator]()
+        await it.next()
+        yield { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'build' }] }
+        yield { type: 'result', subtype: 'success', result: 'started in background', modelUsage: usageOf(0.01) }
+        // The input must still be open: nothing more arrives, but it does not end
+        const pending = it.next().then(r => { inputDone = !!r.done })
+        await vi.advanceTimersByTimeAsync(10_000)
+        expect(inputDone).toBe(false)
+        // The task finishes and the model reports on it in a turn of its own
+        yield { type: 'system', subtype: 'background_tasks_changed', tasks: [] }
+        yield { type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'done' }] } }
+        yield { type: 'result', subtype: 'success', result: 'build finished', modelUsage: usageOf(0.02) }
+        await pending
+        expect(inputDone).toBe(true)
+      })())
+      await runAgent('build it', undefined, undefined, 'live4', undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        onTurnResult: async (r) => { delivered.push(r.text) },
+      })
+      expect(delivered).toEqual(['started in background', 'build finished'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a follow-up after the input closed is refused, so the caller keeps it', async () => {
+    liveQuery(() => [{ type: 'result', subtype: 'success', result: 'ok', modelUsage: usageOf(0.01) }])
+    await runAgent('hi', undefined, undefined, 'live5')
+    expect(liveRuns.get('live5')!.push('late')).toBe(false)
+  })
 })

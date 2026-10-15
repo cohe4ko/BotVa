@@ -30,6 +30,8 @@ export const TELEGRAPH_ENABLED = (env['TELEGRAPH_ENABLED'] ?? 'true') === 'true'
 // Agent watchdog
 export const AGENT_WATCHDOG_WARN_SECONDS = parseInt(env['AGENT_WATCHDOG_WARN_SECONDS'] ?? '60', 10)
 export const AGENT_WATCHDOG_TIMEOUT_MS = parseInt(env['AGENT_WATCHDOG_TIMEOUT_MS'] ?? '600000', 10) // 10 min
+// How long a run stays open for its background tasks after the last turn; past it they are stopped
+export const BACKGROUND_TASK_MAX_MS = parseInt(env['BACKGROUND_TASK_MAX_MS'] ?? '1800000', 10) // 30 min
 
 // Google API key (used for Stagehand browser AI)
 export const GOOGLE_API_KEY = env['GOOGLE_API_KEY'] ?? ''
