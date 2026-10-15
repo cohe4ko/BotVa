@@ -19,6 +19,7 @@
 | Керування демоном | `scripts/telegram-observer.sh` |
 | Watchdog зв'язку | `src/telegram/watchdog.ts` |
 | Автовідповідач (сесія на чат) | `src/telegram-autoreply.ts` |
+| Telegram Business — транспорт автовідповідей у покритих особистих чатах | `src/telegram/business.ts` |
 | Довідник людей і склад груп | `tg_people`, `tg_chat_members` у `db.ts` |
 | Буфер розмов | `src/telegram/conversation-buffer.ts` |
 | Tier 1 — промт і розбір | `src/telegram/analyze-conversation.ts` |

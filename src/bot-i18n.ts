@@ -27,6 +27,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.fork.ok': '🔀 Branched the conversation. We continue in the new branch with everything said so far; the previous one is kept — switch back with /session.',
     'cmd.fork.nothing': 'Nothing to branch yet — start a conversation first.',
     'cmd.fork.failed': 'Could not branch the conversation: {error}',
+    'business.connected': '✅ Chat Automation connected. In the private chats you selected, unattended replies now go through Telegram Business — officially, on your behalf. Groups and anything the bot starts itself still go through the observer.',
+    'business.noReplyRight': '⚠️ Chat Automation connected, but without the right to reply. Allow "Reply to messages" for the bot in Settings → Chat Automation — until then replies keep going through the observer.',
+    'business.disconnected': 'Chat Automation disconnected — unattended replies go through the observer again.',
 
     // Cancel
     'cancel.request': 'request cancelled',
@@ -393,6 +396,9 @@ const translations: Record<BotLang, Record<string, string>> = {
     'cmd.fork.ok': '🔀 Розгалузив розмову. Продовжуємо в новій гілці з усім сказаним; попередня лишилась — повернутися можна через /session.',
     'cmd.fork.nothing': 'Ще нема чого розгалужувати — спочатку почни розмову.',
     'cmd.fork.failed': 'Не вдалося розгалузити розмову: {error}',
+    'business.connected': '✅ Chat Automation підключено. У вибраних особистих чатах автовідповіді тепер ідуть через Telegram Business — офіційно, від твого імені. Групи й те, що бот пише сам, як і раніше йдуть через обсервер.',
+    'business.noReplyRight': '⚠️ Chat Automation підключено, але без права відповідати. Дозволь боту «Відповідати на повідомлення» в Налаштуваннях → Chat Automation — доти відповіді йдуть через обсервер.',
+    'business.disconnected': 'Chat Automation відключено — автовідповіді знову йдуть через обсервер.',
 
     // Cancel
     'cancel.request': 'запит скасовано',

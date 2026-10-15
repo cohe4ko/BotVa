@@ -18,6 +18,8 @@ import { getBackgroundModel } from './model.js'
 import { getSession, setSession } from './db.js'
 import { logger } from './logger.js'
 import { openObserver, type ObserverSession } from './telegram/bridge.js'
+import { businessRouteFor } from './telegram/business.js'
+import { GrammyError, type Api } from 'grammy'
 import { findAutoReplyCandidates, type AutoReplyCandidate } from './telegram/autoreply.js'
 import {
   markAutoReplied, getMessages, getMessagesAfter, countMessagesAfter, getOwnerStyleSamples,
@@ -100,6 +102,9 @@ const OWN_TRANSCRIPT_CHARS = 700
  * covered with a plausible guess.
  */
 const SKIP_TOKEN = 'ПРОПУСК'
+
+/** Set by initAutoReply when this process can reply through Telegram Business. */
+let businessApi: Api | undefined
 
 let timer: ReturnType<typeof setTimeout> | null = null
 /** Chats currently being answered — a slow agent must not be started twice. */
@@ -494,9 +499,35 @@ async function answerChat(obs: ObserverSession, c: AutoReplyCandidate): Promise<
     return
   }
 
-  await obs.call('tg_send_message', { chat: chatId, text: answer })
+  await sendAnswer(obs, c, answer)
   markAutoReplied(chatId, c.trigger.msg_id)
   logger.info({ chatId, waitedS: c.waitedS, chars: answer.length }, '[tg-autoreply] replied')
+}
+
+/**
+ * Send a reply: through Telegram Business when it covers this private chat
+ * (official, on the owner's behalf), otherwise through the MTProto observer.
+ *
+ * Falls back to the observer only when Telegram definitively refused the
+ * business send (an API error). A network failure may still have delivered
+ * the message, and sending it again the other way would put two copies in
+ * the chat under the owner's name.
+ */
+export async function sendAnswer(obs: ObserverSession, c: AutoReplyCandidate, text: string): Promise<void> {
+  const chatId = c.chat.chat_id
+  const route = businessApi && c.chat.kind === 'user' ? businessRouteFor(chatId) : null
+  if (route && businessApi) {
+    try {
+      const m = await businessApi.sendMessage(Number(chatId), text, { business_connection_id: route })
+      recordOutbox({ chat_id: chatId, kind: 'auto-reply', text: text.slice(0, 500), status: 'sent', requested_by: `${BOT_NAME} (business)`, msg_id: m.message_id })
+      logger.info({ chatId }, '[tg-autoreply] sent through Telegram Business')
+      return
+    } catch (err) {
+      if (!(err instanceof GrammyError)) throw err
+      logger.warn({ chatId, code: err.error_code, description: err.description }, '[tg-autoreply] business send refused, using the observer')
+    }
+  }
+  await obs.call('tg_send_message', { chat: chatId, text })
 }
 
 /**
@@ -601,7 +632,12 @@ function scheduleNext(): void {
   }, delay)
 }
 
-export function initAutoReply(): void {
+/**
+ * @param api this bot's Bot API client — enables replying through Telegram
+ *   Business for chats the owner put under Chat Automation.
+ */
+export function initAutoReply(api?: Api): void {
+  businessApi = api
   if (timer) return
   scheduleNext()
   logger.info({ bot: BOT_NAME }, '[tg-autoreply] watching assigned Telegram chats')

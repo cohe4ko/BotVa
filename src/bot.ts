@@ -34,6 +34,7 @@ import { createBuiltinMcpServer } from './builtin-tools.js'
 import { initTgap, tgapMiddleware } from './tgap/runtime.js'
 import { teamBotIds } from './team-bots.js'
 import { chatForStoppedDraft } from './draft-stop.js'
+import { onBusinessConnection, onBusinessMessage } from './telegram/business.js'
 import { keyOf, threadOf, getSessionMode, routeIntoThread, sessionKey } from './session-key.js'
 import { hasSessionTitle } from './session-titles.js'
 import { getUserNudge } from './workspace-files.js'
@@ -1277,6 +1278,33 @@ export function createBot(): Bot {
   // below (see tgap/runtime.ts), and approval-card buttons are handled here.
   initTgap(bot)
   bot.use(tgapMiddleware)
+
+  // Telegram Business (Chat Automation): learn the connection and which chats
+  // it covers; the autoreply then answers those chats through it. Business
+  // updates never reach the regular handlers. Anyone can connect a bot to
+  // their own account, so only the owner's connection is taken.
+  bot.use(async (ctx, next) => {
+    const u = ctx.update as any
+    if (u.business_connection) {
+      const c = u.business_connection
+      if (!isAuthorised(c.user?.id)) {
+        logger.warn({ userId: c.user?.id }, 'Business connection from a non-owner ignored')
+        return
+      }
+      onBusinessConnection(c)
+      logger.info({ enabled: c.is_enabled, canReply: c.rights?.can_reply }, 'Business connection updated')
+      const t = chatT(String(c.user_chat_id))
+      const key = !c.is_enabled ? 'business.disconnected' : c.rights?.can_reply ? 'business.connected' : 'business.noReplyRight'
+      await bot.api.sendMessage(c.user_chat_id, t(key)).catch(() => {})
+      return
+    }
+    if (u.business_message) {
+      onBusinessMessage(u.business_message)
+      return
+    }
+    if (u.edited_business_message || u.deleted_business_messages) return
+    return next()
+  })
 
 
   // Pre-middleware: handle stop/cancel immediately, bypass grammy's sequential processing

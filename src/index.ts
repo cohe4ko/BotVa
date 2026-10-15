@@ -252,7 +252,8 @@ async function main(): Promise<void> {
   let stopTier1: (() => void) | undefined
   if (existsSync(TG_DB_PATH)) {
     const mod = await import('./telegram-autoreply.js')
-    mod.initAutoReply()
+    // bot.api: chats under Chat Automation are answered through Telegram Business
+    mod.initAutoReply(bot.api)
     stopAutoReply = mod.stopAutoReply
 
     // Turning conversations into facts. Idle unless a chat names this bot in
@@ -275,7 +276,9 @@ async function main(): Promise<void> {
       fetch: {
         // guest_message: Bot API 10.0 guest mode (обробник у bot.ts)
         // stopped_message_generation: кнопка «стоп» на чернетці (Bot API 10.3)
-        allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer', 'guest_message', 'stopped_message_generation'] as any,
+        allowed_updates: ['message', 'callback_query', 'my_chat_member', 'poll_answer', 'guest_message', 'stopped_message_generation',
+          // Telegram Business (Chat Automation) — telegram/business.ts
+          'business_connection', 'business_message', 'edited_business_message', 'deleted_business_messages'] as any,
       },
     },
   })
