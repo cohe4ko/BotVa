@@ -10,6 +10,7 @@ import { logger } from './logger.js'
 import { createAbortController, setActiveQuery, clearActiveQuery, isCancelled, isInterrupted, subagentStarted, subagentFinished } from './request-queue.js'
 import { AgentWatchdog } from './agent-watchdog.js'
 import { getClaudeProjectDir } from './disk-sessions.js'
+import { buildRestrictedOptions, type RunRestrictions } from './run-restrictions.js'
 import { existsSync, openSync, readSync, closeSync } from 'fs'
 import { join } from 'path'
 
@@ -89,7 +90,8 @@ async function runAgentOnce(
   agents?: Record<string, AgentDefinition>,
   effort?: 'low' | 'medium' | 'high' | 'max',
   resumeAt?: string,
-  disallowedTools?: string[]
+  disallowedTools?: string[],
+  restrictions?: RunRestrictions
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats; sessionFailed?: boolean }> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -113,15 +115,21 @@ async function runAgentOnce(
 
   let mcpServers: Record<string, any> = {}
   try {
-    mcpServers = await buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() }, mcpAllowList)
+    // No allowlist means "every server" — except for a restricted run, where it
+    // means none: the run gets only the servers it was explicitly handed.
+    const serverAllowList = restrictions && !mcpAllowList ? [] : mcpAllowList
+    mcpServers = await buildMcpServers({ ...process.env as Record<string, string>, ...readEnvFile() }, serverAllowList)
 
     // Built-in tools MCP (image generation, voice, telegraph, etc.)
     if (builtinMcpServer) {
       mcpServers['builtin'] = builtinMcpServer
     }
 
-    // Inter-bot communication MCP (reads role from workspace/team.json)
-    if (BOT_NAME && isManager(PROJECT_ROOT, BOT_NAME)) {
+    // Inter-bot communication MCP (reads role from workspace/team.json).
+    // A restricted run talks to no one, so it gets no colleague channel either.
+    if (restrictions) {
+      // no inter-bot channel
+    } else if (BOT_NAME && isManager(PROJECT_ROOT, BOT_NAME)) {
       mcpServers['colleague'] = {
         command: 'node',
         args: [`${PROJECT_ROOT}/mcp-servers/colleague/build/index.js`],
@@ -265,6 +273,9 @@ async function runAgentOnce(
         // sensitive API keys present in the environment. Flag off → no sandbox
         // key at all, default behaviour unchanged.
         ...(SANDBOX_ENABLED ? { sandbox: buildSandboxSettings() } : {}),
+        // Last, so it overrides the permission mode and hooks set above, and
+        // drops subagents: a restricted run gets only its allowlist.
+        ...(restrictions ? { ...buildRestrictedOptions(restrictions), agents: {} } : {}),
       },
     })
 
@@ -438,7 +449,12 @@ export async function runAgent(
    * edit the owner's own notes and contacts, but the tools that speak to other
    * people are not merely refused — they are never offered.
    */
-  disallowedTools?: string[]
+  disallowedTools?: string[],
+  /**
+   * Confine the run to an allowlist of tools (see run-restrictions.ts). For
+   * runs driven by text the owner did not write: guest queries, other bots.
+   */
+  restrictions?: RunRestrictions
 ): Promise<{ text: string | null; newSessionId?: string; usage?: UsageStats }> {
   // Reassemble CLAUDE.md from workspace files so changes (USER.md, MEMORY.md) are picked up
   refreshClaudeMd(BOT_DIR)
@@ -454,7 +470,7 @@ export async function runAgent(
     }
   }
 
-  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, resumeAt, disallowedTools)
+  const result = await runAgentOnce(message, sessionId, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, resumeAt, disallowedTools, restrictions)
 
   // If failed with a session, retry without session (fresh start)
   if (result.sessionFailed) {
@@ -462,7 +478,7 @@ export async function runAgent(
     const { clearSession } = await import('./db.js')
     clearSession(chatId)
 
-    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, undefined, disallowedTools)
+    const retry = await runAgentOnce(message, undefined, onTyping, chatId, onEvent, model, builtinMcpServer, permissionMode, onPermissionRequest, mcpAllowList, agents, effort, undefined, disallowedTools, restrictions)
     if (retry.sessionFailed || (!retry.text && !retry.newSessionId)) {
       logger.error({ chatId }, 'Retry without session also failed')
       return { text: '{{agent.crash.double}}', newSessionId: retry.newSessionId, usage: retry.usage }

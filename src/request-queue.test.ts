@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Query } from '@anthropic-ai/claude-agent-sdk'
-import { setActiveQuery, interruptRequest, addFollowup, subagentStarted, subagentFinished, hasSubagentsInFlight, clearActiveQuery } from './request-queue.js'
+import { setActiveQuery, interruptRequest, addFollowup, subagentStarted, subagentFinished, hasSubagentsInFlight, clearActiveQuery, backgroundKey, createAbortController, isCancelled, cancelRequest } from './request-queue.js'
 
 function makeQuery(interruptImpl: () => Promise<unknown>): Query {
   return { interrupt: vi.fn(interruptImpl) } as unknown as Query

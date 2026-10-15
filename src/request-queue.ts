@@ -53,6 +53,18 @@ export function hasSubagentsInFlight(sessionKey: string): boolean {
   return !!set && set.size > 0
 }
 
+/**
+ * Session key for an unattended run made on behalf of a chat.
+ *
+ * Every map above is keyed by session. A background run (consolidation, a
+ * scheduled task) that used the bare chat id would overwrite the owner's live
+ * query and abort controller — and clear them when it finished, so /stop would
+ * stop the wrong run or none at all. A key of its own keeps them apart.
+ */
+export function backgroundKey(kind: string, chatId: string | number): string {
+  return `bg:${kind}:${chatId}`
+}
+
 export function createAbortController(sessionKey: string): AbortController {
   const controller = new AbortController()
   abortControllers.set(sessionKey, controller)

@@ -7,23 +7,33 @@
  *
  * Security:
  * - Only responds to authorised users (ALLOWED_CHAT_ID)
- * - No side-effect tools (SendMedia, ForwardMessage, etc.)
+ * - Confined to GUEST_ALLOWED_TOOLS: no side-effect tools, no external MCP
  * - Agent runs against user's personal session (not the guest chat)
  * - Responses are text-only
  */
 
 import { ALLOWED_CHAT_ID } from './config.js'
 import { logger } from './logger.js'
+import { builtinToolId, type RunRestrictions } from './run-restrictions.js'
 
-// Tools that are ALLOWED in guest mode (safe, read-only or informational)
-export const GUEST_ALLOWED_TOOLS = [
-  'WebSearch', 'WebFetch', 'CurrencyRates', 'GetCurrentTime',
-  'SearchMemory', 'RunPython', 'ReadWorkspaceFile',
+// Tools a guest run may call. The answer lands in a chat the bot is not a
+// member of, so nothing here acts on the world: no media, no files, no
+// reminders, no messages. RunPython is left out on purpose — it sends its
+// figures with ctx.replyWithPhoto, and a guest update has no chat to send to.
+export const GUEST_CORE_TOOLS = ['WebSearch', 'WebFetch']
+export const GUEST_BUILTIN_TOOLS = [
+  'CurrencyRates', 'GetCurrentTime', 'SearchMemory', 'ReadWorkspaceFile',
   'AskGemini', 'GeminiSearch',
 ]
+export const GUEST_ALLOWED_TOOLS = [...GUEST_CORE_TOOLS, ...GUEST_BUILTIN_TOOLS]
 
-// MCP servers blocked in guest mode (all of them - guest mode is text-only)
+// External MCP servers available to a guest run: none.
 export const GUEST_MCP_ALLOW_LIST: string[] = []
+
+/** The allowlist a guest run is confined to (enforced in run-restrictions.ts). */
+export function guestRestrictions(): RunRestrictions {
+  return { allowTools: [...GUEST_CORE_TOOLS, ...GUEST_BUILTIN_TOOLS.map(builtinToolId)] }
+}
 
 export interface GuestMessage {
   guest_query_id: string
@@ -86,7 +96,7 @@ export function buildGuestContext(chatTitle?: string): string {
     chatTitle ? `Chat: "${chatTitle}".` : '',
     'Respond with text only. No media, no files, no reminders, no actions in this chat.',
     'Keep responses concise - this is a quick-answer context.',
-    'Available tools: WebSearch, WebFetch, CurrencyRates, GetCurrentTime, SearchMemory, RunPython.',
+    `Available tools: ${GUEST_ALLOWED_TOOLS.join(', ')}.`,
   ]
   return parts.filter(Boolean).join(' ')
 }

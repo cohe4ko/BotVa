@@ -1,6 +1,7 @@
 import cronParser from 'cron-parser'
 import { getDueTasks, advanceTaskNextRun, updateTaskAfterRun, getDueReminders, markReminderSent, markReminderFailed, deleteReminder, advanceReminderNextRun } from './db.js'
 import { runAgent } from './agent.js'
+import { backgroundKey } from './request-queue.js'
 import { getBackgroundModel } from './model.js'
 import { telegramSendingToolIds } from './telegram/tool-names.js'
 import { logger } from './logger.js'
@@ -85,7 +86,7 @@ async function executeReminderAgent(r: { id: number; chat_id: string; text: stri
       }
     }
     const { text: result } = await runAgent(
-      r.text, undefined, undefined, r.chat_id,
+      r.text, undefined, undefined, backgroundKey('reminder', r.chat_id),
       undefined, getBackgroundModel(r.chat_id), builtinServer, undefined, undefined,
       SCHEDULER_MCP_SERVERS, undefined, undefined, undefined, telegramSendingToolIds()
     )
@@ -178,7 +179,7 @@ export async function runDueTasks(): Promise<void> {
 
       // Run agent with no external MCP servers (allowList=[]) to save context window
       const { text } = await runAgent(
-        task.prompt, undefined, undefined, task.chat_id,
+        task.prompt, undefined, undefined, backgroundKey('task', task.chat_id),
         undefined, getBackgroundModel(task.chat_id), builtinServer, undefined, undefined, []
       )
       let result = text ?? '(no response)'
@@ -190,7 +191,7 @@ export async function runDueTasks(): Promise<void> {
           await sender(task.chat_id, t('sched.retry'))
         }
         const retry = await runAgent(
-          task.prompt, undefined, undefined, task.chat_id,
+          task.prompt, undefined, undefined, backgroundKey('task', task.chat_id),
           undefined, getBackgroundModel(task.chat_id), builtinServer, undefined, undefined, []
         )
         result = retry.text ?? '(no response on retry)'

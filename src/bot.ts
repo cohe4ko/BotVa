@@ -36,7 +36,7 @@ import { classifyReaction } from './auto-react.js'
 import { appendFileSync, existsSync } from 'node:fs'
 import { resolve as pathResolve } from 'node:path'
 import { relayWrite, startRelayPoller, relayClear, type RelayMessage } from './group-relay.js'
-import { isGuestAuthorised, cleanGuestText, buildGuestContext, checkGuestRateLimit, GUEST_ALLOWED_TOOLS, GUEST_MCP_ALLOW_LIST, type GuestMessage } from './guest-mode.js'
+import { isGuestAuthorised, cleanGuestText, buildGuestContext, checkGuestRateLimit, GUEST_BUILTIN_TOOLS, GUEST_MCP_ALLOW_LIST, guestRestrictions, type GuestMessage } from './guest-mode.js'
 import { appendGroupContext, readGroupContext, clearGroupContext } from './group-context.js'
 import { escapeHtml, formatForTelegram, splitMessage, formatUsageStats, sendChunked, shouldOfferTelegraphButton } from './message-format.js'
 import { BoundedMap } from './bounded-map.js'
@@ -2493,6 +2493,9 @@ export function createBot(): Bot {
 
       const model = getModel(chatIdStr)
       const effort = getEffort(chatIdStr)
+      // Only the read-only builtin tools; the restrictions below hold the line
+      // even if a tool slipped into this server by mistake.
+      const guestBuiltin = await createBuiltinMcpServer(ctx, userId, undefined, GUEST_BUILTIN_TOOLS)
       const result = await runAgent(
         messageWithMemory,
         sessionId,
@@ -2500,12 +2503,15 @@ export function createBot(): Bot {
         chatIdStr,
         undefined,  // no onEvent
         model,
-        undefined,  // no builtin MCP (guest = text only)
+        guestBuiltin?.server,
         undefined,  // no permission mode
         undefined,  // no permission request callback
-        GUEST_MCP_ALLOW_LIST.length > 0 ? GUEST_MCP_ALLOW_LIST : undefined,
+        GUEST_MCP_ALLOW_LIST,
         undefined,  // no agents
-        effort as any
+        effort as any,
+        undefined,  // no resume anchor
+        undefined,  // no extra disallowed tools
+        guestRestrictions()
       )
 
       // Save session
