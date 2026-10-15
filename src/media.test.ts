@@ -29,6 +29,7 @@ import {
   buildDocumentMessage,
   buildVideoMessage,
   cleanupOldUploads,
+  buildFollowupText,
 } from './media.js'
 
 beforeEach(() => {
@@ -212,5 +213,42 @@ describe('cleanupOldUploads', () => {
   it('does not throw when uploads dir does not exist', () => {
     // Point to non-existent dir — function catches the error
     expect(() => cleanupOldUploads()).not.toThrow()
+  })
+})
+
+describe('buildFollowupText', () => {
+  const dl = vi.fn(async (_id: string, name?: string) => `/uploads/${name ?? 'file'}`)
+
+  it('passes plain text through without downloading', async () => {
+    expect(await buildFollowupText({ text: 'ще одне' }, dl)).toBe('ще одне')
+    expect(dl).not.toHaveBeenCalled()
+  })
+
+  it('downloads a captioned photo and keeps the caption inside', async () => {
+    const out = await buildFollowupText({ caption: 'глянь', photo: [{ file_id: 's' }, { file_id: 'l' }] }, dl)
+    expect(dl).toHaveBeenCalledWith('l', 'photo.jpg')
+    expect(out).toContain('File saved at: /uploads/photo.jpg')
+    expect(out).toContain('Caption: глянь')
+  })
+
+  it('downloads a captioned document and video', async () => {
+    const doc = await buildFollowupText({ caption: 'звіт', document: { file_id: 'd', file_name: 'a.pdf' } }, dl)
+    expect(doc).toContain('Document received: a.pdf')
+    expect(doc).toContain('Caption: звіт')
+    const vid = await buildFollowupText({ caption: 'кліп', video: { file_id: 'v' } }, dl)
+    expect(vid).toContain('Video received')
+    expect(vid).toContain('Caption: кліп')
+  })
+
+  it('keeps the caption when the download fails', async () => {
+    const fail = vi.fn(async () => { throw new Error('boom') })
+    const out = await buildFollowupText({ caption: 'глянь', photo: [{ file_id: 'p' }] }, fail)
+    expect(out).toBe('[Photo received but download failed]\nCaption: глянь')
+  })
+
+  it('falls back to caption, then a voice marker, then nothing', async () => {
+    expect(await buildFollowupText({ caption: 'лише підпис' }, dl)).toBe('лише підпис')
+    expect(await buildFollowupText({ voice: {} }, dl)).toBe('[Voice message received]')
+    expect(await buildFollowupText({}, dl)).toBe('')
   })
 })

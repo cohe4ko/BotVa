@@ -20,7 +20,7 @@ import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { transcribeAudio, transcribeAudioLong, voiceCapabilities, synthesizeSpeech } from './voice.js'
 import { getProvider as getTtsProvider, extractToneMarker } from './tts-providers/index.js'
 import { isLongText } from './tts-providers/chunking.js'
-import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage, buildAlbumMessage, type AlbumItem } from './media.js'
+import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage, buildAlbumMessage, buildFollowupText, type AlbumItem } from './media.js'
 import { logger } from './logger.js'
 import { queueRequest, cancelRequest, interruptRequest, clearQueue, isProcessing, addFollowup, getAndClearFollowup, clearCancelled, isInterrupted } from './request-queue.js'
 import { ProgressReporter } from './progress-reporter.js'
@@ -1731,40 +1731,7 @@ export function createBot(): Bot {
         }
         // Build follow-up text from any message type
         // For media: download file first so Claude gets a real path, not just a marker
-        let followupText = ctx.message.text ?? ''
-        if (!followupText && ctx.message.caption) followupText = ctx.message.caption
-        if (!followupText && ctx.message.voice) followupText = '[Voice message received]'
-        if (!followupText && ctx.message.photo) {
-          try {
-            const photos = ctx.message.photo
-            const largest = photos[photos.length - 1]
-            const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, largest.file_id, 'photo.jpg')
-            followupText = buildPhotoMessage(localPath, ctx.message.caption)
-          } catch (err) {
-            logger.error({ err }, 'Follow-up photo download failed')
-            followupText = '[Photo received but download failed]'
-          }
-        }
-        if (!followupText && ctx.message.document) {
-          try {
-            const doc = ctx.message.document
-            const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, doc.file_id, doc.file_name)
-            followupText = buildDocumentMessage(localPath, doc.file_name ?? 'document', ctx.message.caption)
-          } catch (err) {
-            logger.error({ err }, 'Follow-up document download failed')
-            followupText = `[Document: ${ctx.message.document.file_name ?? 'file'} - download failed]`
-          }
-        }
-        if (!followupText && ctx.message.video) {
-          try {
-            const video = ctx.message.video
-            const localPath = await downloadMedia(TELEGRAM_BOT_TOKEN, video.file_id, 'video.mp4')
-            followupText = buildVideoMessage(localPath, ctx.message.caption)
-          } catch (err) {
-            logger.error({ err }, 'Follow-up video download failed')
-            followupText = '[Video received but download failed]'
-          }
-        }
+        const followupText = await buildFollowupText(ctx.message, (fileId, name) => downloadMedia(TELEGRAM_BOT_TOKEN, fileId, name))
         if (followupText) {
           const protectSubagents = getChatSetting(chatIdStr, 'protect_subagents') !== '0'
           await addFollowup(runKey, followupText, protectSubagents)

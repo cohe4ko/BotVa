@@ -111,6 +111,63 @@ export function buildVideoMessage(localPath: string, caption?: string): string {
   return parts.join('\n')
 }
 
+/** The parts of an incoming Telegram message a follow-up is built from. */
+export interface FollowupSource {
+  text?: string
+  caption?: string
+  voice?: unknown
+  photo?: { file_id: string }[]
+  document?: { file_id: string; file_name?: string }
+  video?: { file_id: string }
+}
+
+/**
+ * Turn a message sent while the agent is busy into follow-up text.
+ *
+ * Media is downloaded whenever it is attached — the caption goes inside the
+ * media message, never instead of it, so a captioned file is not lost.
+ * Returns '' for a message with nothing to pass on.
+ */
+export async function buildFollowupText(
+  m: FollowupSource,
+  download: (fileId: string, filename?: string) => Promise<string>,
+): Promise<string> {
+  if (m.text) return m.text
+  const photo = m.photo?.length ? m.photo[m.photo.length - 1] : undefined
+  if (photo) {
+    try {
+      return buildPhotoMessage(await download(photo.file_id, 'photo.jpg'), m.caption)
+    } catch (err) {
+      logger.error({ err }, 'Follow-up photo download failed')
+      return withCaption('[Photo received but download failed]', m.caption)
+    }
+  }
+  if (m.document) {
+    const name = m.document.file_name
+    try {
+      return buildDocumentMessage(await download(m.document.file_id, name), name ?? 'document', m.caption)
+    } catch (err) {
+      logger.error({ err }, 'Follow-up document download failed')
+      return withCaption(`[Document: ${name ?? 'file'} - download failed]`, m.caption)
+    }
+  }
+  if (m.video) {
+    try {
+      return buildVideoMessage(await download(m.video.file_id, 'video.mp4'), m.caption)
+    } catch (err) {
+      logger.error({ err }, 'Follow-up video download failed')
+      return withCaption('[Video received but download failed]', m.caption)
+    }
+  }
+  if (m.caption) return m.caption
+  if (m.voice) return '[Voice message received]'
+  return ''
+}
+
+function withCaption(marker: string, caption?: string): string {
+  return caption ? `${marker}\nCaption: ${caption}` : marker
+}
+
 export function cleanupOldUploads(maxAgeMs = 24 * 60 * 60 * 1000): void {
   try {
     const files = readdirSync(UPLOADS_DIR)
