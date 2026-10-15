@@ -8,6 +8,7 @@ import crypto from 'crypto'
 import os from 'os'
 import { logger } from '../logger.js'
 import { attachTerminalWS, cleanupAllTerminals } from './terminal-ws.js'
+import { startTunnel, stopTunnel, currentTunnel } from './tunnel.js'
 
 const LOCK_FILE = resolve(process.cwd(), 'workspace', 'admin.lock')
 
@@ -41,6 +42,9 @@ interface LockData {
   startedBy: string
   startedAt: number
   baseUrl?: string
+  /** Public address while a tunnel is open (tunnel.ts), and the process holding it. */
+  tunnelUrl?: string
+  tunnelPid?: number
 }
 
 interface AdminState {
@@ -84,18 +88,18 @@ function resetTimer(): void {
   }, INACTIVITY_MS)
 }
 
-export function isAdminRunning(): { running: boolean; url?: string; token?: string; port?: number } {
+export function isAdminRunning(): { running: boolean; url?: string; token?: string; port?: number; tunnelUrl?: string } {
   // Check if we started it ourselves
   if (state.server && state.token) {
     const lock = readLock()
-    return { running: true, url: buildBaseUrl(lock?.port ?? parseInt(process.env.ADMIN_PORT || '3000', 10)), token: state.token, port: lock?.port }
+    return { running: true, url: buildBaseUrl(lock?.port ?? parseInt(process.env.ADMIN_PORT || '3000', 10)), token: state.token, port: lock?.port, tunnelUrl: liveTunnelUrl(lock) }
   }
 
   // Check lock file (another bot may have started it)
   const lock = readLock()
   if (lock && isProcessAlive(lock.pid)) {
     const url = lock.baseUrl || buildBaseUrl(lock.port)
-    return { running: true, url, token: lock.token, port: lock.port }
+    return { running: true, url, token: lock.token, port: lock.port, tunnelUrl: liveTunnelUrl(lock) }
   }
 
   // Stale lock
@@ -167,6 +171,36 @@ export function startAdmin(port: number, botName: string, onShutdown: () => void
   return { url, token }
 }
 
+function liveTunnelUrl(lock: LockData | null): string | undefined {
+  if (!lock?.tunnelUrl || !lock.tunnelPid) return undefined
+  return isProcessAlive(lock.tunnelPid) ? lock.tunnelUrl : undefined
+}
+
+/**
+ * Give the running panel a public https address (see tunnel.ts) and return
+ * the login link through it. Any bot may open it; the panel's owner closes it
+ * when the panel stops.
+ */
+export async function openAdminTunnel(): Promise<string> {
+  const status = isAdminRunning()
+  if (!status.running || !status.token) throw new Error('admin panel is not running')
+  if (status.tunnelUrl) return `${status.tunnelUrl}/?token=${status.token}`
+  const lock = readLock()
+  const port = lock?.port ?? parseInt(process.env.ADMIN_PORT || '3000', 10)
+  const tunnel = await startTunnel(port, resolve(process.cwd(), 'workspace'))
+  if (lock) writeLock({ ...lock, tunnelUrl: tunnel.url, tunnelPid: tunnel.pid })
+  return `${tunnel.url}/?token=${status.token}`
+}
+
+function closeTunnel(lock: LockData | null): void {
+  const mine = currentTunnel()
+  stopTunnel()
+  // Opened by another bot's process: end it by pid
+  if (lock?.tunnelPid && lock.tunnelPid !== mine?.pid && isProcessAlive(lock.tunnelPid)) {
+    try { process.kill(lock.tunnelPid) } catch {}
+  }
+}
+
 function killPortOccupant(port: number): void {
   let pids: string
   try {
@@ -186,6 +220,7 @@ function killPortOccupant(port: number): void {
 
 export function stopAdmin(manual = false): void {
   if (state.timer) { clearTimeout(state.timer); state.timer = null }
+  closeTunnel(readLock())
   cleanupAllTerminals()
   if (state.server) {
     state.server.close()

@@ -1463,6 +1463,24 @@ export function createBot(): Bot {
       return
     }
     // Admin stop callback
+    // Public address for the admin panel through a tunnel (admin/tunnel.ts)
+    if (ctx.callbackQuery?.data === 'admin:tunnel') {
+      if (!isAuthorised(ctx.chat!.id)) return
+      const _t = chatT(String(ctx.chat!.id))
+      await ctx.answerCallbackQuery({ text: _t('admin.tunnelStarting') })
+      try {
+        const { openAdminTunnel } = await import('./admin/on-demand.js')
+        const url = await openAdminTunnel()
+        await ctx.editMessageText(_t('admin.tunnelOpen'), { reply_markup: { inline_keyboard: [
+          [{ text: _t('admin.open'), url }],
+          [{ text: _t('admin.stop'), callback_data: 'admin:stop' }],
+        ] } })
+      } catch (err) {
+        logger.warn({ err }, 'Admin tunnel failed')
+        await ctx.reply(_t('admin.tunnelFailed', { err: err instanceof Error ? err.message : String(err) })).catch(() => {})
+      }
+      return
+    }
     if (ctx.callbackQuery?.data === 'admin:stop') {
       if (!isAuthorised(ctx.chat!.id)) return
       const { isAdminRunning, stopAdmin } = await import('./admin/on-demand.js')
@@ -2082,14 +2100,19 @@ export function createBot(): Bot {
       } catch { return false }
     }
 
-    const replyWithAdminUrl = async (text: string, url: string) => {
-      if (canUseInlineUrl(url)) {
+    // An open tunnel replaces the local address; otherwise offer one
+    const replyWithAdminUrl = async (text: string, url: string, tunnelUrl?: string) => {
+      const link = tunnelUrl ?? url
+      const tunnelRow = tunnelUrl ? [] : [[{ text: t('admin.tunnel'), callback_data: 'admin:tunnel' }]]
+      if (canUseInlineUrl(link)) {
         await ctx.reply(text, { reply_markup: { inline_keyboard: [
-          [{ text: t('admin.open'), url }],
+          [{ text: t('admin.open'), url: link }],
+          ...tunnelRow,
           [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
         ] } })
       } else {
-        await ctx.reply(`${text}\n\n${url}`, { reply_markup: { inline_keyboard: [
+        await ctx.reply(`${text}\n\n${link}`, { reply_markup: { inline_keyboard: [
+          ...tunnelRow,
           [{ text: t('admin.stop'), callback_data: 'admin:stop' }],
         ] } })
       }
@@ -2098,7 +2121,7 @@ export function createBot(): Bot {
     const status = isAdminRunning()
     if (status.running) {
       const url = `${status.url}/?token=${status.token}`
-      await replyWithAdminUrl(t('admin.running'), url)
+      await replyWithAdminUrl(t('admin.running'), url, status.tunnelUrl ? `${status.tunnelUrl}/?token=${status.token}` : undefined)
       return
     }
 

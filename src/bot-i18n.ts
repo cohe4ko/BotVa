@@ -114,6 +114,10 @@ const translations: Record<BotLang, Record<string, string>> = {
     'admin.notRunning': 'Admin panel not running',
     'admin.open': '🔧 Open',
     'admin.stop': '🛑 Stop',
+    'admin.tunnel': '🌐 Access from outside',
+    'admin.tunnelStarting': 'Opening a tunnel…',
+    'admin.tunnelOpen': '🌐 Admin panel is reachable from anywhere through a temporary tunnel. The link carries the access token — do not share it. The tunnel closes with the panel.',
+    'admin.tunnelFailed': '❌ Could not open a tunnel: {err}',
     'admin.stoppedShort': 'Stopped',
 
     // Callbacks
@@ -491,6 +495,10 @@ const translations: Record<BotLang, Record<string, string>> = {
     'admin.notRunning': 'Admin panel не запущена',
     'admin.open': '🔧 Відкрити',
     'admin.stop': '🛑 Зупинити',
+    'admin.tunnel': '🌐 Доступ ззовні',
+    'admin.tunnelStarting': 'Піднімаю тунель…',
+    'admin.tunnelOpen': '🌐 Адмінка доступна звідусіль через тимчасовий тунель. У посиланні токен доступу — не пересилай його. Тунель закриється разом з адмінкою.',
+    'admin.tunnelFailed': '❌ Не вдалося підняти тунель: {err}',
     'admin.stoppedShort': 'Зупинено',
 
     // Callbacks
