@@ -24,6 +24,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "postinstall": "node scripts/patch-gramjs.mjs",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "setup": "tsx scripts/setup.ts",
