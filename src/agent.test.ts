@@ -498,3 +498,27 @@ describe('runAgent streaming input', () => {
     expect(liveRuns.get('live5')!.push('late')).toBe(false)
   })
 })
+
+describe('validateSessionFile', () => {
+  it('accepts a session whose first line is a long queue-operation entry', async () => {
+    const { validateSessionFile } = await import('./agent.js')
+    const long = JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: 'x'.repeat(12_000) })
+    writeFileSync(join(testDir, 'long-first.jsonl'), `${long}\n{"type":"user"}\n`)
+    expect(validateSessionFile('long-first')).toBe(true)
+  })
+
+  it('accepts a first line longer than the bytes it reads, if it starts as JSON', async () => {
+    const { validateSessionFile } = await import('./agent.js')
+    writeFileSync(join(testDir, 'huge-first.jsonl'), `{"type":"queue-operation","content":"${'y'.repeat(100_000)}"}\n`)
+    expect(validateSessionFile('huge-first')).toBe(true)
+  })
+
+  it('rejects a missing, empty or garbled file', async () => {
+    const { validateSessionFile } = await import('./agent.js')
+    expect(validateSessionFile('no-such')).toBe(false)
+    writeFileSync(join(testDir, 'empty.jsonl'), '')
+    expect(validateSessionFile('empty')).toBe(false)
+    writeFileSync(join(testDir, 'garbled.jsonl'), 'not json\n')
+    expect(validateSessionFile('garbled')).toBe(false)
+  })
+})

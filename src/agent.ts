@@ -42,20 +42,30 @@ function stripLoneSurrogates(s: string): string {
   return out
 }
 
-/** Check session .jsonl file exists and has valid JSON on first line */
-function validateSessionFile(sessionId: string): boolean {
+/** Bytes of a session file read to find its first line. */
+const SESSION_HEAD_BYTES = 64 * 1024
+
+/**
+ * Check the session .jsonl exists and starts with a JSON entry.
+ *
+ * The first line can be long: with streaming input the CLI opens the file
+ * with a queue-operation entry carrying the whole first prompt (memory
+ * context included). A first line longer than what was read is not a sign of
+ * corruption — it only has to start like a JSON object.
+ */
+export function validateSessionFile(sessionId: string): boolean {
   try {
     const filePath = join(getClaudeProjectDir(BOT_DIR), `${sessionId}.jsonl`)
     if (!existsSync(filePath)) return false
-    // Read only the first 4KB to avoid loading large session files
     const fd = openSync(filePath, 'r')
     try {
-      const buf = Buffer.alloc(4096)
-      const bytesRead = readSync(fd, buf, 0, 4096, 0)
+      const buf = Buffer.alloc(SESSION_HEAD_BYTES)
+      const bytesRead = readSync(fd, buf, 0, SESSION_HEAD_BYTES, 0)
       if (bytesRead === 0) return false
       const chunk = buf.toString('utf-8', 0, bytesRead)
       const newlineIdx = chunk.indexOf('\n')
-      const firstLine = (newlineIdx >= 0 ? chunk.slice(0, newlineIdx) : chunk).trim()
+      if (newlineIdx < 0) return bytesRead === SESSION_HEAD_BYTES && chunk.trimStart().startsWith('{"')
+      const firstLine = chunk.slice(0, newlineIdx).trim()
       if (!firstLine) return false
       JSON.parse(firstLine)
       return true
