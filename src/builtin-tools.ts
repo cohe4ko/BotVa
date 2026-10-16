@@ -180,6 +180,19 @@ export interface BuiltinToolsResult {
   cleanup?: () => void
 }
 
+/**
+ * What a Bot API refusal to message another bot means, in words the owner
+ * can act on. Telegram checks the recipient's access list before bot-to-bot
+ * mode, so BOT_ACCESS_RESTRICTED is about the other bot, not ours.
+ */
+export function sendErrorHint(msg: string): string {
+  if (/BOT_ACCESS_RESTRICTED/i.test(msg)) return ' — the other bot only accepts selected users (access settings in @BotFather). Its owner has to add this bot there or lift the restriction; bot-to-bot mode is not the problem.'
+  if (/USER_BOT_TO_BOT_DISABLED|bots? can't send messages to bots/i.test(msg)) return ' — Bot-to-Bot Communication Mode is off for one of the two bots; it must be on for both, in @BotFather.'
+  if (/chat not found|USERNAME_NOT_OCCUPIED|USERNAME_INVALID/i.test(msg)) return ' — no such bot username.'
+  if (/Forbidden|blocked/i.test(msg)) return ' — the other bot refused the message (blocked or not reachable by bots).'
+  return ''
+}
+
 /** What a model gets when it tries to reach another owner's bot with TGAP off. */
 export const TGAP_OFF_MESSAGE = 'Not sent: talking to other owners\' bots (TGAP) is turned off for this bot. Do NOT reach that bot any other way — no curl, no Bot API calls, no reading the bot token: those skip the owner\'s approval. Tell the owner it needs TGAP_ENABLED=1 in this bot\'s .env and a restart (and the other bot has to speak TGAP, or its reply arrives as plain text).'
 
@@ -1017,9 +1030,7 @@ NOT for: your own team bots (use ask_colleague / ask_manager), messaging people 
           return { content: [{ type: 'text' as const, text: `Sent to ${r.peer} ${how}. Request id ${r.id}. The answer will be delivered to the owner when it comes — tell the owner it was sent and that the other side's owner has to approve it.` }] }
         } catch (err: any) {
           const msg = String(err?.description ?? err?.message ?? err)
-          const hint = /bot can't send messages to bots|bots can't send messages to bots|Forbidden/i.test(msg)
-            ? ' — bot-to-bot messaging must be enabled in @BotFather for BOTH bots (Bot Settings → Bot-to-Bot Communication).'
-            : /chat not found/i.test(msg) ? ' — no such bot username.' : ''
+          const hint = sendErrorHint(msg)
           return { content: [{ type: 'text' as const, text: `Could not send: ${msg}${hint}` }], isError: true }
         }
       }
