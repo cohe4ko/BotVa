@@ -275,7 +275,7 @@ export class TgapService {
     }
     store.updateRequest(req.id, { draft })
     const fresh = store.getRequest(req.id)!
-    const cardId = await this.deps.owner.post(this.deps.ownerChat, renderApprovalCard(peer, fresh, claimedOwnerOf(peer)), approvalButtons(fresh.id, peer))
+    const cardId = await this.deps.owner.post(this.deps.ownerChat, renderApprovalCard(peer, fresh, claimedOwnerOf(peer), store.countIncomingSince(peer.bot_id, 0) - 1), approvalButtons(fresh.id, peer))
     store.updateRequest(req.id, { card_message_id: cardId })
     store.transition(req.id, ['drafting'], 'pending_approval')
 
@@ -527,9 +527,14 @@ export class TgapService {
 
 // ---------------------------------------------------------------- owner UI
 
-export function renderApprovalCard(peer: Peer, req: RequestRow, claimedOwner: string | null): string {
+/** `earlier`: how many requests this bot sent before this one. */
+export function renderApprovalCard(peer: Peer, req: RequestRow, claimedOwner: string | null, earlier = 0): string {
   const label = escapeHtml(peerLabel(peer))
-  const trust = peer.trust === 'unknown' ? '⚠️ новий бот, раніше не писав' : peer.trust === 'known' ? 'знайомий бот' : 'довірений бот'
+  // 'unknown' only means the owner has not pressed «Знаю цього бота» — not that the bot is new
+  const trust = peer.trust === 'known' ? 'знайомий бот'
+    : peer.trust !== 'unknown' ? 'довірений бот'
+    : earlier > 0 ? `⚠️ не позначений як знайомий · уже писав (${earlier})`
+    : '⚠️ новий бот, пише вперше'
   const lines = [
     `🤝 <b>Запит від ${label}</b> · ${trust}`,
     claimedOwner ? `Каже, що представляє: <i>${escapeHtml(claimedOwner)}</i> (не перевірено)` : '',

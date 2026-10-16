@@ -97,13 +97,26 @@ describe('incoming request → owner approval → answer', () => {
 
     expect(h.posts).toHaveLength(1)
     expect(h.posts[0].html).toContain('@alice_bot')
-    expect(h.posts[0].html).toContain('новий бот')
+    expect(h.posts[0].html).toContain('пише вперше')
     expect(h.posts[0].html).toContain('Tuesday after 15:00 works.')
     expect(h.posts[0].buttons!.flat().map(b => b.data)).toContain(`tgap:send:${env.id}`)
 
     expect(h.sent).toHaveLength(1)
     expect(h.sent[0].env).toMatchObject({ type: 'status', re: env.id, body: { state: 'pending_approval' } })
     expect(store.getRequest(env.id)!.state).toBe('pending_approval')
+  })
+
+  it('does not call a bot new once it has written before', async () => {
+    const h = harness()
+    const first = request()
+    await h.deliver(first)
+    await h.svc.handleOwnerAction('send', first.id)
+    await h.deliver(request({ conv: 'CONV2' }))
+
+    const card = h.posts.at(-1)!.html
+    expect(card).not.toContain('пише вперше')
+    expect(card).toContain('уже писав (1)')
+    expect(h.posts.at(-1)!.buttons!.flat().map(b => b.data).some(d => d.startsWith('tgap:know:'))).toBe(true)
   })
 
   it('sends exactly the approved draft, marked as approved by the owner', async () => {
