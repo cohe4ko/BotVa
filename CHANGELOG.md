@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Secret vault.** `/secret add|del|share` keeps logins, passwords and API keys encrypted (AES-256-GCM, per-bot `store/vault.key`); the message with the value is deleted at once. The agent knows names only (`ListSecrets`) and writes `{{secret:name.field}}` in a tool call: a PreToolUse hook fills the value in, a PostToolUse hook cuts it out of the result, so it is in neither the model's context nor the session transcript. Refused in messaging, email, memory and other-bot tools; the tool guard blocks reading the key file.
+- **Sharing secrets over TGAP** (spec §4.8): `secret` / `revoke` envelopes sealed to the receiver's X25519 key from its card (ECIES, HKDF-SHA256, AES-256-GCM). Both owners confirm: the sender picks the secret and how long it is valid ("🔑 Share a secret" on a request card, `/secret share`, `ShareSecret`), the receiver accepts or declines. The sealed message is deleted once stored; a share can be revoked.
+
+### Fixed
+- TGAP approval card no longer calls a bot "new" when it has written before.
+- TGAP notices show the whole question in a folded quote instead of cutting it mid-word.
+
 ## [1.3.0] — 2026-10-16
 
 ### Added

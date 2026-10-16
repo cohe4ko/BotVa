@@ -17,10 +17,13 @@ export const MAX_TEXT = 4096
 /** Envelopes longer than this travel as a JSON document instead (§2.3). */
 export const MAX_INLINE_ENVELOPE = 3500
 
-export const TGAP_TYPES = ['hello', 'card', 'request', 'status', 'response', 'decline', 'cancel', 'error'] as const
+export const TGAP_TYPES = ['hello', 'card', 'request', 'status', 'response', 'decline', 'cancel', 'error', 'secret', 'revoke'] as const
 export type TgapType = typeof TGAP_TYPES[number]
 
-/** The only types that may cause an automatic message back (§7.1). */
+/**
+ * The only types that may cause an automatic message back (§7.1). A `secret`
+ * is answered too, but only once its receiver's owner decides (§4.8).
+ */
 export const ELICITING: ReadonlySet<TgapType> = new Set(['hello', 'request'])
 
 export type ErrorCode =
@@ -55,6 +58,8 @@ export interface Card {
   max_request_chars?: number
   accepts_from: 'anyone' | 'known_only'
   about?: string
+  /** Present when the bot can receive sealed secrets (§4.8): its X25519 public key, raw, base64. */
+  secrets?: { x25519: string }
 }
 
 /** Minimal Telegram MessageEntity shape — only what TGAP reads and writes. */
@@ -105,7 +110,7 @@ export function validateEnvelope(obj: unknown): { code: ErrorCode; reason: strin
   if (!e.body || typeof e.body !== 'object' || Array.isArray(e.body)) return { code: 'malformed', reason: 'missing body' }
   // An error may answer a message too broken to have a readable conv.
   if (!['hello', 'card', 'error'].includes(e.type) && typeof e.conv !== 'string') return { code: 'malformed', reason: 'missing conv' }
-  if (['card', 'status', 'response', 'decline', 'cancel'].includes(e.type) && typeof e.re !== 'string') {
+  if (['card', 'status', 'response', 'decline', 'cancel', 'revoke'].includes(e.type) && typeof e.re !== 'string') {
     return { code: 'malformed', reason: `${e.type} needs re` }
   }
   if (e.type === 'request') {
@@ -114,6 +119,13 @@ export function validateEnvelope(obj: unknown): { code: ErrorCode; reason: strin
     const b = e.body as Record<string, unknown>
     if (!['question', 'proposal', 'notice'].includes(String(b.kind))) return { code: 'malformed', reason: 'request needs kind' }
     if (typeof b.text !== 'string' || !b.text.trim()) return { code: 'malformed', reason: 'request needs text' }
+  }
+  if (e.type === 'secret') {
+    const b = e.body as Record<string, any>
+    if (typeof b.name !== 'string' || !b.name.trim()) return { code: 'malformed', reason: 'secret needs name' }
+    if (!Array.isArray(b.fields) || !b.fields.every((f: unknown) => typeof f === 'string')) return { code: 'malformed', reason: 'secret needs fields' }
+    const s = b.sealed
+    if (!s || typeof s !== 'object' || !['alg', 'epk', 'iv', 'ct', 'tag'].every(k => typeof s[k] === 'string')) return { code: 'malformed', reason: 'secret needs sealed' }
   }
   if (e.type === 'response' && !['owner', 'policy', 'none'].includes(String((e.body as any).approval))) {
     return { code: 'malformed', reason: 'response needs approval' }

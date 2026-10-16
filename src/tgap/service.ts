@@ -17,7 +17,8 @@ import {
 } from './envelope.js'
 import { judge, turnCeiling, Pacer, DEFAULT_MAX_TURNS } from './guard.js'
 import * as store from './store.js'
-import type { Peer, RequestRow } from './store.js'
+import type { Peer, RequestRow, ShareRow } from './store.js'
+import * as vault from '../secrets.js'
 
 export interface SentRef { chatId: number; messageId: number }
 
@@ -25,6 +26,8 @@ export interface TgapTransport {
   sendText(to: number | string, text: string, entities: Entity[], replyTo?: number): Promise<SentRef>
   sendDocument(to: number | string, filename: string, content: string, caption: string, entities: Entity[], replyTo?: number): Promise<SentRef>
   downloadDocument(fileId: string): Promise<string>
+  /** Delete a message this bot sent (a delivered secret). Best effort. */
+  deleteMessage?(chat: number | string, messageId: number): Promise<void>
 }
 
 export interface Button { text: string; data: string }
@@ -84,7 +87,24 @@ export interface AskParams {
   replyChat?: string
 }
 
-export type OwnerAction = 'send' | 'edit' | 'decline' | 'block' | 'know'
+export type OwnerAction = 'send' | 'edit' | 'decline' | 'block' | 'know' | 'offer' | 'saccept' | 'sdecline'
+
+/** Secret shares waiting for a key or for the receiver's owner, per peer. */
+const MAX_PENDING_SECRETS = 3
+const AWAITING_KEY_S = 10 * 60
+const PENDING_SECRET_S = 7 * 24 * 3600
+
+/** The peer's sealing key, if its card offers one (§4.8). */
+export function peerSecretKey(p: Pick<Peer, 'card'>): string | null {
+  if (!p.card) return null
+  try {
+    const k = JSON.parse(p.card)?.secrets?.x25519
+    return typeof k === 'string' && k.length >= 40 ? k : null
+  } catch { return null }
+}
+
+const fieldList = (fields: string[]) => fields.map(f => `<code>${escapeHtml(f)}</code>`).join(', ')
+const dateWords = (s: number) => new Date(s * 1000).toLocaleString('uk-UA', { dateStyle: 'short', timeStyle: 'short' })
 
 const DEFAULT_EXPIRY_H = 48
 
@@ -235,6 +255,7 @@ export class TgapService {
       case 'absorb': return this.handleAnswer(peer, env)
       case 'process':
         if (env.type === 'hello') return this.handleHello(peer, env, m.messageId)
+        if (env.type === 'secret') return this.handleSecret(peer, env)
         return this.handleRequest(peer, env, m.messageId)
     }
   }
@@ -334,8 +355,11 @@ export class TgapService {
   private async handleAnswer(peer: Peer, env: Envelope): Promise<void> {
     if (env.type === 'card') {
       if (env.body?.card) store.setPeerProtocol(peer.bot_id, 'tgap', JSON.stringify(env.body.card))
-      return
+      return this.deliverWaitingShares(store.getPeer(peer.bot_id)!)
     }
+    const share = env.re ? store.getShare(env.re) : undefined
+    if (share && share.peer_id === peer.bot_id) return this.handleShareAnswer(peer, share, env)
+    if (env.type === 'revoke') return
     const req = env.re ? store.getRequest(env.re) : undefined
     // Only the peer the request was exchanged with may move it.
     if (!req || req.peer_id !== peer.bot_id) {
@@ -390,6 +414,7 @@ export class TgapService {
 
   /** A button on the approval card. Returns a short text for the callback toast. */
   async handleOwnerAction(action: OwnerAction, requestId: string): Promise<string> {
+    if (action === 'saccept' || action === 'sdecline') return this.decideIncomingSecret(requestId, action === 'saccept')
     const req = store.getRequest(requestId)
     if (!req || req.direction !== 'in') return 'Запит не знайдено'
     const peer = store.getPeer(req.peer_id)!
@@ -398,6 +423,7 @@ export class TgapService {
       if (peer.trust === 'unknown') store.setPeerTrust(peer.bot_id, 'known')
       return `${peerLabel(peer)} тепер у знайомих`
     }
+    if (action === 'offer') return this.offerSecretPicker(peer)
     if (req.state !== 'pending_approval') return 'Цей запит уже оброблено'
     if (req.expires_at !== null && req.expires_at <= this.nowS()) {
       store.transition(req.id, ['pending_approval'], 'expired')
@@ -514,6 +540,260 @@ export class TgapService {
     return { id, peer: at(username), plain }
   }
 
+  // ---------------------------------------------------------------- secrets (§4.8)
+
+  /** Say hello with our card, so the peer answers with its own (and its key). */
+  private async sendHello(peer: Peer): Promise<void> {
+    await this.sendEnvelope(peer.bot_id, peer.bot_id, envelope('hello', { card: this.deps.card }), `🤝 Hello from ${this.deps.card.name}`)
+  }
+
+  /** The owner pressed «Передати секрет» on a card: which secret? */
+  private async offerSecretPicker(peer: Peer): Promise<string> {
+    const list = vault.listSecrets()
+    if (list.length === 0) return 'Сховище порожнє: спершу /secret add <назва>'
+    await this.deps.owner.post(this.deps.ownerChat,
+      `🔑 Який секрет передати ${escapeHtml(peerLabel(peer))}?`,
+      list.map(x => [{ text: `${x.name} (${x.fields.join(', ')})`, data: `sec:to:${x.name}:${peer.bot_id}` }]))
+    return 'Обери секрет'
+  }
+
+  /**
+   * Ask the owner to confirm a share: how long it stays valid. Nothing is
+   * sent until they press one of the buttons (handled by the secrets UI).
+   */
+  async proposeShare(name: string, peerId: number): Promise<void> {
+    const meta = vault.getSecretMeta(name)
+    if (!meta) throw new Error(`No secret "${name}" in the vault`)
+    const peer = store.getPeer(peerId)
+    if (!peer) throw new Error('This bot has never talked to us')
+    this.checkShareable(peer)
+    const ttl = (days: number, text: string) => ({ text, data: `sec:ttl:${meta.name}:${peer.bot_id}:${days}` })
+    await this.deps.owner.post(this.deps.ownerChat, [
+      `🔑 Передати секрет «${escapeHtml(meta.name)}» (${fieldList(meta.fields)}) боту ${escapeHtml(peerLabel(peer))}?`,
+      claimedOwnerOf(peer) ? `Каже, що представляє: <i>${escapeHtml(claimedOwnerOf(peer)!)}</i> (не перевірено)` : '',
+      '<i>Піде зашифрованим під ключ цього бота. Його агент зможе цим користуватися, а ти зможеш відкликати.</i>',
+      'Скільки часу діє?',
+    ].filter(Boolean).join('\n'), [
+      [ttl(1, '1 день'), ttl(7, '7 днів'), ttl(30, '30 днів')],
+      [ttl(0, 'Безстроково'), { text: '✖ Скасувати', data: 'sec:cancel' }],
+    ])
+  }
+
+  private checkShareable(peer: Peer): void {
+    if (peer.trust === 'blocked') throw new Error(`${peerLabel(peer)} is blocked`)
+    if (peer.protocol === 'plain') throw new Error(`${peerLabel(peer)} does not speak TGAP, so it cannot receive a sealed secret`)
+  }
+
+  /** Send a vault secret to a peer, sealed to its key. The owner has confirmed. */
+  async shareSecret(name: string, peerId: number, ttlDays: number): Promise<'sent' | 'awaiting_key'> {
+    const meta = vault.getSecretMeta(name)
+    if (!meta) throw new Error(`No secret "${name}" in the vault`)
+    const peer = store.getPeer(peerId)
+    if (!peer) throw new Error('This bot has never talked to us')
+    this.checkShareable(peer)
+    const waiting = store.sharesByState('out', ['awaiting_key'], peer.bot_id)
+    if (waiting.length >= MAX_PENDING_SECRETS) throw new Error('Too many secrets waiting for this bot already')
+
+    const id = newId(this.clock())
+    const ttlEnd = ttlDays > 0 ? this.nowS() + Math.round(ttlDays * 86400) : null
+    // The receiver's copy never outlives ours
+    const expires = meta.expires_at && (!ttlEnd || meta.expires_at < ttlEnd) ? meta.expires_at : ttlEnd
+    store.insertShare({
+      id, direction: 'out', peer_id: peer.bot_id, conv: newId(this.clock()), name: meta.name, fields: JSON.stringify(meta.fields),
+      note: meta.note, secret_expires_at: expires, sealed: null, state: 'awaiting_key',
+    })
+    const key = peerSecretKey(peer)
+    if (key) {
+      await this.deliverShare(peer, store.getShare(id)!, key)
+      return 'sent'
+    }
+    // No key known yet: ask for its card; the share goes out when it comes
+    await this.sendHello(peer)
+    await this.deps.owner.post(this.deps.ownerChat,
+      `⏳ Запитав у ${escapeHtml(peerLabel(peer))} ключ для шифрування. Секрет «${escapeHtml(meta.name)}» піде, щойно бот відповість.`)
+    return 'awaiting_key'
+  }
+
+  private async deliverShare(peer: Peer, share: ShareRow, key: string): Promise<void> {
+    const values = vault.getSecretValues(share.name)
+    if (!values) {
+      store.transitionShare(share.id, ['awaiting_key'], 'failed')
+      await this.deps.owner.post(this.deps.ownerChat, `⚠️ Секрету «${escapeHtml(share.name)}» уже немає у сховищі — нічого не надіслано.`)
+      return
+    }
+    const sealed = vault.seal(key, JSON.stringify(values), `${share.id}|${share.name}`)
+    const env = envelope('secret', {
+      name: share.name, fields: JSON.parse(share.fields), note: share.note, to_key: key,
+      expires_at: share.secret_expires_at ? new Date(share.secret_expires_at * 1000).toISOString() : null, sealed,
+    }, { id: share.id, conv: share.conv })
+    if (!store.transitionShare(share.id, ['awaiting_key'], 'sent')) return
+    const sent = await this.sendEnvelope(peer.bot_id, peer.bot_id, env,
+      `🔑 Encrypted secret "${share.name}" from ${this.deps.card.name}. Only the receiving bot can open it, and only after its owner accepts.`)
+    store.updateShare(share.id, { tg_message_id: sent.messageId })
+    await this.deps.owner.post(this.deps.ownerChat,
+      `🔑 Секрет «${escapeHtml(share.name)}» надіслано ${escapeHtml(peerLabel(peer))} зашифрованим. Чекаю, поки його власник прийме.`,
+      [[{ text: '↩️ Відкликати', data: `sec:revoke:${share.id}` }]])
+    this.deps.logEvent(`Секрет «${share.name}» надіслано боту ${peerLabel(peer)} (зашифровано, з підтвердження власника)`)
+  }
+
+  /** The peer's card arrived: send what was waiting for its key, or say it cannot take secrets. */
+  private async deliverWaitingShares(peer: Peer): Promise<void> {
+    const waiting = store.sharesByState('out', ['awaiting_key'], peer.bot_id)
+    if (waiting.length === 0) return
+    const key = peerSecretKey(peer)
+    for (const share of waiting) {
+      if (key) await this.deliverShare(peer, share, key)
+      else if (store.transitionShare(share.id, ['awaiting_key'], 'failed')) {
+        await this.deps.owner.post(this.deps.ownerChat,
+          `⚠️ ${escapeHtml(peerLabel(peer))} не вміє приймати зашифровані секрети (потрібна свіжа версія BotVa). Секрет «${escapeHtml(share.name)}» не надіслано.`)
+      }
+    }
+  }
+
+  /** Someone sent us a sealed secret: keep it sealed and ask the owner. */
+  private async handleSecret(peer: Peer, env: Envelope): Promise<void> {
+    if (peer.trust === 'blocked') return
+    const b = env.body
+    if (b.to_key && b.to_key !== vault.boxKeys().publicKey) {
+      await this.sendError(peer, 'unsupported', 'secret is sealed to a key this bot does not hold; send hello for the current card', env.id, env.conv)
+      return
+    }
+    if (store.sharesByState('in', ['pending'], peer.bot_id).length >= MAX_PENDING_SECRETS) return
+    const name = vault.normalizeName(String(b.name)).replace(/[^a-z0-9_-]/g, '-').replace(/^[-_]+/, '').slice(0, 24) || 'secret'
+    const fields = (b.fields as string[]).map(f => f.toLowerCase().slice(0, 32)).slice(0, 20)
+    const expires = typeof b.expires_at === 'string' ? Math.floor(Date.parse(b.expires_at) / 1000) : NaN
+    store.insertShare({
+      id: env.id, direction: 'in', peer_id: peer.bot_id, conv: env.conv!, name, fields: JSON.stringify(fields),
+      note: typeof b.note === 'string' ? b.note.slice(0, 300) : null,
+      secret_expires_at: Number.isFinite(expires) ? expires : null, state: 'pending',
+      // Bound to the name as the sender wrote it, before we tidied it
+      sealed: JSON.stringify({ sealed: b.sealed, aad: `${env.id}|${b.name}` }),
+    })
+    const share = store.getShare(env.id)!
+    const cardId = await this.deps.owner.post(this.deps.ownerChat, renderSecretCard(peer, share, claimedOwnerOf(peer)), [
+      [{ text: '✅ Прийняти', data: `tgap:saccept:${share.id}` }, { text: '✖ Відхилити', data: `tgap:sdecline:${share.id}` }],
+    ])
+    store.updateShare(share.id, { card_message_id: cardId })
+  }
+
+  private async decideIncomingSecret(id: string, accept: boolean): Promise<string> {
+    const share = store.getShare(id)
+    if (!share || share.direction !== 'in') return 'Не знайдено'
+    if (share.state !== 'pending') return 'Уже вирішено'
+    const peer = store.getPeer(share.peer_id)!
+    const label = escapeHtml(peerLabel(peer))
+    if (!accept) {
+      if (!store.transitionShare(id, ['pending'], 'declined')) return 'Уже вирішено'
+      await this.sendEnvelope(peer.bot_id, peer.bot_id, envelope('decline', { reason: 'owner_declined' }, { conv: share.conv, re: id }), '✖ Secret declined')
+      if (share.card_message_id) await this.deps.owner.edit(this.deps.ownerChat, share.card_message_id, `✖ Відхилено секрет «${escapeHtml(share.name)}» від ${label}`)
+      return 'Відхилено'
+    }
+
+    let values: Record<string, string>
+    try {
+      const kept = JSON.parse(share.sealed!) as { sealed: vault.Sealed; aad: string }
+      values = JSON.parse(vault.unseal(kept.sealed, kept.aad))
+      if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('not an object')
+      for (const [k, v] of Object.entries(values)) if (typeof v !== 'string') throw new Error(`field ${k} is not text`)
+    } catch (err) {
+      this.deps.log?.warn({ err, id }, '[tgap] could not open a secret')
+      store.transitionShare(id, ['pending'], 'declined')
+      await this.sendEnvelope(peer.bot_id, peer.bot_id, envelope('decline', { reason: 'out_of_scope', text: 'Could not decrypt the secret.' }, { conv: share.conv, re: id }), '✖ Secret could not be opened')
+      if (share.card_message_id) await this.deps.owner.edit(this.deps.ownerChat, share.card_message_id, `⚠️ Секрет «${escapeHtml(share.name)}» від ${label} не вдалося розшифрувати — відхилено.`)
+      return 'Не вдалося розшифрувати'
+    }
+
+    if (!store.transitionShare(id, ['pending'], 'accepted')) return 'Уже вирішено'
+    // The same peer sending the same name again replaces its earlier copy
+    const prev = vault.getSecretMeta(share.name)
+    const storedName = prev && prev.source_peer === peer.bot_id ? share.name : vault.freeName(share.name)
+    vault.putSecret(storedName, values, {
+      note: share.note, source: peerLabel(peer), source_peer: peer.bot_id, share_id: id, expires_at: share.secret_expires_at,
+    })
+    store.updateShare(id, { stored_name: storedName })
+    await this.sendEnvelope(peer.bot_id, peer.bot_id, envelope('status', { state: 'stored' }, { conv: share.conv, re: id }), '✓ Secret stored')
+    const fields = Object.keys(values)
+    if (share.card_message_id) {
+      await this.deps.owner.edit(this.deps.ownerChat, share.card_message_id, [
+        `🔐 Прийнято секрет «${escapeHtml(storedName)}» від ${label} (${fieldList(fields)}).`,
+        share.secret_expires_at ? `<i>Діє до ${dateWords(share.secret_expires_at)}.</i>` : '',
+        '<i>Значення лежить у сховищі; агент підставляє його в інструменти, не бачачи. Список: /secret</i>',
+      ].filter(Boolean).join('\n'))
+    }
+    this.deps.logEvent(`Власник прийняв секрет «${storedName}» від бота ${peerLabel(peer)} (поля: ${fields.join(', ')}). Користуйся ним як {{secret:${storedName}.<поле>}} в інструментах; значення не показуй і не передавай далі.`)
+    return 'Збережено'
+  }
+
+  /** status / decline / revoke about a share. */
+  private async handleShareAnswer(peer: Peer, share: ShareRow, env: Envelope): Promise<void> {
+    const label = escapeHtml(peerLabel(peer))
+    const name = escapeHtml(share.name)
+    if (share.direction === 'out') {
+      if (env.type === 'status' && env.body?.state === 'stored' && store.transitionShare(share.id, ['sent'], 'delivered')) {
+        await this.deleteSent(peer, share)
+        await this.deps.owner.post(this.deps.ownerChat, `✅ ${label} прийняв секрет «${name}». Зашифроване повідомлення видалено з чату.`,
+          [[{ text: '↩️ Відкликати', data: `sec:revoke:${share.id}` }]])
+        this.deps.logEvent(`Бот ${peerLabel(peer)} прийняв секрет «${share.name}»`)
+      } else if ((env.type === 'decline' || env.type === 'error') && store.transitionShare(share.id, ['sent'], 'declined')) {
+        await this.deleteSent(peer, share)
+        const why = env.body?.text ? `: ${escapeHtml(String(env.body.text))}` : ''
+        await this.deps.owner.post(this.deps.ownerChat, `✖ ${label} не прийняв секрет «${name}»${why}`)
+      }
+      return
+    }
+    // Incoming: only the sender may take its secret back
+    if (env.type !== 'revoke') return
+    if (store.transitionShare(share.id, ['pending'], 'revoked')) {
+      if (share.card_message_id) await this.deps.owner.edit(this.deps.ownerChat, share.card_message_id, `↩️ ${label} відкликав секрет «${name}», поки ти вирішував.`)
+      return
+    }
+    if (share.state === 'accepted' && store.transitionShare(share.id, ['accepted'], 'revoked')) {
+      const meta = share.stored_name ? vault.getSecretMeta(share.stored_name) : undefined
+      if (meta && meta.share_id === share.id) vault.deleteSecret(meta.name)
+      await this.deps.owner.post(this.deps.ownerChat, `↩️ ${label} відкликав секрет «${escapeHtml(share.stored_name ?? share.name)}» — його видалено зі сховища.`)
+      this.deps.logEvent(`Бот ${peerLabel(peer)} відкликав секрет «${share.stored_name ?? share.name}»; його більше немає`)
+    }
+  }
+
+  private async deleteSent(peer: Peer, share: ShareRow): Promise<void> {
+    if (!share.tg_message_id || !this.deps.transport.deleteMessage) return
+    try { await this.deps.transport.deleteMessage(peer.bot_id, share.tg_message_id) } catch { /* too old or gone */ }
+  }
+
+  /** The owner takes back a secret they shared. */
+  async revokeShare(id: string): Promise<string> {
+    const share = store.getShare(id)
+    if (!share || share.direction !== 'out') return 'Не знайдено'
+    const peer = store.getPeer(share.peer_id)!
+    if (store.transitionShare(id, ['awaiting_key'], 'revoked')) return 'Скасовано, нічого не надсилалось'
+    if (!store.transitionShare(id, ['sent', 'delivered'], 'revoked')) return 'Уже неактивний'
+    await this.deleteSent(peer, share)
+    await this.sendEnvelope(peer.bot_id, peer.bot_id, envelope('revoke', { name: share.name }, { conv: share.conv, re: id }), `↩️ Secret "${share.name}" revoked`)
+    await this.deps.owner.post(this.deps.ownerChat,
+      `↩️ Секрет «${escapeHtml(share.name)}» відкликано в ${escapeHtml(peerLabel(peer))}. Бот на BotVa видалить його сам. Якщо це пароль, його варто змінити: копію могли вже використати.`)
+    return 'Відкликано'
+  }
+
+  /** Active shares, newest first — for /secret. */
+  activeShares(): Array<ShareRow & { peer: string }> {
+    return store.sharesByState('out', ['awaiting_key', 'sent', 'delivered']).reverse()
+      .map(sh => ({ ...sh, peer: peerLabel(store.getPeer(sh.peer_id) ?? { username: null, bot_id: sh.peer_id }) }))
+  }
+
+  private async sweepShares(): Promise<void> {
+    const t = this.nowS()
+    for (const sh of store.sharesByState('out', ['awaiting_key'])) {
+      if (sh.created_at > t - AWAITING_KEY_S || !store.transitionShare(sh.id, ['awaiting_key'], 'failed')) continue
+      const peer = store.getPeer(sh.peer_id)
+      await this.deps.owner.post(this.deps.ownerChat,
+        `⚠️ ${escapeHtml(peer ? peerLabel(peer) : String(sh.peer_id))} не надіслав ключ для шифрування — секрет «${escapeHtml(sh.name)}» не передано. Можливо, бот не на BotVa або вимкнений.`)
+    }
+    for (const sh of store.sharesByState('in', ['pending'])) {
+      if (sh.created_at > t - PENDING_SECRET_S || !store.transitionShare(sh.id, ['pending'], 'expired')) continue
+      if (sh.card_message_id) await this.deps.owner.edit(this.deps.ownerChat, sh.card_message_id, `⌛ Секрет «${escapeHtml(sh.name)}» не прийнято вчасно — видалено.`)
+    }
+  }
+
   // ---------------------------------------------------------------- expiry
 
   /** Close requests whose deadline passed (§6). Call periodically. */
@@ -534,6 +814,7 @@ export class TgapService {
         this.deps.log?.warn({ err, id: req.id }, '[tgap] expiry notice failed')
       }
     }
+    try { await this.sweepShares() } catch (err) { this.deps.log?.warn({ err }, '[tgap] secret sweep failed') }
     store.pruneMessages()
   }
 }
@@ -572,11 +853,23 @@ export function approvalButtons(requestId: string, peer: Peer): Button[][] {
     [{ text: '✖ Відхилити', data: `tgap:decline:${requestId}` }, { text: '⛔ Заблокувати', data: `tgap:block:${requestId}` }],
   ]
   if (peer.trust === 'unknown') rows.push([{ text: '🤝 Знаю цього бота', data: `tgap:know:${requestId}` }])
+  if (peer.protocol !== 'plain' && vault.listSecrets().length > 0) rows.push([{ text: '🔑 Передати секрет', data: `tgap:offer:${requestId}` }])
   return rows
 }
 
+export function renderSecretCard(peer: Peer, share: ShareRow, claimedOwner: string | null): string {
+  return [
+    `🔑 <b>${escapeHtml(peerLabel(peer))} передає секрет «${escapeHtml(share.name)}»</b>`,
+    claimedOwner ? `Каже, що представляє: <i>${escapeHtml(claimedOwner)}</i> (не перевірено)` : '',
+    `Поля: ${fieldList(JSON.parse(share.fields))}`,
+    share.note ? `Примітка: <i>${escapeHtml(share.note)}</i>` : '',
+    share.secret_expires_at ? `Діє до ${dateWords(share.secret_expires_at)}` : 'Безстроково',
+    '<i>Зашифровано під ключ цього бота. Якщо приймеш, значення ляже у сховище, і агент підставлятиме його в інструменти, не бачачи. Якщо не чекав цього, відхили.</i>',
+  ].filter(Boolean).join('\n')
+}
+
 export function parseCallbackData(data: string): { action: OwnerAction; requestId: string } | null {
-  const m = /^tgap:(send|edit|decline|block|know):([0-9A-Z]{10,40})$/.exec(data)
+  const m = /^tgap:(send|edit|decline|block|know|offer|saccept|sdecline):([0-9A-Z]{10,40})$/.exec(data)
   return m ? { action: m[1] as OwnerAction, requestId: m[2] } : null
 }
 

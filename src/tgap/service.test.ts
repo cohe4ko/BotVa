@@ -14,6 +14,7 @@ import { getDb } from '../db.js'
 import { TgapService, buildDraftPrompt, parseCallbackData, approvalWords, clip, type TgapDeps, type Button } from './service.js'
 import { envelope, renderMessage, parseMessage, type Envelope, type Card } from './envelope.js'
 import * as store from './store.js'
+import * as vault from '../secrets.js'
 
 const ALICE_BOT = 1001  // the peer: another owner's bot
 const MALLORY_BOT = 1002
@@ -34,6 +35,7 @@ function harness(opts: { draft?: string | Error } = {}) {
   const prompts: number[] = []
   const events: string[] = []
   const drafts: string[] = []
+  const deleted: Array<{ chat: number | string; id: number }> = []
 
   const resolve = (to: number | string) => (typeof to === 'string' ? (to === '@alice_bot' ? ALICE_BOT : 9999) : to)
 
@@ -49,6 +51,7 @@ function harness(opts: { draft?: string | Error } = {}) {
         return { chatId: resolve(to), messageId: msgSeq++ }
       },
       async downloadDocument() { return '{}' },
+      async deleteMessage(chat, id) { deleted.push({ chat, id }) },
     },
     owner: {
       async post(c, html, buttons) { const id = msgSeq++; posts.push({ html, buttons, id, chat: c }); return id },
@@ -75,7 +78,7 @@ function harness(opts: { draft?: string | Error } = {}) {
     await svc.handleIncoming({ fromId: from, username, messageId: msgSeq++, text: r.text, entities: r.entities })
   }
 
-  return { svc, deps, sent, posts, edits, prompts, events, drafts, deliver, advance: (ms: number) => { t += ms } }
+  return { svc, deps, sent, posts, edits, prompts, events, drafts, deleted, deliver, advance: (ms: number) => { t += ms } }
 }
 
 const request = (over: Partial<Envelope> & { body?: Record<string, any> } = {}) => envelope('request', {
@@ -85,8 +88,9 @@ const request = (over: Partial<Envelope> & { body?: Record<string, any> } = {}) 
 
 beforeEach(() => {
   const d = getDb()
-  d.exec('DROP TABLE IF EXISTS tgap_peers; DROP TABLE IF EXISTS tgap_messages; DROP TABLE IF EXISTS tgap_requests; DROP TABLE IF EXISTS tgap_convs;')
+  d.exec('DROP TABLE IF EXISTS tgap_peers; DROP TABLE IF EXISTS tgap_messages; DROP TABLE IF EXISTS tgap_requests; DROP TABLE IF EXISTS tgap_convs; DROP TABLE IF EXISTS tgap_secret_shares; DROP TABLE IF EXISTS secrets;')
   store._resetForTests()
+  vault._resetSecretsForTests()
 })
 
 describe('incoming request → owner approval → answer', () => {
@@ -394,5 +398,131 @@ describe('owner notice after sending', () => {
     const html = h.edits.at(-1)!.html
     expect(html).toContain('<blockquote expandable>')
     expect(html).toContain(long)
+  })
+})
+
+describe('secrets (§4.8)', () => {
+  /** Alice's bot, introduced with a card that carries `key` (null: an older bot without one). */
+  async function meetAlice(h: ReturnType<typeof harness>, key: string | null) {
+    await h.deliver(envelope('hello', { card: { ...card, name: "Alice's assistant", ...(key ? { secrets: { x25519: key } } : {}) } }))
+    h.sent.length = 0
+  }
+  const sealedTo = (key: string, id: string, name: string, values: Record<string, string>) => vault.seal(key, JSON.stringify(values), `${id}|${name}`)
+
+  it('sends a secret sealed to the peer key, and nothing readable', async () => {
+    const h = harness()
+    // The peer's key is our own here, so the test can open what was sent
+    const key = vault.boxKeys().publicKey
+    await meetAlice(h, key)
+    vault.putSecret('bitrix', { login: 'admin', password: 'hunter2-long' })
+
+    expect(await h.svc.shareSecret('bitrix', ALICE_BOT, 7)).toBe('sent')
+    const env = h.sent.at(-1)!.env!
+    expect(env.type).toBe('secret')
+    expect(h.sent.at(-1)!.text).not.toContain('hunter2-long')
+    expect(env.body).toMatchObject({ name: 'bitrix', fields: ['login', 'password'], to_key: key })
+    expect(JSON.parse(vault.unseal(env.body.sealed, `${env.id}|bitrix`))).toEqual({ login: 'admin', password: 'hunter2-long' })
+    expect(store.getShare(env.id)!.state).toBe('sent')
+
+    await h.deliver(envelope('status', { state: 'stored' }, { conv: env.conv, re: env.id }))
+    expect(store.getShare(env.id)!.state).toBe('delivered')
+    expect(h.deleted).toHaveLength(1)
+    expect(h.posts.at(-1)!.html).toContain('прийняв секрет')
+  })
+
+  it('asks for the card first when the key is unknown, then sends', async () => {
+    const h = harness()
+    await h.deliver(request())
+    h.sent.length = 0
+    vault.putSecret('api', { value: 'sk-123456789' })
+
+    expect(await h.svc.shareSecret('api', ALICE_BOT, 0)).toBe('awaiting_key')
+    expect(h.sent.at(-1)!.env!.type).toBe('hello')
+    await h.deliver(envelope('card', { card: { ...card, secrets: { x25519: vault.boxKeys().publicKey } } }, { re: h.sent.at(-1)!.env!.id }))
+    expect(h.sent.at(-1)!.env!.type).toBe('secret')
+  })
+
+  it('tells the owner when the peer cannot take secrets', async () => {
+    const h = harness()
+    await meetAlice(h, null)
+    vault.putSecret('api', { value: 'sk-123456789' })
+    await h.svc.shareSecret('api', ALICE_BOT, 1)
+    await h.deliver(envelope('card', { card }, { re: h.sent.at(-1)!.env!.id }))
+    expect(h.sent.filter(x => x.env?.type === 'secret')).toHaveLength(0)
+    expect(h.posts.at(-1)!.html).toContain('не вміє приймати')
+  })
+
+  it('keeps an incoming secret sealed until the owner accepts it', async () => {
+    const h = harness()
+    await meetAlice(h, null)
+    const env = envelope('secret', {
+      name: 'Bitrix', fields: ['login', 'password'], note: 'site admin', to_key: vault.boxKeys().publicKey,
+      expires_at: null, sealed: {} as any,
+    }, { conv: 'CS1' })
+    env.body.sealed = sealedTo(vault.boxKeys().publicKey, env.id, 'Bitrix', { login: 'admin', password: 'hunter2-long' })
+    await h.deliver(env)
+
+    expect(h.sent).toHaveLength(0) // nothing goes back on its own
+    expect(vault.listSecrets()).toHaveLength(0)
+    const cardPost = h.posts.at(-1)!
+    expect(cardPost.html).toContain('передає секрет «bitrix»')
+    expect(cardPost.html).not.toContain('hunter2-long')
+    expect(cardPost.buttons!.flat().map(b => b.data)).toEqual([`tgap:saccept:${env.id}`, `tgap:sdecline:${env.id}`])
+
+    expect(await h.svc.handleOwnerAction('saccept', env.id)).toBe('Збережено')
+    expect(vault.getSecretValues('bitrix')).toEqual({ login: 'admin', password: 'hunter2-long' })
+    expect(vault.getSecretMeta('bitrix')).toMatchObject({ source: '@alice_bot', source_peer: ALICE_BOT, share_id: env.id, note: 'site admin' })
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'status', re: env.id, body: { state: 'stored' } })
+    expect(store.getShare(env.id)!.sealed).toBeNull()
+    expect(h.events.at(-1)).toContain('{{secret:bitrix.')
+    expect(await h.svc.handleOwnerAction('saccept', env.id)).toBe('Уже вирішено')
+
+    // Only the sender can take it back, and then it is gone
+    await h.deliver(envelope('revoke', { name: 'Bitrix' }, { conv: 'CS1', re: env.id }), MALLORY_BOT, 'mallory_bot')
+    expect(vault.getSecretValues('bitrix')).toBeDefined()
+    await h.deliver(envelope('revoke', { name: 'Bitrix' }, { conv: 'CS1', re: env.id }))
+    expect(vault.getSecretValues('bitrix')).toBeUndefined()
+  })
+
+  it('declines and forgets a secret the owner does not want', async () => {
+    const h = harness()
+    await meetAlice(h, null)
+    const env = envelope('secret', { name: 'x', fields: ['value'], sealed: {} as any }, { conv: 'CS2' })
+    env.body.sealed = sealedTo(vault.boxKeys().publicKey, env.id, 'x', { value: 'abcdef' })
+    await h.deliver(env)
+    expect(await h.svc.handleOwnerAction('sdecline', env.id)).toBe('Відхилено')
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'decline', re: env.id })
+    expect(store.getShare(env.id)!.sealed).toBeNull()
+    expect(vault.listSecrets()).toHaveLength(0)
+  })
+
+  it('refuses a secret that was tampered with', async () => {
+    const h = harness()
+    await meetAlice(h, null)
+    const env = envelope('secret', { name: 'x', fields: ['value'], sealed: {} as any }, { conv: 'CS3' })
+    // sealed for a different envelope id: the AAD does not match
+    env.body.sealed = sealedTo(vault.boxKeys().publicKey, 'OTHER', 'x', { value: 'abcdef' })
+    await h.deliver(env)
+    expect(await h.svc.handleOwnerAction('saccept', env.id)).toBe('Не вдалося розшифрувати')
+    expect(vault.listSecrets()).toHaveLength(0)
+  })
+
+  it('revokes a delivered share', async () => {
+    const h = harness()
+    await meetAlice(h, vault.boxKeys().publicKey)
+    vault.putSecret('api', { value: 'sk-123456789' })
+    await h.svc.shareSecret('api', ALICE_BOT, 0)
+    const id = h.sent.at(-1)!.env!.id
+    expect(await h.svc.revokeShare(id)).toBe('Відкликано')
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'revoke', re: id })
+    expect(await h.svc.revokeShare(id)).toBe('Уже неактивний')
+  })
+
+  it('never shares with a blocked or plain-text bot', async () => {
+    const h = harness()
+    await meetAlice(h, vault.boxKeys().publicKey)
+    vault.putSecret('api', { value: 'sk-123456789' })
+    store.setPeerTrust(ALICE_BOT, 'blocked')
+    await expect(h.svc.shareSecret('api', ALICE_BOT, 1)).rejects.toThrow(/blocked/)
   })
 })

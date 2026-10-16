@@ -41,6 +41,8 @@ export function turnCeiling(requested?: number): number {
  * last hour.
  */
 export function judge(env: Envelope, conv: ConvState | undefined, recentRequests: number): Verdict {
+  // Goes to the owner; nothing is sent back until the owner decides (§4.8)
+  if (env.type === 'secret') return { action: 'process' }
   if (!ELICITING.has(env.type)) return { action: 'absorb' }
   if (env.type === 'hello') return { action: 'process' }
 

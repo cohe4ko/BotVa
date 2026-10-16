@@ -103,6 +103,24 @@ function db(): DatabaseSync {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_tgap_requests_state ON tgap_requests(state, expires_at);
+    CREATE TABLE IF NOT EXISTS tgap_secret_shares (
+      id TEXT PRIMARY KEY,
+      direction TEXT NOT NULL,
+      peer_id INTEGER NOT NULL,
+      conv TEXT NOT NULL,
+      name TEXT NOT NULL,
+      fields TEXT NOT NULL,
+      note TEXT,
+      secret_expires_at INTEGER,
+      sealed TEXT,
+      state TEXT NOT NULL,
+      stored_name TEXT,
+      tg_message_id INTEGER,
+      card_message_id INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tgap_secret_shares_peer ON tgap_secret_shares(peer_id, state);
     CREATE TABLE IF NOT EXISTS tgap_convs (
       conv TEXT PRIMARY KEY,
       peer_id INTEGER NOT NULL,
@@ -259,6 +277,69 @@ export function countIncomingSince(peerId: number, sinceS: number): number {
   const r = db().prepare(`SELECT COUNT(*) AS n FROM tgap_requests WHERE direction = 'in' AND peer_id = ? AND created_at >= ?`)
     .get(peerId, sinceS) as unknown as { n: number }
   return Number(r.n)
+}
+
+// --- secret shares ---
+
+/**
+ * out: awaiting_key → sent → delivered | declined | revoked | failed
+ * in:  pending → accepted | declined | revoked | expired
+ */
+export type ShareState = 'awaiting_key' | 'sent' | 'delivered' | 'declined' | 'revoked' | 'failed' | 'pending' | 'accepted' | 'expired'
+
+export interface ShareRow {
+  id: string
+  direction: 'in' | 'out'
+  peer_id: number
+  conv: string
+  name: string
+  fields: string
+  note: string | null
+  secret_expires_at: number | null
+  /** Incoming only, until the owner decides: the still-encrypted secret. */
+  sealed: string | null
+  state: ShareState
+  stored_name: string | null
+  tg_message_id: number | null
+  card_message_id: number | null
+  created_at: number
+  updated_at: number
+}
+
+export function insertShare(r: Pick<ShareRow, 'id' | 'direction' | 'peer_id' | 'conv' | 'name' | 'fields' | 'note' | 'secret_expires_at' | 'sealed' | 'state'>): void {
+  const t = now()
+  db().prepare(`
+    INSERT INTO tgap_secret_shares (id, direction, peer_id, conv, name, fields, note, secret_expires_at, sealed, state, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(r.id, r.direction, r.peer_id, r.conv, r.name, r.fields, r.note, r.secret_expires_at, r.sealed, r.state, t, t)
+}
+
+export function getShare(id: string): ShareRow | undefined {
+  return db().prepare('SELECT * FROM tgap_secret_shares WHERE id = ?').get(id) as unknown as ShareRow | undefined
+}
+
+type SharePatch = Partial<Pick<ShareRow, 'sealed' | 'stored_name' | 'tg_message_id' | 'card_message_id'>>
+
+export function updateShare(id: string, patch: SharePatch): void {
+  const keys = Object.keys(patch) as Array<keyof SharePatch>
+  if (keys.length === 0) return
+  const sets = keys.map(k => `${k} = ?`).join(', ')
+  db().prepare(`UPDATE tgap_secret_shares SET ${sets}, updated_at = ? WHERE id = ?`).run(...keys.map(k => patch[k] ?? null), now(), id)
+}
+
+/** Move a share to `to` only from one of `from`. Leaving a pending state always drops the sealed copy. */
+export function transitionShare(id: string, from: ShareState[], to: ShareState): boolean {
+  const marks = from.map(() => '?').join(', ')
+  const clear = ['accepted', 'declined', 'revoked', 'expired', 'failed'].includes(to) ? ', sealed = NULL' : ''
+  const r = db().prepare(`UPDATE tgap_secret_shares SET state = ?${clear}, updated_at = ? WHERE id = ? AND state IN (${marks})`).run(to, now(), id, ...from)
+  return Number(r.changes) > 0
+}
+
+export function sharesByState(direction: 'in' | 'out', states: ShareState[], peerId?: number): ShareRow[] {
+  const marks = states.map(() => '?').join(', ')
+  const byPeer = peerId === undefined ? '' : ' AND peer_id = ?'
+  return db().prepare(`SELECT * FROM tgap_secret_shares WHERE direction = ? AND state IN (${marks})${byPeer} ORDER BY created_at`)
+    .all(direction, ...states, ...(peerId === undefined ? [] : [peerId])) as unknown as ShareRow[]
 }
 
 /** Test hook: forget the cached schema check (a fresh temp db per test file). */

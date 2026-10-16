@@ -33,6 +33,7 @@ import { getModel, getEffort } from './model.js'
 import { chatT, getChatLang, createBotT, type BotT } from './bot-i18n.js'
 import { createBuiltinMcpServer } from './builtin-tools.js'
 import { initTgap, tgapMiddleware } from './tgap/runtime.js'
+import { secretsMiddleware } from './secrets-ui.js'
 import { teamBotIds } from './team-bots.js'
 import { chatForStoppedDraft } from './draft-stop.js'
 import { onBusinessConnection, onBusinessMessage } from './telegram/business.js'
@@ -1319,6 +1320,8 @@ export function createBot(): Bot {
   // below (see tgap/runtime.ts), and approval-card buttons are handled here.
   initTgap(bot)
   bot.use(tgapMiddleware)
+  // Secrets next: a reply carrying a secret value must not reach anything below
+  bot.use(secretsMiddleware)
 
   // Telegram Business (Chat Automation): learn the connection and which chats
   // it covers; the autoreply then answers those chats through it. Business
@@ -2750,6 +2753,7 @@ export function createBot(): Bot {
     { command: 'settings', description: t('menu.settings') },
     { command: 'session', description: t('menu.session') },
     { command: 'tasks', description: t('menu.tasks') },
+    { command: 'secret', description: t('menu.secret') },
     { command: 'admin', description: t('menu.admin') },
     { command: 'restart', description: t('menu.restart') },
     { command: 'update', description: t('menu.update') },

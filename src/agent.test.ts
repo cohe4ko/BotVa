@@ -9,6 +9,7 @@ const testDir = vi.hoisted(() => {
   return mkdtempSync(join(tmpdir(), 'botva-agent-test-'))
 })
 
+vi.mock('./secret-hooks.js', () => ({ secretInputHook: () => async () => ({}), secretOutputHook: () => async () => ({}) }))
 vi.mock('./config.js', () => ({
   BOT_DIR: testDir,
   BOT_NAME: 'test-bot',
@@ -531,9 +532,15 @@ describe('tool guard', () => {
     expect(await hook({ tool_name: 'Bash', tool_input: { command: 'curl https://api.telegram.org/bot$T/sendMessage' } })).toMatchObject({ decision: 'block' })
   })
 
-  it('plan mode keeps the guard and adds its own gate after it', async () => {
+  it('plan mode keeps the guard and adds its own gate after it; secrets go in last', async () => {
     mockQuery.mockReturnValue(eventStream([{ type: 'result', subtype: 'success', result: 'ok', modelUsage: {} }]))
     await runAgent('hi', undefined, undefined, 'guard2', undefined, undefined, undefined, 'plan')
-    expect(mockQuery.mock.calls.at(-1)![0].options.hooks.PreToolUse).toHaveLength(2)
+    expect(mockQuery.mock.calls.at(-1)![0].options.hooks.PreToolUse).toHaveLength(3)
+  })
+
+  it('every run takes secret values back out of tool results', async () => {
+    mockQuery.mockReturnValue(eventStream([{ type: 'result', subtype: 'success', result: 'ok', modelUsage: {} }]))
+    await runAgent('hi', undefined, undefined, 'guard3')
+    expect(mockQuery.mock.calls.at(-1)![0].options.hooks.PostToolUse).toHaveLength(1)
   })
 })

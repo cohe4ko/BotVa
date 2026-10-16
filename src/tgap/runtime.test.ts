@@ -8,6 +8,7 @@ vi.mock('../logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: 
 vi.mock('../agent.js', () => ({ runAgent: vi.fn() }))
 vi.mock('../model.js', () => ({ getModel: () => 'm' }))
 vi.mock('../memory.js', () => ({ appendEventToDailyLog: vi.fn() }))
+vi.mock('../secrets.js', () => ({ boxKeys: () => ({ publicKey: 'PUBKEY' }) }))
 
 import { tgapMiddleware, draftServers, buildCard } from './runtime.js'
 
@@ -34,5 +35,6 @@ describe('helpers', () => {
   it('publishes nothing about the owner by default', () => {
     expect(buildCard().owner.display_name).toBe('the owner')
     expect(buildCard().approval).toBe('owner_always')
+    expect(buildCard().secrets).toEqual({ x25519: 'PUBKEY' })
   })
 })

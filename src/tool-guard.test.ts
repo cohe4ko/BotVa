@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { directBotApiViolation, toolGuardHook, DIRECT_BOT_API_REASON } from './tool-guard.js'
+import { directBotApiViolation, toolGuardHook, DIRECT_BOT_API_REASON, VAULT_KEY_REASON } from './tool-guard.js'
 
 const ROOT = '/srv/botva'
 const bash = (command: string) => directBotApiViolation('Bash', { command }, ROOT)
@@ -51,5 +51,18 @@ describe('toolGuardHook', () => {
     const hook = toolGuardHook(ROOT)
     expect(await hook({ tool_name: 'Bash', tool_input: { command: 'curl https://api.telegram.org/bot$T/getMe' } })).toEqual({ decision: 'block', reason: DIRECT_BOT_API_REASON })
     expect(await hook({ tool_name: 'Bash', tool_input: { command: 'ls' } })).toEqual({})
+  })
+})
+
+describe('directBotApiViolation — vault key', () => {
+  it('blocks reading or copying the master key', () => {
+    expect(bash('cat bots/cap/store/vault.key')).toBe(VAULT_KEY_REASON)
+    expect(bash('cp store/vault.key /tmp/k')).toBe(VAULT_KEY_REASON)
+    expect(directBotApiViolation('Read', { file_path: '/srv/botva/bots/cap/store/vault.key' }, ROOT)).toBe(VAULT_KEY_REASON)
+    expect(directBotApiViolation('Grep', { pattern: '.', path: '/srv/botva/bots/cap/store/vault.key' }, ROOT)).toBe(VAULT_KEY_REASON)
+  })
+
+  it('lets a developer bot edit the platform code that names the file', () => {
+    expect(directBotApiViolation('Edit', { file_path: '/srv/botva/src/secrets.ts', new_string: "const F = 'vault.key'" }, ROOT)).toBeNull()
   })
 })

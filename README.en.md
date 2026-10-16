@@ -167,6 +167,10 @@ The bot can directly ask another user's bot (`AskExternalBot`): "ask @petro_bot 
 
 Enable `TGAP_ENABLED=1` in the bot's `.env` file; both bots require Bot-to-Bot Communication Mode in @BotFather. `TGAP_OWNER_NAME` is the name in the bot's "business card" (empty means anonymous), `TGAP_ACCEPT_FROM=known_only` rejects requests from unknown bots, and `TGAP_DRAFT_TOOLS` are additional read-only MCP tools for the draft (`mcp__<server>__<tool>`, comma-separated).
 
+### Secrets
+
+Logins, passwords and API keys live in the bot's encrypted vault. The owner adds them with `/secret add <name>`, and the bot deletes the message with the value at once. The agent sees only names (ListSecrets) and writes `{{secret:name.field}}` in a tool call: the value is filled in just before the tool runs and cut out of the result, so it reaches neither the model's context nor the session history. Secrets are never filled into messages, emails, memory or requests to other bots. A secret can be passed to another person's BotVa bot over TGAP: the "🔑 Share a secret" button on a request card, `/secret share`, or ShareSecret. It travels sealed to the recipient's X25519 key, and the recipient's owner decides whether to accept it. A share can be revoked.
+
 ### Telegram
 
 Session mode in `/settings`: **Name** (one conversation, the bot names it using NameSession) or **Topics** - each private chat topic is a separate conversation with its own session (topics are enabled for the bot in @BotFather).
@@ -430,6 +434,7 @@ Detailed guide: [MANUAL.md](MANUAL.md)
 | `/undo` | Undo the last step — the next message will continue from the previous point |
 | `/fork` | Branch the conversation: continue in a new branch with the same context, the current one remains in `/session` |
 | `/tasks` | Background tasks for this conversation with a stop button for each |
+| `/secret` | Secret vault: `add`, `del`, `share`, and shared secrets with a Revoke button |
 | `/voice` | Enable/disable voice responses |
 | `/img <description>` | Generate an image |
 | `/model` | Switch the chat model and reasoning effort |
@@ -450,6 +455,7 @@ BotVa/
 │   ├── bot.ts              # Telegram bot
 │   ├── agent.ts            # Claude agent with MCP
 │   ├── builtin-tools.ts    # Built-in tools
+│   ├── secrets.ts          # Secret vault, placeholders, sealing for sharing
 │   ├── memory.ts           # Memory system
 │   ├── db.ts               # SQLite
 │   ├── voice.ts            # STT/TTS

@@ -98,6 +98,8 @@ Unknown fields MUST be ignored. An unknown `type` MUST be answered with `error: 
 | `decline` | responder → requester | **no** | Refusal to answer. |
 | `cancel` | requester → responder | **no** | The requester withdraws a request. |
 | `error` | any | **no** | Protocol-level failure. |
+| `secret` | any | after the receiver's owner decides → `status`/`decline` | A secret sealed to the receiver's key (§4.8, optional). |
+| `revoke` | secret's sender → receiver | **no** | Take a shared secret back (§4.8). |
 
 ### 4.1 `hello` and `card`
 
@@ -238,6 +240,36 @@ The `text` is optional and MUST be owner-approved if it says anything beyond the
 - **`cancel`**: `re` names the request being withdrawn. The responder MUST stop processing it and SHOULD remove any pending approval prompt from its owner's chat.
 - **`error`**: `body` is `{ "code": "...", "text": "..." }`. Codes are `malformed`, `unsupported`, `version`, `too_large`, `rate_limited`, `turn_limit`, `hop_limit`, `unknown_conv` and `internal`. `re` SHOULD name the message that caused it.
 
+### 4.8 Secrets (optional)
+
+A bot MAY pass its owner's secret (a login, a password, an API key) to another bot, **only on its owner's explicit confirmation**, and only to a bot whose card offers a sealing key:
+
+```json
+"secrets": { "x25519": "<raw X25519 public key, base64>" }
+```
+
+A bot without that card field cannot receive secrets. The sender asks for the card with `hello` first if it has none.
+
+```json
+{
+  "tgap": "0.1", "type": "secret", "id": "01J…", "conv": "01J…",
+  "body": {
+    "name": "bitrix",
+    "fields": ["login", "password", "url"],
+    "note": "Site admin",
+    "expires_at": "2026-11-01T00:00:00Z",
+    "to_key": "<receiver key it was sealed to>",
+    "sealed": { "alg": "x25519-hkdf-sha256-aes256gcm", "epk": "…", "iv": "…", "ct": "…", "tag": "…" }
+  }
+}
+```
+
+- `sealed` is ECIES. The sender makes a one-time X25519 key pair (`epk`, raw, base64) and computes the shared secret with the receiver's key. It derives a 32-byte key with HKDF-SHA256 (salt = `epk ‖ to_key` as base64 strings, info = `tgap-secret-v1`) and encrypts the JSON object of `fields` with AES-256-GCM, with AAD = `<envelope id>|<name>`. Telegram, logs and anyone else on the way see only ciphertext, and the AAD stops a sealed blob from being replayed in another envelope.
+- The receiver MUST NOT answer on its own. It keeps the blob sealed and shows its owner who sends what (names of fields, never values). Only the owner's decision produces a reply: `status` with `state: "stored"`, or `decline`. A secret not decided on within 7 days is discarded.
+- On acceptance the receiver stores the secret in its vault and MUST NOT put the value into the model's context, the conversation history or any message. On `stored`, the sender deletes its Telegram message with the blob.
+- `revoke` (`re` = the secret's id) asks the receiver to delete it. Only the bot that sent the secret may revoke it. The receiver deletes the secret and tells its owner. Revoking cannot undo what was already used, so a revoked password should be changed.
+- A receiver keeps at most 3 undecided secrets per peer and silently drops the rest; `revoke` is never answered.
+
 ## 5. Owner approval
 
 ### 5.1 Responder behaviour (normative)
@@ -297,7 +329,7 @@ Telegram requires these safeguards, and TGAP makes them part of the protocol. An
 
 ### 7.1 Non-eliciting messages
 
-`card`, `status`, `response`, `decline`, `cancel` and `error` MUST NOT trigger any automatic outgoing message to the peer. In particular, **an error is never answered**. The only messages that elicit a reply are `hello` and `request`.
+`card`, `status`, `response`, `decline`, `cancel` and `error` MUST NOT trigger any automatic outgoing message to the peer. In particular, **an error is never answered**. The only messages that elicit a reply are `hello` and `request`. A `secret` (§4.8) is answered only by its receiver's owner, never automatically.
 
 ### 7.2 Turn limit
 

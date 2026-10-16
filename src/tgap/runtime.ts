@@ -19,6 +19,7 @@ import { appendEventToDailyLog } from '../memory.js'
 import { TgapService, buildDraftPrompt, parseCallbackData, type TgapTransport, type OwnerChannel } from './service.js'
 import type { Card, Entity } from './envelope.js'
 import { setTgap, getTgap } from './registry.js'
+import { boxKeys } from '../secrets.js'
 
 /** Builtin tools a reply draft may use. None of them acts on the world. */
 export const DRAFT_BUILTIN_TOOLS = ['SearchMemory', 'GetCurrentTime', 'CurrencyRates']
@@ -43,6 +44,8 @@ export function buildCard(): Card {
     approval: 'owner_always',
     accepts_from: TGAP_ACCEPT_FROM,
     max_request_chars: 4000,
+    // Other BotVa bots seal secrets to this key (§4.8)
+    secrets: { x25519: boxKeys().publicKey },
   }
 }
 
@@ -67,6 +70,9 @@ function makeTransport(bot: Bot): TgapTransport {
         caption, caption_entities: entities as any, ...reply(replyTo),
       })
       return { chatId: m.chat.id, messageId: m.message_id }
+    },
+    async deleteMessage(chat, messageId) {
+      await bot.api.deleteMessage(chat, messageId)
     },
     async downloadDocument(fileId) {
       const f = await bot.api.getFile(fileId)
