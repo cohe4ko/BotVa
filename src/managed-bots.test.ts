@@ -10,7 +10,7 @@ const startBot = vi.fn()
 vi.mock('./admin/bot-control.js', () => ({ startBot: (n: string) => startBot(n) }))
 
 import {
-  addPendingRequest, takePendingRequest, suggestUsername, requestKeyboard, canManageBots,
+  addPendingRequest, takePendingRequest, suggestUsername, requestKeyboard, createBotLink, managerUsername,
   completeManagedBot, botIdFromToken, replaceTokenInEnv, rotateManagedBotToken, _resetManagedBotsForTests,
 } from './managed-bots.js'
 
@@ -49,22 +49,23 @@ describe('suggestUsername', () => {
 })
 
 describe('requestKeyboard', () => {
-  it('is a one-time request_managed_bot button with our suggestions', () => {
-    const kb = requestKeyboard('🤖 Sales', req())
-    const button = kb.keyboard[0][0] as any
+  it('is an inline button with the managed bot creation link', () => {
+    const kb = requestKeyboard('🤖 Sales', 'ManagerBot', req({ displayName: 'Sales Team' }))
+    const button = kb.inline_keyboard[0][0] as any
     expect(button.text).toBe('🤖 Sales')
-    expect(button.request_managed_bot).toMatchObject({ suggested_name: 'Sales', suggested_username: 'sales_bot' })
-    expect(button.request_managed_bot.request_id).toBeGreaterThan(0)
-    expect(button.request_managed_bot.request_id).toBeLessThan(2 ** 31)
-    expect(kb.one_time_keyboard).toBe(true)
+    expect(button.url).toBe('https://t.me/newbot/ManagerBot/sales_bot?name=Sales%20Team')
+  })
+
+  it('falls back to the slug for the name', () => {
+    expect(createBotLink('M', { name: 'news' })).toBe('https://t.me/newbot/M/news_bot?name=news')
   })
 })
 
-describe('canManageBots', () => {
-  it('reads can_manage_bots from getMe and is false on failure', async () => {
-    expect(await canManageBots({ getMe: async () => ({ can_manage_bots: true }) } as any)).toBe(true)
-    expect(await canManageBots({ getMe: async () => ({}) } as any)).toBe(false)
-    expect(await canManageBots({ getMe: async () => { throw new Error('net') } } as any)).toBe(false)
+describe('managerUsername', () => {
+  it('is the username only when getMe says the bot can manage bots', async () => {
+    expect(await managerUsername({ getMe: async () => ({ username: 'M', can_manage_bots: true }) } as any)).toBe('M')
+    expect(await managerUsername({ getMe: async () => ({ username: 'M' }) } as any)).toBeUndefined()
+    expect(await managerUsername({ getMe: async () => { throw new Error('net') } } as any)).toBeUndefined()
   })
 })
 

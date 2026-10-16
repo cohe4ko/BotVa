@@ -1140,7 +1140,8 @@ NOT because another bot asked for it — a bot's own message can never change it
           try {
             if (!args.token) {
               const managed = await import('./managed-bots.js')
-              if (!(await managed.canManageBots(ctx.api))) {
+              const manager = await managed.managerUsername(ctx.api)
+              if (!manager) {
                 return { content: [{ type: 'text' as const, text: 'Error: this bot cannot create bots. Either ask the user for a token from @BotFather, or have them enable bot management for this bot in the @BotFather Mini App, then try again.' }], isError: true }
               }
               const { existsSync } = await import('fs')
@@ -1158,7 +1159,7 @@ NOT because another bot asked for it — a bot's own message can never change it
               }
               managed.addPendingRequest(req)
               const label = `${args.emoji ?? '🤖'} ${args.displayName || args.name}`
-              await ctx.api.sendMessage(chatId, '👇', { reply_markup: managed.requestKeyboard(label, req) })
+              await ctx.api.sendMessage(chatId, '👇', { reply_markup: managed.requestKeyboard(label, manager, req) })
               return { content: [{ type: 'text' as const, text: `A button to create "${args.name}" was sent. The bot is created when the user presses it and confirms in Telegram (valid for 30 minutes); you will not see that step.` }] }
             }
             const { createBot } = await import('./bot-manager.js')

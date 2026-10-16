@@ -3,12 +3,15 @@
  * @BotFather.
  *
  * A bot that has bot management enabled (in the @BotFather Mini App, once)
- * sends the owner a reply-keyboard button `request_managed_bot`. Pressing it
- * opens Telegram's own "create a bot" sheet with our suggested name and
- * username; the owner confirms, and becomes the new bot's owner. Telegram
- * then tells us about it — a `managed_bot_created` service message and a
- * `managed_bot` update — and the new bot's token is ours to fetch with
+ * sends the owner an inline button with a creation link
+ * (t.me/newbot/<manager>/<username>?name=...). Pressing it opens Telegram's
+ * own "create a bot" sheet with our suggested name and username; the owner
+ * confirms, and becomes the new bot's owner. Telegram then tells us about it
+ * with a `managed_bot` update, and the new bot's token is ours to fetch with
  * getManagedBotToken. From there it is the regular CreateBot path.
+ *
+ * Not the reply-keyboard `request_managed_bot` button: Telegram for iOS opens
+ * a generic share sheet for it instead of the creation sheet (Oct 2026).
  *
  * Creation always needs that one tap: a bot is never made silently.
  */
@@ -16,7 +19,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import type { Api } from 'grammy'
-import type { ReplyKeyboardMarkup } from 'grammy/types'
+import type { InlineKeyboardMarkup } from 'grammy/types'
 import { logger } from './logger.js'
 
 /** What CreateBot was asked for, kept until the owner confirms in Telegram. */
@@ -59,29 +62,27 @@ export function suggestUsername(name: string): string {
   return /bot$/i.test(base) ? base : `${base}_bot`
 }
 
-/** The one-time button that opens Telegram's bot creation sheet. */
-export function requestKeyboard(label: string, req: Pick<ManagedBotRequest, 'name' | 'displayName'>): ReplyKeyboardMarkup {
-  return {
-    keyboard: [[{
-      text: label,
-      request_managed_bot: {
-        request_id: Math.floor(Math.random() * 2_000_000_000) + 1,
-        suggested_name: (req.displayName || req.name).slice(0, 64),
-        suggested_username: suggestUsername(req.name),
-      },
-    }]],
-    one_time_keyboard: true,
-    resize_keyboard: true,
-  }
+/** The managed bot creation link (core.telegram.org/api/links). */
+export function createBotLink(managerUsername: string, req: Pick<ManagedBotRequest, 'name' | 'displayName'>): string {
+  const name = (req.displayName || req.name).slice(0, 64)
+  return `https://t.me/newbot/${managerUsername}/${suggestUsername(req.name)}?name=${encodeURIComponent(name)}`
 }
 
-/** Whether this bot may create bots (switched on in the @BotFather Mini App). */
-export async function canManageBots(api: Api): Promise<boolean> {
+/** The button that opens Telegram's bot creation sheet. */
+export function requestKeyboard(label: string, managerUsername: string, req: Pick<ManagedBotRequest, 'name' | 'displayName'>): InlineKeyboardMarkup {
+  return { inline_keyboard: [[{ text: label, url: createBotLink(managerUsername, req) }]] }
+}
+
+/**
+ * This bot's username if it may create bots (switched on in the @BotFather
+ * Mini App), otherwise undefined.
+ */
+export async function managerUsername(api: Api): Promise<string | undefined> {
   try {
-    const me = await api.getMe() as { can_manage_bots?: boolean }
-    return !!me.can_manage_bots
+    const me = await api.getMe() as { username?: string; can_manage_bots?: boolean }
+    return me.can_manage_bots && me.username ? me.username : undefined
   } catch {
-    return false
+    return undefined
   }
 }
 
