@@ -44,8 +44,9 @@
 
 **ЗАБОРОНЕНО:** агент НЕ має права пушити в `origin` (публічний repo). Ніколи не виконувати `git push origin`. Публікація в origin -- виключно ручна дія користувача.
 
-- `git push` -- йде в private (безпечно, агент може виконувати)
-- `git push origin ...` -- **ЗАБОРОНЕНО для агента**
+- `git push` -- йде в private (безпечно, агент може виконувати): локально задано `branch.main.pushRemote=private`; upstream гілки `main` -- `origin`, тож без цього налаштування звичайний push пішов би в публічний репозиторій
+- `git push origin ...` -- **ЗАБОРОНЕНО для агента**. Хук `.git/hooks/pre-push` відхиляє пуш у публічний репозиторій; власник публікує так: `ALLOW_PUBLIC_PUSH=1 git push origin main --tags`
+- Те саме правило для ботів з `GIT_ACCESS_ENABLED` -- у `roles/_soul.md`
 
 ### Перед push
 

@@ -54,6 +54,8 @@ export const EMBEDDING_SOCK_PATH = env['EMBEDDING_SOCK_PATH'] ?? resolve(PROJECT
 
 // Memory system
 export const NIGHT_OWL_HOUR = parseInt(env['NIGHT_OWL_HOUR'] ?? '4', 10)
+// How the owner's lines are signed in the daily log
+export const OWNER_NAME = (env['OWNER_NAME'] ?? '').trim() || 'Користувач'
 export const USER_PREVIEW_LEN = parseInt(env['USER_PREVIEW_LEN'] ?? '200', 10)
 export const ASSISTANT_PREVIEW_LEN = parseInt(env['ASSISTANT_PREVIEW_LEN'] ?? '300', 10)
 export const MIN_MSG_LEN_TO_SAVE = parseInt(env['MIN_MSG_LEN_TO_SAVE'] ?? '20', 10)

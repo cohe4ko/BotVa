@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { BOT_DIR, BOT_NAME, NIGHT_OWL_HOUR, USER_PREVIEW_LEN, ASSISTANT_PREVIEW_LEN, MIN_MSG_LEN_TO_SAVE, MIN_ASSISTANT_LEN_TO_SAVE, MAX_ASSISTANT_MEMORY_LEN } from './config.js'
+import { BOT_DIR, BOT_NAME, OWNER_NAME, NIGHT_OWL_HOUR, USER_PREVIEW_LEN, ASSISTANT_PREVIEW_LEN, MIN_MSG_LEN_TO_SAVE, MIN_ASSISTANT_LEN_TO_SAVE, MAX_ASSISTANT_MEMORY_LEN } from './config.js'
 import { logger } from './logger.js'
 
 const MEMORIES_DIR = join(BOT_DIR, 'knowledge', 'memories')
@@ -69,7 +69,7 @@ export function appendToDailyLog(userMsg: string, assistantMsg: string): void {
   const userPreview = userMsg.slice(0, USER_PREVIEW_LEN).replace(/\n/g, ' ')
   const assistantPreview = assistantMsg.slice(0, ASSISTANT_PREVIEW_LEN).replace(/\n/g, ' ')
 
-  const block = `\n## ${hh}:${mm}\n**Іван:** ${userPreview}\n**${BOT_NAME}:** ${assistantPreview}\n`
+  const block = `\n## ${hh}:${mm}\n**${OWNER_NAME}:** ${userPreview}\n**${BOT_NAME}:** ${assistantPreview}\n`
 
   try {
     appendFileSync(path, block, 'utf-8')

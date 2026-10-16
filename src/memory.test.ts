@@ -5,6 +5,7 @@ vi.mock('./config.js', () => ({
   NIGHT_OWL_HOUR: 4,
   BOT_DIR: '/tmp/test-bot',
   BOT_NAME: 'TestBot',
+  OWNER_NAME: 'Користувач',
   USER_PREVIEW_LEN: 200,
   ASSISTANT_PREVIEW_LEN: 200,
   MIN_MSG_LEN_TO_SAVE: 5,

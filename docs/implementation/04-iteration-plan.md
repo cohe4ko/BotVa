@@ -47,7 +47,7 @@
 - Drafts: **один стабільний `draft_id` на хід**, throttle 500–1000 мс, `can_stop: true`, `keep_on_stop: true`.
 - Апдейт `stopped_message_generation` → мапа `draft_id → chatId` → `interruptRequest`. Частковий текст зберігається новим повідомленням.
 - Перевірити, що `stopped_message_generation` потрапляє в `allowed_updates`.
-- Ручний тест (Іван): Desktop 7.3.1 macOS/Windows + iOS/Android, довга відповідь з таблицями й кодом. Якщо стабільно, `rich_draft` стає увімкненим за замовчуванням.
+- Ручний тест (власник): Desktop 7.3.1 macOS/Windows + iOS/Android, довга відповідь з таблицями й кодом. Якщо стабільно, `rich_draft` стає увімкненим за замовчуванням.
 
 ### ✅ Фаза 4. `outputFormat` (structured outputs)
 Перевести на `outputFormat: { type: 'json_schema', schema }` (замість ручного зрізання fence + `JSON.parse`):
@@ -100,4 +100,4 @@
 - Ризик: `npm install` під час фази 3 перезапускає `postinstall` з патчем GramJS до layer 222 (`scripts/patch-gramjs.mjs`). Після кожного оновлення залежностей обов'язково проганяти `src/telegram/gramjs-layer.test.ts`.
 
 ## Застосування змін
-Кожна фаза — окремий коміт з тестами (`npm test`, `npm run typecheck`). Рестарт ботів через `scripts/deploy.sh restart` — тільки з підтвердження Івана.
+Кожна фаза — окремий коміт з тестами (`npm test`, `npm run typecheck`). Рестарт ботів через `scripts/deploy.sh restart` — тільки з підтвердження власника.
