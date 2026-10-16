@@ -76,6 +76,12 @@ export interface AskParams {
   kind?: 'question' | 'notice'
   expiresInHours?: number
   context?: string
+  /**
+   * Where the answer goes: the chat the question was asked from. A bot can
+   * serve several people (ALLOWED_CHAT_ID); approving incoming requests stays
+   * with the owner, but an answer belongs to whoever asked. Default: the owner.
+   */
+  replyChat?: string
 }
 
 export type OwnerAction = 'send' | 'edit' | 'decline' | 'block' | 'know'
@@ -292,7 +298,7 @@ export class TgapService {
     if (open) {
       store.setPeerProtocol(peer.bot_id, 'plain')
       store.updateRequest(open.id, { state: 'completed', final_text: text, approval: null })
-      await this.deps.owner.post(this.deps.ownerChat,
+      await this.deps.owner.post(open.owner_chat,
         `💬 <b>${escapeHtml(peerLabel(peer))}</b> відповів без протоколу TGAP (${approvalWords(null)}):\n<blockquote>${escapeHtml(text)}</blockquote>`)
       this.deps.logEvent(`Бот ${peerLabel(peer)} (зовнішній, недовірений текст, ${approvalWords(null)}) відповів на запит «${open.text.slice(0, 120)}»: «${text.slice(0, 300)}»`)
       return
@@ -337,7 +343,7 @@ export class TgapService {
       case 'status': {
         const state = env.body?.state
         if (state === 'pending_approval' && store.transition(req.id, ['submitted', 'received'], 'pending_approval')) {
-          await this.deps.owner.post(this.deps.ownerChat, `⏳ ${label} передав питання своєму власнику — відповідь прийде, коли той підтвердить.`)
+          await this.deps.owner.post(req.owner_chat, `⏳ ${label} передав питання своєму власнику — відповідь прийде, коли той підтвердить.`)
         } else if (state === 'received') {
           store.transition(req.id, ['submitted'], 'received')
         }
@@ -347,7 +353,7 @@ export class TgapService {
         const text = String(env.body?.text ?? '')
         if (!store.transition(req.id, ['submitted', 'received', 'pending_approval'], 'completed')) return
         store.updateRequest(req.id, { final_text: text, approval: String(env.body?.approval ?? '') })
-        await this.deps.owner.post(this.deps.ownerChat,
+        await this.deps.owner.post(req.owner_chat,
           `🤝 <b>${label}</b> відповів (${approvalWords(env.body?.approval)}):\n<blockquote>${escapeHtml(text)}</blockquote>\n<i>Питання: ${escapeHtml(req.text.slice(0, 200))}</i>`)
         this.deps.logEvent(`Бот ${peerLabel(peer)} (зовнішній, недовірений текст, ${approvalWords(env.body?.approval)}) відповів на запит «${req.text.slice(0, 120)}»: «${text.slice(0, 300)}»`)
         return
@@ -355,13 +361,13 @@ export class TgapService {
       case 'decline': {
         if (!store.transition(req.id, ['submitted', 'received', 'pending_approval'], 'declined')) return
         const why = env.body?.text ? `: ${escapeHtml(String(env.body.text))}` : ''
-        await this.deps.owner.post(this.deps.ownerChat, `✖ ${label} відмовив (${escapeHtml(String(env.body?.reason ?? ''))})${why}\n<i>Питання: ${escapeHtml(req.text.slice(0, 200))}</i>`)
+        await this.deps.owner.post(req.owner_chat, `✖ ${label} відмовив (${escapeHtml(String(env.body?.reason ?? ''))})${why}\n<i>Питання: ${escapeHtml(req.text.slice(0, 200))}</i>`)
         this.deps.logEvent(`Бот ${peerLabel(peer)} відмовив на запит «${req.text.slice(0, 120)}» (${env.body?.reason})`)
         return
       }
       case 'error': {
         if (!store.transition(req.id, ['submitted', 'received', 'pending_approval'], 'failed')) return
-        await this.deps.owner.post(this.deps.ownerChat, `⚠️ ${label} повернув помилку протоколу: ${escapeHtml(String(env.body?.code ?? ''))} ${escapeHtml(String(env.body?.text ?? ''))}`)
+        await this.deps.owner.post(req.owner_chat, `⚠️ ${label} повернув помилку протоколу: ${escapeHtml(String(env.body?.code ?? ''))} ${escapeHtml(String(env.body?.text ?? ''))}`)
         return
       }
     }
@@ -489,7 +495,7 @@ export class TgapService {
     store.advanceConv(conv, 1)
     store.insertRequest({
       id, direction: 'out', peer_id: sent.chatId, conv, turn: 1, hop: 0, kind, text: p.text.trim(),
-      state: 'submitted', plain: plain ? 1 : 0, owner_chat: this.deps.ownerChat, expires_at: expiresAt,
+      state: 'submitted', plain: plain ? 1 : 0, owner_chat: p.replyChat || this.deps.ownerChat, expires_at: expiresAt,
     })
     this.deps.logEvent(`Надіслано запит боту @${username}: «${p.text.trim().slice(0, 200)}»`)
     return { id, peer: at(username), plain }
@@ -505,7 +511,7 @@ export class TgapService {
       if (!peer) continue
       try {
         if (req.direction === 'out') {
-          await this.deps.owner.post(this.deps.ownerChat, `⌛ ${escapeHtml(peerLabel(peer))} не відповів вчасно на: <i>${escapeHtml(req.text.slice(0, 200))}</i>`)
+          await this.deps.owner.post(req.owner_chat, `⌛ ${escapeHtml(peerLabel(peer))} не відповів вчасно на: <i>${escapeHtml(req.text.slice(0, 200))}</i>`)
           if (!req.plain) await this.sendEnvelope(peer.bot_id, peer.bot_id, envelope('cancel', { reason: 'expired' }, { conv: req.conv, re: req.id }), '⌛ Cancelled: expired')
         } else {
           if (req.card_message_id) await this.deps.owner.edit(this.deps.ownerChat, req.card_message_id, `⌛ Запит від ${escapeHtml(peerLabel(peer))} протерміновано:\n<blockquote>${escapeHtml(req.text)}</blockquote>`)

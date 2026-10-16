@@ -1025,7 +1025,7 @@ NOT for: your own team bots (use ask_colleague / ask_manager), messaging people 
         const svc = getTgap()
         if (!svc) return { content: [{ type: 'text' as const, text: TGAP_OFF_MESSAGE }], isError: true }
         try {
-          const r = await svc.ask({ username: args.username, text: args.text, kind: args.kind, expiresInHours: args.expires_in_hours })
+          const r = await svc.ask({ username: args.username, text: args.text, kind: args.kind, expiresInHours: args.expires_in_hours, replyChat: String(chatId) })
           const how = r.plain ? 'as plain text (that bot does not speak TGAP, so its answer will be unstructured)' : 'via TGAP'
           return { content: [{ type: 'text' as const, text: `Sent to ${r.peer} ${how}. Request id ${r.id}. The answer will be delivered to the owner when it comes — tell the owner it was sent and that the other side's owner has to approve it.` }] }
         } catch (err: any) {

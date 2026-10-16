@@ -29,7 +29,7 @@ function harness(opts: { draft?: string | Error } = {}) {
   let t = Date.parse('2026-10-15T10:00:00Z')
   let msgSeq = 100
   const sent: Sent[] = []
-  const posts: Array<{ html: string; buttons?: Button[][]; id: number }> = []
+  const posts: Array<{ html: string; buttons?: Button[][]; id: number; chat?: string }> = []
   const edits: Array<{ id: number; html: string }> = []
   const prompts: number[] = []
   const events: string[] = []
@@ -51,7 +51,7 @@ function harness(opts: { draft?: string | Error } = {}) {
       async downloadDocument() { return '{}' },
     },
     owner: {
-      async post(_c, html, buttons) { const id = msgSeq++; posts.push({ html, buttons, id }); return id },
+      async post(c, html, buttons) { const id = msgSeq++; posts.push({ html, buttons, id, chat: c }); return id },
       async edit(_c, id, html) { edits.push({ id, html }) },
       async askForText() { const id = msgSeq++; prompts.push(id); return id },
     },
@@ -293,6 +293,29 @@ describe('outgoing request', () => {
     expect(store.getRequest(id)!.state).toBe('completed')
     expect(h.posts[0].html).toContain('без протоколу TGAP')
     expect(store.getPeer(ALICE_BOT)!.protocol).toBe('plain')
+  })
+
+  it('delivers the answer to the chat the question came from, not the owner', async () => {
+    const h = harness()
+    const { id } = await h.svc.ask({ username: '@alice_bot', text: 'Q?', replyChat: '777' })
+    const conv = h.sent[0].env!.conv
+    await h.deliver(envelope('status', { state: 'pending_approval' }, { conv, re: id }))
+    await h.deliver(envelope('response', { text: 'A.', approval: 'owner' }, { conv, re: id }))
+    expect(h.posts.map(p => p.chat)).toEqual(['777', '777'])
+  })
+
+  it('a plain-text answer also goes back to the asking chat', async () => {
+    const h = harness()
+    await h.svc.ask({ username: 'alice_bot', text: 'Q?', replyChat: '777' })
+    await h.svc.handleIncoming({ fromId: ALICE_BOT, username: 'alice_bot', messageId: 6, text: 'ok' })
+    expect(h.posts[0].chat).toBe('777')
+  })
+
+  it('without a reply chat the answer goes to the owner, and approval cards always do', async () => {
+    const h = harness()
+    const { id } = await h.svc.ask({ username: '@alice_bot', text: 'Q?' })
+    await h.deliver(envelope('response', { text: 'A.', approval: 'owner' }, { conv: h.sent[0].env!.conv, re: id }))
+    expect(h.posts[0].chat).toBe('42')
   })
 
   it('rejects names that are not bot usernames', async () => {
