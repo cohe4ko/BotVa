@@ -88,6 +88,19 @@ export type OwnerAction = 'send' | 'edit' | 'decline' | 'block' | 'know'
 
 const DEFAULT_EXPIRY_H = 48
 
+/** Shorten at a word boundary and say so with «…», instead of cutting mid-word. */
+export function clip(s: string, max: number): string {
+  if (s.length <= max) return s
+  const cut = s.slice(0, max)
+  const space = cut.search(/\s\S*$/)
+  return (space > max * 0.7 ? cut.slice(0, space) : cut).trimEnd() + '…'
+}
+
+/** The question an owner-facing notice is about: folded, so a long one does not bury the answer. */
+function questionQuote(label: string, text: string): string {
+  return `<i>${label}:</i>\n<blockquote expandable>${escapeHtml(clip(text, 1500))}</blockquote>`
+}
+
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -354,14 +367,14 @@ export class TgapService {
         if (!store.transition(req.id, ['submitted', 'received', 'pending_approval'], 'completed')) return
         store.updateRequest(req.id, { final_text: text, approval: String(env.body?.approval ?? '') })
         await this.deps.owner.post(req.owner_chat,
-          `🤝 <b>${label}</b> відповів (${approvalWords(env.body?.approval)}):\n<blockquote>${escapeHtml(text)}</blockquote>\n<i>Питання: ${escapeHtml(req.text.slice(0, 200))}</i>`)
+          `🤝 <b>${label}</b> відповів (${approvalWords(env.body?.approval)}):\n<blockquote>${escapeHtml(text)}</blockquote>\n${questionQuote('Питання', req.text)}`)
         this.deps.logEvent(`Бот ${peerLabel(peer)} (зовнішній, недовірений текст, ${approvalWords(env.body?.approval)}) відповів на запит «${req.text.slice(0, 120)}»: «${text.slice(0, 300)}»`)
         return
       }
       case 'decline': {
         if (!store.transition(req.id, ['submitted', 'received', 'pending_approval'], 'declined')) return
         const why = env.body?.text ? `: ${escapeHtml(String(env.body.text))}` : ''
-        await this.deps.owner.post(req.owner_chat, `✖ ${label} відмовив (${escapeHtml(String(env.body?.reason ?? ''))})${why}\n<i>Питання: ${escapeHtml(req.text.slice(0, 200))}</i>`)
+        await this.deps.owner.post(req.owner_chat, `✖ ${label} відмовив (${escapeHtml(String(env.body?.reason ?? ''))})${why}\n${questionQuote('Питання', req.text)}`)
         this.deps.logEvent(`Бот ${peerLabel(peer)} відмовив на запит «${req.text.slice(0, 120)}» (${env.body?.reason})`)
         return
       }
@@ -454,7 +467,7 @@ export class TgapService {
     }
     if (req.card_message_id) {
       await this.deps.owner.edit(this.deps.ownerChat, req.card_message_id,
-        `✅ Надіслано ${escapeHtml(peerLabel(peer))}:\n<blockquote>${escapeHtml(text)}</blockquote>\n<i>На запит: ${escapeHtml(req.text.slice(0, 200))}</i>`)
+        `✅ Надіслано ${escapeHtml(peerLabel(peer))}:\n<blockquote>${escapeHtml(text)}</blockquote>\n${questionQuote('На запит', req.text)}`)
     }
     this.deps.logEvent(`Відповідь боту ${peerLabel(peer)} надіслано (підтверджено власником): «${text.slice(0, 300)}»`)
   }
@@ -511,7 +524,7 @@ export class TgapService {
       if (!peer) continue
       try {
         if (req.direction === 'out') {
-          await this.deps.owner.post(req.owner_chat, `⌛ ${escapeHtml(peerLabel(peer))} не відповів вчасно на: <i>${escapeHtml(req.text.slice(0, 200))}</i>`)
+          await this.deps.owner.post(req.owner_chat, `⌛ ${escapeHtml(peerLabel(peer))} не відповів вчасно на:\n<blockquote expandable>${escapeHtml(clip(req.text, 1500))}</blockquote>`)
           if (!req.plain) await this.sendEnvelope(peer.bot_id, peer.bot_id, envelope('cancel', { reason: 'expired' }, { conv: req.conv, re: req.id }), '⌛ Cancelled: expired')
         } else {
           if (req.card_message_id) await this.deps.owner.edit(this.deps.ownerChat, req.card_message_id, `⌛ Запит від ${escapeHtml(peerLabel(peer))} протерміновано:\n<blockquote>${escapeHtml(req.text)}</blockquote>`)
@@ -539,13 +552,13 @@ export function renderApprovalCard(peer: Peer, req: RequestRow, claimedOwner: st
     `🤝 <b>Запит від ${label}</b> · ${trust}`,
     claimedOwner ? `Каже, що представляє: <i>${escapeHtml(claimedOwner)}</i> (не перевірено)` : '',
     req.plain ? '<i>Бот не підтримує TGAP — відповідь піде звичайним текстом.</i>' : '',
-    `<blockquote>${escapeHtml(req.text.slice(0, 1200))}</blockquote>`,
+    `<blockquote>${escapeHtml(clip(req.text, 1200))}</blockquote>`,
   ]
   const draft = req.draft?.trim()
   if (draft && draft.startsWith('NO-ANSWER:')) {
     lines.push(`<b>Асистент радить не відповідати:</b> ${escapeHtml(draft.slice('NO-ANSWER:'.length).trim())}`)
   } else if (draft) {
-    lines.push('<b>Чернетка — буде надіслано рівно цей текст:</b>', `<blockquote>${escapeHtml(draft.slice(0, 2200))}</blockquote>`)
+    lines.push('<b>Чернетка — буде надіслано рівно цей текст:</b>', `<blockquote>${escapeHtml(clip(draft, 2200))}</blockquote>`)
   } else {
     lines.push('<i>Чернетку підготувати не вдалося — натисни «Змінити» і напиши відповідь сам.</i>')
   }

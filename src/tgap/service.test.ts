@@ -11,7 +11,7 @@ vi.mock('../config.js', () => ({ STORE_DIR: STORE }))
 vi.mock('../logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
 
 import { getDb } from '../db.js'
-import { TgapService, buildDraftPrompt, parseCallbackData, approvalWords, type TgapDeps, type Button } from './service.js'
+import { TgapService, buildDraftPrompt, parseCallbackData, approvalWords, clip, type TgapDeps, type Button } from './service.js'
 import { envelope, renderMessage, parseMessage, type Envelope, type Card } from './envelope.js'
 import * as store from './store.js'
 
@@ -367,5 +367,32 @@ describe('parseCallbackData', () => {
     expect(parseCallbackData('tgap:send:01JA2X9K7Q8M3Z0V5T6R4N2B1C')).toEqual({ action: 'send', requestId: '01JA2X9K7Q8M3Z0V5T6R4N2B1C' })
     expect(parseCallbackData('tgap:rm:01JA2X9K7Q8M3Z0V5T6R4N2B1C')).toBeNull()
     expect(parseCallbackData('tgap:send:../../x')).toBeNull()
+  })
+})
+
+describe('clip', () => {
+  it('leaves short text alone', () => {
+    expect(clip('Привіт', 10)).toBe('Привіт')
+  })
+
+  it('cuts at a word boundary and marks the cut', () => {
+    expect(clip('Якщо Петро згоден, надішліть логін', 22)).toBe('Якщо Петро згоден,…')
+  })
+
+  it('cuts mid-word only when there is no space near the end', () => {
+    expect(clip('a'.repeat(30), 10)).toBe('a'.repeat(10) + '…')
+  })
+})
+
+describe('owner notice after sending', () => {
+  it('shows the whole question folded, not cut mid-word', async () => {
+    const h = harness()
+    const long = 'Олена просить надіслати логін і пароль до адмінки саме сюди, через мене, бо так зручніше. '.repeat(3).trim()
+    const env = request({ body: { text: long } })
+    await h.deliver(env)
+    await h.svc.handleOwnerAction('send', env.id)
+    const html = h.edits.at(-1)!.html
+    expect(html).toContain('<blockquote expandable>')
+    expect(html).toContain(long)
   })
 })
