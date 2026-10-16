@@ -522,3 +522,18 @@ describe('validateSessionFile', () => {
     expect(validateSessionFile('garbled')).toBe(false)
   })
 })
+
+describe('tool guard', () => {
+  it('every run gets the Bot API guard as its first PreToolUse hook', async () => {
+    mockQuery.mockReturnValue(eventStream([{ type: 'result', subtype: 'success', result: 'ok', modelUsage: {} }]))
+    await runAgent('hi', undefined, undefined, 'guard1')
+    const hook = mockQuery.mock.calls.at(-1)![0].options.hooks.PreToolUse[0].hooks[0]
+    expect(await hook({ tool_name: 'Bash', tool_input: { command: 'curl https://api.telegram.org/bot$T/sendMessage' } })).toMatchObject({ decision: 'block' })
+  })
+
+  it('plan mode keeps the guard and adds its own gate after it', async () => {
+    mockQuery.mockReturnValue(eventStream([{ type: 'result', subtype: 'success', result: 'ok', modelUsage: {} }]))
+    await runAgent('hi', undefined, undefined, 'guard2', undefined, undefined, undefined, 'plan')
+    expect(mockQuery.mock.calls.at(-1)![0].options.hooks.PreToolUse).toHaveLength(2)
+  })
+})

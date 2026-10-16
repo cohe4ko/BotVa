@@ -12,6 +12,7 @@ import { LiveInput } from './live-input.js'
 import { AgentWatchdog } from './agent-watchdog.js'
 import { getClaudeProjectDir } from './disk-sessions.js'
 import { buildRestrictedOptions, type RunRestrictions } from './run-restrictions.js'
+import { toolGuardHook } from './tool-guard.js'
 import { existsSync, openSync, readSync, closeSync } from 'fs'
 import { join } from 'path'
 
@@ -374,8 +375,14 @@ async function runAgentOnce(
         // Adaptive thinking з summarized-текстом: сире мислення нові моделі редагують
         // (порожні thinking-блоки), а summarized-резюме стрімиться і показується юзеру
         thinking: { type: 'adaptive', display: 'summarized' } as any,
-        ...planHooks,
-        ...debateHooks,
+        // The tool guard runs in every mode; plan/debate add their own gates after it
+        hooks: {
+          PreToolUse: [
+            { hooks: [toolGuardHook(PROJECT_ROOT)] },
+            ...((planHooks as any).hooks?.PreToolUse ?? []),
+            ...((debateHooks as any).hooks?.PreToolUse ?? []),
+          ],
+        },
         ...(askCanUseTool ? { canUseTool: askCanUseTool } : {}),
         ...(baseModel ? { model: baseModel } : {}),
         ...(fallbackModel ? { fallbackModel } : {}),

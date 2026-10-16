@@ -180,6 +180,9 @@ export interface BuiltinToolsResult {
   cleanup?: () => void
 }
 
+/** What a model gets when it tries to reach another owner's bot with TGAP off. */
+export const TGAP_OFF_MESSAGE = 'Not sent: talking to other owners\' bots (TGAP) is turned off for this bot. Do NOT reach that bot any other way — no curl, no Bot API calls, no reading the bot token: those skip the owner\'s approval. Tell the owner it needs TGAP_ENABLED=1 in this bot\'s .env and a restart (and the other bot has to speak TGAP, or its reply arrives as plain text).'
+
 export async function createBuiltinMcpServer(ctx: Context, chatId: number, askUser?: AskUserCallback, toolAllowList?: string[]): Promise<BuiltinToolsResult | null> {
   const env = readEnvFile()
   const usedTools = new Set<string>()
@@ -988,9 +991,11 @@ To REMOVE the bot's reaction from the message, set remove=true (emoji is then ig
   // --- Current time ---
 
   // --- TGAP: talking to other owners' bots (docs/tgap-spec.md) ---
-  // Registered only when TGAP is running in this process, so a bot without it
-  // never sees tools it cannot use.
-  if (getTgap() && isOn('AskExternalBot')) tools.push(
+  // AskExternalBot is offered even with TGAP off: without it, a model asked to
+  // reach someone's bot improvises — reads its own token and calls the Bot API
+  // with curl, with no envelope and no owner approval. With the tool there, the
+  // request lands here and gets a plain "turn TGAP on" instead.
+  if (isOn('AskExternalBot')) tools.push(
     tool(
       'AskExternalBot',
       `Send a question to ANOTHER PERSON'S assistant bot on Telegram, on your owner's behalf. Their bot asks its owner, who approves the answer; it arrives later on its own (minutes or hours) and you will see it in the diary — do NOT wait or poll.
@@ -1005,7 +1010,7 @@ NOT for: your own team bots (use ask_colleague / ask_manager), messaging people 
       async (args) => {
         usedTools.add('AskExternalBot')
         const svc = getTgap()
-        if (!svc) return { content: [{ type: 'text' as const, text: 'TGAP is not enabled for this bot.' }], isError: true }
+        if (!svc) return { content: [{ type: 'text' as const, text: TGAP_OFF_MESSAGE }], isError: true }
         try {
           const r = await svc.ask({ username: args.username, text: args.text, kind: args.kind, expiresInHours: args.expires_in_hours })
           const how = r.plain ? 'as plain text (that bot does not speak TGAP, so its answer will be unstructured)' : 'via TGAP'

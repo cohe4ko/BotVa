@@ -922,8 +922,9 @@ async function handleMessage(
           // final answers, so markdown (bold, tables, headings) isn't shown raw.
           const sentRich = await trySendRich(ctx, pendingText)
           if (!sentRich) {
+            // Same markdown → HTML path as a regular answer, not raw text
             try {
-              await ctx.api.sendMessage(chatId, pendingText)
+              await sendChunked(ctx, pendingText)
             } catch { /* non-critical, continue with the question */ }
           }
         }
