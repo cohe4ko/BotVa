@@ -5,6 +5,69 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-10-16
+
+### Added
+- **Follow-ups without interrupting the run (streaming input).** A message sent while the bot works is queued into the running query and reaches the model at the next step boundary; the running command or subagent is no longer killed and finished work is never redone. A live run can answer several turns, each delivered on its own.
+- **Background tasks.** Bash commands and subagents can keep running after the turn ends; when one finishes, the model reports on it in a turn of its own. "⏩ To background" button on the progress message (Ctrl+B equivalent, `Query.backgroundTasks`), `/tasks` with a stop button per task, `BACKGROUND_TASK_MAX_MS` (default 30 min) caps how long a run waits for them.
+- **Bots without @BotFather (managed bots).** `CreateBot` without a token sends a `t.me/newbot/...` button that opens Telegram's own bot creation sheet; on confirmation the manager bot fetches the token, creates the bot and restricts access to the owner. `RotateBotToken` revokes and replaces a managed bot's token.
+- **Admin panel from anywhere.** "🌐 Access from outside" under `/admin` opens a temporary https tunnel (Cloudflare Quick Tunnel when `cloudflared` is installed, otherwise localhost.run over the system `ssh`) — works behind NAT, firewalls, CGNAT and changing IPs, no setup. Opened only on request, closed with the panel.
+- **TGAP v0.1** (`docs/tgap-spec.md`): protocol for bots of different owners. `AskExternalBot` / `ManageExternalBots`; every incoming request goes to the owner for approval, the reply draft is made by a read-only run. Off by default (`TGAP_ENABLED`, `TGAP_OWNER_NAME`, `TGAP_ACCEPT_FROM`, `TGAP_DRAFT_TOOLS`).
+- **Telegram Observer**: MTProto daemon over the owner's account (GramJS, layer 222 via a postinstall patch) — chat reading, unread and live read state, archive search, sending on the owner's behalf, a people directory with contacts and notes, Tier 1 fact extraction, admin section. Survives network drops (endless reconnect, watchdog, launchd).
+- **Autoreplies** in private chats and groups from the observer's log, with adaptive polling and silence alerts; per-account data isolation.
+- **Telegram Business (Chat Automation)** as the transport for autoreplies: chats the owner connected are answered through `business_connection_id`, within Telegram's 24 h window; everything else keeps the MTProto route. Shared send limits and allowlist for both routes.
+- **Stop button on the streaming draft** (Bot API 10.3 `can_stop`), one stable `draft_id` per turn.
+- **`/fork`** — branch a conversation via `forkSession`; the current one stays in `/session`.
+- **Session mode in `/settings`**: one named conversation per chat, or a separate session per forum topic.
+- **Gemini TTS** as the default voice provider: emotional tone markup, `voice` parameter for `TextToSpeech`, voice previews in the Audio admin tab, separate `TTS_GEMINI_API_KEY`.
+- **Reasoning language switch** in `/settings`.
+- **Telegram albums** (media groups) are passed to the model as one prompt.
+- **`publish.sh`** publishes a folder or an archive as a page with assets, with a stable URL hash.
+- **`OWNER_NAME`** — how the owner's lines are signed in the daily log.
+
+### Changed
+- **Claude Agent SDK 0.3.300**, **grammY 1.46**.
+- **Structured outputs** (`outputFormat`) replace hand-parsed JSON in five background calls (listener analysis, conversation analysis, bot facts, diagnostics).
+- **Scheduler tasks** no longer get Telegram tools that write to other people.
+- Builtin tools finish before a soft interrupt instead of failing with "Stream closed by consumer".
+
+### Security
+- **RunPython isolation**: clean environment without keys, no network, writes only inside its sandbox (macOS `sandbox-exec`, Linux `bwrap`), user uploads read-only, resource limits.
+- **Read-only run profile** (`src/run-restrictions.ts`) for text the owner did not write — guest mode and other bots' requests run on an allowlist of tools; Bash, Write, Edit and subagents are never allowed there.
+- Background runs (consolidation, scheduler) use their own queue keys and can no longer overwrite or stop the owner's live run.
+- Bots with `GIT_ACCESS_ENABLED` are told never to push to public repositories.
+
+### Fixed
+- Photos, documents and videos with a caption sent while the bot was busy were dropped — only the caption reached the model.
+- With streaming input, a long first line of the session file made every resume look like a corrupted session and start fresh.
+- Flaky MCP servers no longer take the builtin tools bridge down with them.
+- `AskUser` no longer vanishes on long option labels (callback_data over 64 bytes).
+- The owner's name was hard-coded in the daily log.
+
+### Removed
+- **"Protect subagents" setting** — follow-ups no longer interrupt anything, so there is nothing to protect from.
+
+## [1.2.0] — 2026-07-11
+
+### Added
+- **Rich messages** (Bot API 10.1) for answers, with optional draft streaming (per-chat toggle in `/settings`, off by default) and an inline "To Telegraph" button under answers longer than 5000 chars.
+- **Thinking in the progress window**: streamed summarized thinking, per-turn thinking blocks, full process log in chained progress messages.
+- **`/undo`** — rewind the last step through a session anchor.
+- **`SendChecklist`**, media in `AskUser` polls, reaction removal; **guest mode** (Bot API 10.0).
+- **`TranscribeAudio`** tool with ffmpeg chunking for long files; Groq key manager with rotation and an admin UI; STT language switch in `/settings`.
+- **Model fallback** and visible `api_retry` in the progress reporter; Fable model in the catalog.
+- **Opt-in sandbox** for the agent's Bash with SDK credential masking (`SANDBOX_ENABLED`).
+- Interrupt receipts: stop reports how many queued messages will still run.
+
+### Changed
+- Ask mode permissions moved to `canUseTool`, including subagent prompts.
+- grammY 1.44, Claude Agent SDK 0.3.206, Anthropic SDK 0.111.
+
+### Fixed
+- Desktop client crashes on draft streaming; drafts render as HTML instead of raw markdown.
+- Media sent while the agent was busy was not downloaded.
+- `claude` not found in the admin terminal under launchd; deploy memory calculation with coloured output; `npm install` when `package.json` is out of sync.
+
 ## [1.1.1] — 2026-04-09
 
 ### Added
@@ -170,4 +233,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Vitest 4.x з 80+ тестами по 12 модулях
 - Покриття: agent, scheduler, media, email, auto-react, disk-sessions, MCP config
 
+[1.3.0]: https://github.com/cohe4ko/BotVa/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/cohe4ko/BotVa/compare/v1.1.1...v1.2.0
+[1.1.1]: https://github.com/cohe4ko/BotVa/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/cohe4ko/BotVa/compare/v1.0.1...v1.1.0
 [1.0.0]: https://github.com/cohe4ko/BotVa/releases/tag/v1.0.0
