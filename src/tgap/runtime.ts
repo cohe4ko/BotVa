@@ -16,7 +16,7 @@ import { backgroundKey } from '../request-queue.js'
 import { getModel } from '../model.js'
 import { builtinToolId } from '../run-restrictions.js'
 import { appendEventToDailyLog } from '../memory.js'
-import { TgapService, buildDraftPrompt, parseCallbackData, type TgapTransport, type OwnerChannel } from './service.js'
+import { TgapService, buildDraftPrompt, buildNegotiatePrompt, parseCallbackData, type TgapTransport, type OwnerChannel } from './service.js'
 import type { Card, Entity } from './envelope.js'
 import { setTgap, getTgap } from './registry.js'
 import { boxKeys } from '../secrets.js'
@@ -40,7 +40,7 @@ export function buildCard(): Card {
     owner: { display_name: owner },
     software: { name: 'BotVa' },
     tgap: ['0.1'],
-    kinds: ['question', 'notice'],
+    kinds: ['question', 'proposal', 'notice'],
     approval: 'owner_always',
     accepts_from: TGAP_ACCEPT_FROM,
     max_request_chars: 4000,
@@ -137,6 +137,18 @@ export function initTgap(bot: Bot): void {
       if (!text || text.includes('{{agent.crash')) throw new Error('draft run produced no text')
       return text
     },
+    async negotiate(input) {
+      const { createBuiltinMcpServer } = await import('../builtin-tools.js')
+      const builtin = await createBuiltinMcpServer({} as Context, Number(ownerChat), undefined, DRAFT_BUILTIN_TOOLS)
+      const { text } = await runAgent(
+        buildNegotiatePrompt(input), undefined, undefined, backgroundKey('tgap-negotiate', input.request.id), undefined,
+        getModel(ownerChat), builtin?.server, undefined, undefined, draftServers(TGAP_DRAFT_TOOLS),
+        undefined, 'medium', undefined, undefined,
+        { allowTools: [...DRAFT_BUILTIN_TOOLS.map(builtinToolId), ...TGAP_DRAFT_TOOLS] },
+      )
+      if (!text || text.includes('{{agent.crash')) throw new Error('negotiation run produced no text')
+      return text
+    },
   })
 
   setTgap(service)
@@ -195,7 +207,7 @@ export async function tgapMiddleware(ctx: Context, next: NextFunction): Promise<
     const parsed = parseCallbackData(data)
     let toast = ''
     try {
-      toast = parsed ? await service.handleOwnerAction(parsed.action, parsed.requestId) : ''
+      toast = parsed ? await service.handleOwnerAction(parsed.action, parsed.requestId, parsed.variant) : ''
     } catch (err) {
       logger.error({ err, data }, '[tgap] owner action failed')
       toast = 'Не вдалося — подробиці в лозі'

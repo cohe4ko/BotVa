@@ -1016,12 +1016,15 @@ To REMOVE the bot's reaction from the message, set remove=true (emoji is then ig
     tool(
       'AskExternalBot',
       `Send a question to ANOTHER PERSON'S assistant bot on Telegram, on your owner's behalf. Their bot asks its owner, who approves the answer; it arrives later on its own (minutes or hours) and you will see it in the diary — do NOT wait or poll.
-Use when the owner says: "спитай у @petro_bot…", "дізнайся в бота Петра…", "домовся з ботом…", "передай @x_bot що…" (kind=notice for FYI).
-NOT for: your own team bots (use ask_colleague / ask_manager), messaging people directly, or bots the owner did not name. Never send secrets or private data the owner did not ask you to share; the question text goes to someone else.`,
+Use when the owner says: "спитай у @petro_bot…", "дізнайся в бота Петра…", "передай @x_bot що…" (kind=notice for FYI).
+Negotiating ("домовся з ботом Петра про зустріч у вівторок", "запропонуй @x_bot…"): kind=proposal with the concrete offer in text (and optionally proposal={type, start, duration_min,…}). The other side accepts, rejects or counters. If the owner gave limits ("можна будь-який день після 14:00", "до 500 грн"), pass them as mandate, in the owner's own words: you then accept or counter within them yourself and bring anything outside back to the owner. The owner confirms the mandate with a button before anything is sent; the mandate is never shown to the other side. No limits from the owner → no mandate: every counter goes to the owner.
+NOT for: your own team bots (use ask_colleague / ask_manager), messaging people directly, or bots the owner did not name. Never send secrets or private data the owner did not ask you to share; the question text goes to someone else. Never invent a mandate the owner did not give.`,
       {
         username: z.string().describe('Telegram username of the other bot, e.g. "@petro_bot"'),
         text: z.string().describe('The question or message, self-contained and polite, in the language the other side most likely speaks'),
-        kind: z.enum(['question', 'notice']).optional().describe('"question" (default) wants an answer; "notice" is FYI only'),
+        kind: z.enum(['question', 'notice', 'proposal']).optional().describe('"question" (default) wants an answer; "notice" is FYI only; "proposal" wants a decision (accept / reject / counter)'),
+        proposal: z.record(z.string(), z.unknown()).optional().describe('Structured details of a proposal, e.g. {"type":"meeting","start":"2026-10-21T15:00:00+03:00","duration_min":60}'),
+        mandate: z.string().optional().describe("Only for kind=proposal, only if the owner stated limits: what you may agree to without asking again, in the owner's words. Kept private"),
         expires_in_hours: z.number().optional().describe('How long the answer is still useful (default 48)'),
       },
       async (args) => {
@@ -1029,7 +1032,8 @@ NOT for: your own team bots (use ask_colleague / ask_manager), messaging people 
         const svc = getTgap()
         if (!svc) return { content: [{ type: 'text' as const, text: TGAP_OFF_MESSAGE }], isError: true }
         try {
-          const r = await svc.ask({ username: args.username, text: args.text, kind: args.kind, expiresInHours: args.expires_in_hours, replyChat: String(chatId) })
+          const r = await svc.ask({ username: args.username, text: args.text, kind: args.kind, proposal: args.proposal, mandate: args.mandate, expiresInHours: args.expires_in_hours, replyChat: String(chatId) })
+          if (r.awaitingOwner) return { content: [{ type: 'text' as const, text: `Nothing sent yet: the owner now has a card with the proposal and your mandate, and confirms it with a button. Tell the owner to check it. After that you negotiate within the mandate; results come to the owner's chat.` }] }
           const how = r.plain ? 'as plain text (that bot does not speak TGAP, so its answer will be unstructured)' : 'via TGAP'
           return { content: [{ type: 'text' as const, text: `Sent to ${r.peer} ${how}. Request id ${r.id}. The answer will be delivered to the owner when it comes — tell the owner it was sent and that the other side's owner has to approve it.` }] }
         } catch (err: any) {

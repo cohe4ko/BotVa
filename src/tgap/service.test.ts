@@ -20,13 +20,13 @@ const ALICE_BOT = 1001  // the peer: another owner's bot
 const MALLORY_BOT = 1002
 
 const card: Card = {
-  name: "Bob's assistant", owner: { display_name: 'Bob' }, tgap: ['0.1'], kinds: ['question', 'notice'],
+  name: "Bob's assistant", owner: { display_name: 'Bob' }, tgap: ['0.1'], kinds: ['question', 'proposal', 'notice'],
   approval: 'owner_always', accepts_from: 'anyone',
 }
 
 interface Sent { to: number | string; text: string; env?: Envelope }
 
-function harness(opts: { draft?: string | Error } = {}) {
+function harness(opts: { draft?: string | Error | ((prompt: string) => string); negotiate?: string | Error } = {}) {
   let t = Date.parse('2026-10-15T10:00:00Z')
   let msgSeq = 100
   const sent: Sent[] = []
@@ -61,10 +61,18 @@ function harness(opts: { draft?: string | Error } = {}) {
     ownerChat: '42',
     card,
     async draft(input) {
-      drafts.push(buildDraftPrompt(input))
+      const prompt = buildDraftPrompt(input)
+      drafts.push(prompt)
       if (opts.draft instanceof Error) throw opts.draft
+      if (typeof opts.draft === 'function') return opts.draft(prompt)
       return opts.draft ?? 'Tuesday after 15:00 works.'
     },
+    ...(opts.negotiate !== undefined ? {
+      async negotiate() {
+        if (opts.negotiate instanceof Error) throw opts.negotiate
+        return opts.negotiate as string
+      },
+    } : {}),
     logEvent: e => events.push(e),
     clock: () => t,
     sleep: async ms => { t += ms },
@@ -163,7 +171,7 @@ describe('incoming request → owner approval → answer', () => {
     const h = harness({ draft: new Error('model down') })
     const env = request()
     await h.deliver(env)
-    expect(h.posts[0].html).toContain('Чернетку підготувати не вдалося')
+    expect(h.posts[0].html).toContain('Варіантів підготувати не вдалося')
     await h.svc.handleOwnerAction('send', env.id)
     expect(h.prompts).toHaveLength(1) // "send" with no draft becomes "edit"
     expect(h.sent.filter(s => s.env?.type === 'response')).toHaveLength(0)
@@ -524,5 +532,167 @@ describe('secrets (§4.8)', () => {
     vault.putSecret('api', { value: 'sk-123456789' })
     store.setPeerTrust(ALICE_BOT, 'blocked')
     await expect(h.svc.shareSecret('api', ALICE_BOT, 1)).rejects.toThrow(/blocked/)
+  })
+})
+
+describe('reply variants', () => {
+  const THREE = [
+    'ADVICE: they asked for the admin password before',
+    '=== Дати доступ ===',
+    'Sure, Bob will share access through the secure channel.',
+    '=== Лише на тиждень ===',
+    'Bob can give access for one week.',
+    '=== Відмовити ===',
+    'Sorry, Bob does not share access.',
+  ].join('\n')
+
+  it('offers several variants with a send button each; the chosen one goes out exactly', async () => {
+    const h = harness({ draft: THREE })
+    const env = request()
+    await h.deliver(env)
+    const card = h.posts[0]
+    expect(card.html).toContain('1 · Дати доступ')
+    expect(card.html).toContain('3 · Відмовити')
+    expect(card.html).toContain('Асистент радить')
+    const data = card.buttons!.flat().map(b => b.data)
+    expect(data).toEqual(expect.arrayContaining([`tgap:send:${env.id}:1`, `tgap:send:${env.id}:2`, `tgap:send:${env.id}:3`, `tgap:revise:${env.id}`, `tgap:edit:${env.id}`]))
+
+    const parsed = parseCallbackData(`tgap:send:${env.id}:2`)!
+    await h.svc.handleOwnerAction(parsed.action, parsed.requestId, parsed.variant)
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'response', body: { text: 'Bob can give access for one week.', approval: 'owner' } })
+  })
+
+  it('tells the drafting run not to repeat earlier refusals and lists vault names, never values', async () => {
+    vault.putSecret('crm', { login: 'a', password: 'p4ssw0rd-long' })
+    const h = harness({ draft: THREE })
+    await h.deliver(request())
+    expect(h.drafts[0]).toContain('do not just repeat an earlier refusal')
+    expect(h.drafts[0]).toContain('vault has: crm')
+    expect(h.drafts[0]).not.toContain('p4ssw0rd-long')
+  })
+
+  it('«Інакше» redrafts with the owner\'s words on a new card, and does not ping the peer again', async () => {
+    let n = 0
+    const h = harness({ draft: () => (++n === 1 ? THREE : '=== Тиждень ===\nAccess for 7 days, through the secure channel.') })
+    const env = request()
+    await h.deliver(env)
+    const statuses = () => h.sent.filter(s => s.env?.type === 'status').length
+    expect(statuses()).toBe(1)
+
+    expect(await h.svc.handleOwnerAction('revise', env.id)).toBe('Напиши, що змінити')
+    expect(store.getRequest(env.id)!.state).toBe('revising')
+    expect(await h.svc.handleOwnerText(h.prompts[0], 'погодься, але лише на тиждень')).toBe(true)
+
+    expect(h.drafts[1]).toContain('погодься, але лише на тиждень')
+    expect(h.drafts[1]).toContain('Earlier variants')
+    expect(h.edits.at(-1)!.html).toContain('Переписую')
+    expect(h.posts.at(-1)!.html).toContain('Access for 7 days')
+    expect(statuses()).toBe(1)
+    expect(store.getRequest(env.id)!.state).toBe('pending_approval')
+
+    await h.svc.handleOwnerAction('send', env.id)
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'response', body: { text: 'Access for 7 days, through the secure channel.' } })
+  })
+
+  it('posts a variant too long for the card in full, so the owner sees exactly what goes out', async () => {
+    const long = 'word '.repeat(500).trim()
+    const h = harness({ draft: `=== Довга ===\n${long}\n=== Коротка ===\nNo.` })
+    await h.deliver(request())
+    expect(h.posts[0].html).toContain(long)
+    expect(h.posts[1].html).toContain('повністю')
+  })
+})
+
+describe('proposals (TGAP Extended)', () => {
+  const proposal = (over: Record<string, any> = {}) => request({ body: {
+    kind: 'proposal', text: 'Call on Tuesday at 15:00?', proposal: { type: 'meeting', start: '2026-10-21T15:00:00+03:00' }, authority: 'may_commit', ...over,
+  } })
+
+  it('incoming: the card says it is a proposal, variants carry decisions, a counter goes out as decision counter', async () => {
+    const h = harness({ draft: '=== accept | Погодитись ===\nTuesday 15:00 works.\n=== counter | Четвер ===\nThursday 11:00 instead?\nDATA: {"start": "2026-10-23T11:00:00+03:00"}\n=== reject | Відмовити ===\nNot this week.' })
+    const env = proposal()
+    await h.deliver(env)
+    expect(h.posts[0].html).toContain('Пропозиція від')
+    expect(h.posts[0].html).toContain('зустрічна пропозиція')
+    expect(h.drafts[0]).toContain('accept, counter or reject')
+
+    await h.svc.handleOwnerAction('send', env.id, 2)
+    expect(h.sent.at(-1)!.env).toMatchObject({
+      type: 'response', re: env.id,
+      body: { decision: 'counter', text: 'Thursday 11:00 instead?', approval: 'owner', counter: { text: 'Thursday 11:00 instead?', start: '2026-10-23T11:00:00+03:00' } },
+    })
+  })
+
+  it('outgoing with a mandate: nothing is sent until the owner confirms', async () => {
+    const h = harness()
+    const r = await h.svc.ask({ username: '@alice_bot', text: 'Call on Tuesday at 15:00?', kind: 'proposal', mandate: 'any weekday after 14:00' })
+    expect(r.awaitingOwner).toBe(true)
+    expect(h.sent).toHaveLength(0)
+    expect(h.posts[0].html).toContain('any weekday after 14:00')
+    const go = h.posts[0].buttons!.flat().find(b => b.data.startsWith('tgap:mgo:'))!
+    const parsed = parseCallbackData(go.data)!
+    expect(await h.svc.handleOwnerAction(parsed.action, parsed.requestId)).toBe('Надіслано')
+    const env = h.sent.at(-1)!.env!
+    expect(env.body).toMatchObject({ kind: 'proposal', authority: 'may_commit' })
+    expect(JSON.stringify(env)).not.toContain('after 14:00') // the mandate stays private
+  })
+
+  async function sentProposal(h: ReturnType<typeof harness>, mandate?: string) {
+    await h.svc.ask({ username: '@alice_bot', text: 'Call on Tuesday at 15:00?', kind: 'proposal', ...(mandate ? { mandate } : {}) })
+    if (mandate) {
+      const go = h.posts.at(-1)!.buttons!.flat().find(b => b.data.startsWith('tgap:mgo:'))!
+      await h.svc.handleOwnerAction('mgo', parseCallbackData(go.data)!.requestId)
+    }
+    return h.sent.at(-1)!.env!
+  }
+
+  const answer = (to: Envelope, body: Record<string, any>) => envelope('response', { approval: 'owner', ...body }, { conv: to.conv, re: to.id })
+
+  it('a counter within the mandate is accepted by the bot with a new proposal, and the owner is told', async () => {
+    const h = harness({ negotiate: '=== accept | Погодитись ===\nThursday 15:00 works for us.' })
+    const ours = await sentProposal(h, 'any weekday after 14:00')
+    await h.deliver(answer(ours, { decision: 'counter', text: 'Thursday 15:00?', counter: { text: 'Thursday 15:00?', start: '2026-10-23T15:00:00+03:00' } }))
+    const next = h.sent.at(-1)!.env!
+    expect(next).toMatchObject({ type: 'request', conv: ours.conv, turn: 2, body: { kind: 'proposal', text: 'Thursday 15:00 works for us.', proposal: { start: '2026-10-23T15:00:00+03:00' } } })
+    expect(h.posts.at(-1)!.html).toContain('У межах твого мандату')
+
+    await h.deliver(answer(next, { decision: 'accepted', text: 'Great, see you.' }))
+    expect(h.posts.at(-1)!.html).toContain('погодився')
+    expect(h.posts.at(-1)!.html).toContain('підтвердив власник')
+  })
+
+  it('a counter outside the mandate goes to the owner with buttons; «Прийняти» sends agreement', async () => {
+    const h = harness({ negotiate: 'ESCALATE: Saturday is outside the limits' })
+    const ours = await sentProposal(h, 'any weekday after 14:00')
+    const before = h.sent.length
+    await h.deliver(answer(ours, { decision: 'counter', text: 'Saturday 10:00?', counter: { text: 'Saturday 10:00?' } }))
+    expect(h.sent).toHaveLength(before)
+    const card = h.posts.at(-1)!
+    expect(card.html).toContain('пропонує інакше')
+    expect(card.html).toContain('Saturday is outside the limits')
+    const accept = card.buttons!.flat().find(b => b.data.startsWith('tgap:caccept:'))!
+    const p = parseCallbackData(accept.data)!
+    expect(await h.svc.handleOwnerAction(p.action, p.requestId)).toBe('Згоду надіслано')
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'request', turn: 2, body: { kind: 'proposal', text: '✅ Згода: Saturday 10:00?' } })
+    expect(await h.svc.handleOwnerAction(p.action, p.requestId)).toBe('Уже вирішено')
+  })
+
+  it('without a mandate every counter goes to the owner; their own counter goes out on reply', async () => {
+    const h = harness({ negotiate: '=== accept | x ===\nshould not be used' })
+    const ours = await sentProposal(h)
+    expect(ours.body.authority).toBe('inquiry')
+    await h.deliver(answer(ours, { decision: 'counter', text: 'Friday?', counter: { text: 'Friday?' } }))
+    const card = h.posts.at(-1)!
+    const mine = card.buttons!.flat().find(b => b.data.startsWith('tgap:ccounter:'))!
+    await h.svc.handleOwnerAction('ccounter', parseCallbackData(mine.data)!.requestId)
+    expect(await h.svc.handleOwnerText(h.prompts.at(-1), 'Monday 16:00 then?')).toBe(true)
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'request', turn: 2, body: { kind: 'proposal', text: 'Monday 16:00 then?' } })
+  })
+
+  it('a tentative acceptance (not by the owner) is shown as such', async () => {
+    const h = harness()
+    const ours = await sentProposal(h)
+    await h.deliver(answer(ours, { decision: 'accepted', text: 'Ok', approval: 'policy' }))
+    expect(h.posts.at(-1)!.html).toContain('Попередня згода')
   })
 })

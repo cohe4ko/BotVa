@@ -13,7 +13,7 @@ export type Trust = 'unknown' | 'known' | 'trusted' | 'blocked'
 export type PeerProtocol = 'tgap' | 'plain'
 
 export type RequestState =
-  | 'submitted' | 'received' | 'drafting' | 'pending_approval' | 'editing'
+  | 'submitted' | 'received' | 'drafting' | 'pending_approval' | 'editing' | 'revising'
   | 'completed' | 'declined' | 'failed' | 'expired' | 'cancelled'
 
 export const FINAL_STATES: ReadonlySet<RequestState> = new Set(['completed', 'declined', 'failed', 'expired', 'cancelled'])
@@ -46,9 +46,22 @@ export interface RequestRow {
   expires_at: number | null
   card_message_id: number | null
   edit_prompt_id: number | null
+  /** Incoming: the reply variants offered to the owner (JSON Variant[]). */
+  variants: string | null
+  /** Proposals (§4.3): the structured proposal, JSON. */
+  proposal: string | null
+  /** Outgoing: 'inquiry' or 'may_commit'. */
+  authority: string | null
+  /** Outgoing may_commit: the owner's limits in their own words. Never sent to the peer. */
+  mandate: string | null
+  /** The decision on a proposal: accepted, rejected or counter. */
+  decision: string | null
   created_at: number
   updated_at: number
 }
+
+/** Open states of an incoming request, before the answer goes out. */
+export const OPEN_IN_STATES: RequestState[] = ['received', 'drafting', 'pending_approval', 'editing', 'revising']
 
 /** How long message ids are remembered for deduplication (§7.3). */
 export const DEDUP_TTL_S = 7 * 24 * 3600
@@ -129,6 +142,9 @@ function db(): DatabaseSync {
       created_at INTEGER NOT NULL
     );
   `)
+  for (const col of ['variants TEXT', 'proposal TEXT', 'authority TEXT', 'mandate TEXT', 'decision TEXT']) {
+    try { d.exec(`ALTER TABLE tgap_requests ADD COLUMN ${col}`) } catch { /* already there */ }
+  }
   ready = d
   return d
 }
@@ -224,19 +240,23 @@ export function advanceConv(conv: string, turn: number): void {
 
 // --- requests ---
 
-export function insertRequest(r: Omit<RequestRow, 'created_at' | 'updated_at' | 'draft' | 'final_text' | 'approval' | 'card_message_id' | 'edit_prompt_id'>): void {
+type NewRequest = Omit<RequestRow, 'created_at' | 'updated_at' | 'draft' | 'final_text' | 'approval' | 'card_message_id' | 'edit_prompt_id'
+  | 'variants' | 'proposal' | 'authority' | 'mandate' | 'decision'> & Partial<Pick<RequestRow, 'proposal' | 'authority' | 'mandate'>>
+
+export function insertRequest(r: NewRequest): void {
   const t = now()
   db().prepare(`
-    INSERT INTO tgap_requests (id, direction, peer_id, conv, turn, hop, kind, text, state, plain, owner_chat, expires_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(r.id, r.direction, r.peer_id, r.conv, r.turn, r.hop, r.kind, r.text, r.state, r.plain, r.owner_chat, r.expires_at, t, t)
+    INSERT INTO tgap_requests (id, direction, peer_id, conv, turn, hop, kind, text, state, plain, owner_chat, expires_at, proposal, authority, mandate, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(r.id, r.direction, r.peer_id, r.conv, r.turn, r.hop, r.kind, r.text, r.state, r.plain, r.owner_chat, r.expires_at,
+    r.proposal ?? null, r.authority ?? null, r.mandate ?? null, t, t)
 }
 
 export function getRequest(id: string): RequestRow | undefined {
   return db().prepare('SELECT * FROM tgap_requests WHERE id = ?').get(id) as unknown as RequestRow | undefined
 }
 
-type Patch = Partial<Pick<RequestRow, 'state' | 'draft' | 'final_text' | 'approval' | 'card_message_id' | 'edit_prompt_id'>>
+type Patch = Partial<Pick<RequestRow, 'state' | 'draft' | 'final_text' | 'approval' | 'card_message_id' | 'edit_prompt_id' | 'variants' | 'decision'>>
 
 export function updateRequest(id: string, patch: Patch): void {
   const keys = Object.keys(patch) as Array<keyof Patch>
@@ -253,7 +273,13 @@ export function transition(id: string, from: RequestState[], to: RequestState): 
 }
 
 export function findRequestByEditPrompt(ownerChat: string, promptId: number): RequestRow | undefined {
-  return db().prepare(`SELECT * FROM tgap_requests WHERE owner_chat = ? AND edit_prompt_id = ? AND state = 'editing'`)
+  return db().prepare(`SELECT * FROM tgap_requests WHERE owner_chat = ? AND edit_prompt_id = ? AND state IN ('editing', 'revising')`)
+    .get(ownerChat, promptId) as unknown as RequestRow | undefined
+}
+
+/** Our proposal whose counter the owner is answering with their own text. */
+export function findCounterPrompt(ownerChat: string, promptId: number): RequestRow | undefined {
+  return db().prepare(`SELECT * FROM tgap_requests WHERE direction = 'out' AND owner_chat = ? AND edit_prompt_id = ? AND decision = 'counter'`)
     .get(ownerChat, promptId) as unknown as RequestRow | undefined
 }
 
@@ -268,7 +294,7 @@ export function latestOpenOutgoing(peerId: number): RequestRow | undefined {
 export function expiredOpenRequests(at = now()): RequestRow[] {
   return db().prepare(`
     SELECT * FROM tgap_requests WHERE expires_at IS NOT NULL AND expires_at <= ?
-      AND state IN ('submitted', 'received', 'drafting', 'pending_approval', 'editing')
+      AND state IN ('submitted', 'received', 'drafting', 'pending_approval', 'editing', 'revising')
   `).all(at) as unknown as RequestRow[]
 }
 

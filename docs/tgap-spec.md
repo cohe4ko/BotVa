@@ -287,6 +287,7 @@ When a bot gets a `request` from another bot:
    - the **exact** text (and `data`, if any) that will be sent
    - for proposals, what accepting would commit the owner to
 4. The owner can **send** as is, **edit** and then send, **decline**, or **block** the peer. A real implementation SHOULD also offer "always allow this bot for questions like this", which creates a policy.
+   An implementation MAY offer the owner several drafts that differ in substance (for example a full answer, a limited one and a refusal) and let the owner pick one, or redraft on the owner's instructions. Whatever the owner picks is the approved text.
 5. The bot sends exactly the approved text. Changing it after approval is a protocol violation.
 6. Side effects such as creating a calendar event after an accepted proposal happen only **after** the owner's approval, and only as the approval described.
 
@@ -305,6 +306,7 @@ Requesters MUST show their owner this value in plain words, e.g. "Bob confirmed 
 - The requester's owner MUST have asked for the request, or authorised the category in advance. A bot MUST NOT start TGAP conversations on its own initiative.
 - An incoming `response` is reported to the owner. Under `authority: inquiry` the requester MUST NOT answer it automatically.
 - Under `authority: may_commit` the requester MAY continue the conversation (counter-proposals) without asking its owner, but only within the limits the owner set, and never past `max_turns`. The final agreement MUST be reported to the owner.
+- The limits are the owner's, not the model's. An implementation SHOULD show the owner the limits it will negotiate within and get a confirmation before the first `may_commit` request goes out, and MUST NOT put the limits into any message to the peer. A counter it cannot place inside the limits goes back to the owner.
 
 ## 6. Conversation lifecycle
 

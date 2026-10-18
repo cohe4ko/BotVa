@@ -119,6 +119,8 @@ export function validateEnvelope(obj: unknown): { code: ErrorCode; reason: strin
     const b = e.body as Record<string, unknown>
     if (!['question', 'proposal', 'notice'].includes(String(b.kind))) return { code: 'malformed', reason: 'request needs kind' }
     if (typeof b.text !== 'string' || !b.text.trim()) return { code: 'malformed', reason: 'request needs text' }
+    if (b.authority !== undefined && !['inquiry', 'may_commit'].includes(String(b.authority))) return { code: 'malformed', reason: 'authority must be inquiry or may_commit' }
+    if (b.proposal !== undefined && (typeof b.proposal !== 'object' || b.proposal === null)) return { code: 'malformed', reason: 'proposal must be an object' }
   }
   if (e.type === 'secret') {
     const b = e.body as Record<string, any>
@@ -129,6 +131,13 @@ export function validateEnvelope(obj: unknown): { code: ErrorCode; reason: strin
   }
   if (e.type === 'response' && !['owner', 'policy', 'none'].includes(String((e.body as any).approval))) {
     return { code: 'malformed', reason: 'response needs approval' }
+  }
+  if (e.type === 'response') {
+    const b = e.body as Record<string, unknown>
+    if (b.decision !== undefined && !['accepted', 'rejected', 'counter'].includes(String(b.decision))) {
+      return { code: 'malformed', reason: 'decision must be accepted, rejected or counter' }
+    }
+    if (b.decision === 'counter' && (!b.counter || typeof b.counter !== 'object')) return { code: 'malformed', reason: 'counter needs body.counter' }
   }
   return null
 }
