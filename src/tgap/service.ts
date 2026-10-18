@@ -1106,6 +1106,11 @@ export class TgapService {
 
   private async sweepShares(): Promise<void> {
     const t = this.nowS()
+    // Revokes asked for in the admin panel
+    for (const sh of store.revokeRequestedShares()) {
+      store.clearRevokeRequest(sh.id)
+      try { await this.revokeShare(sh.id) } catch (err) { this.deps.log?.warn({ err, id: sh.id }, '[tgap] revoke from the admin panel failed') }
+    }
     for (const sh of store.sharesByState('out', ['awaiting_key'])) {
       if (sh.created_at > t - AWAITING_KEY_S || !store.transitionShare(sh.id, ['awaiting_key'], 'failed')) continue
       const peer = store.getPeer(sh.peer_id)

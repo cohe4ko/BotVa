@@ -405,7 +405,7 @@ Env: `GROQ_API_KEY` (або `GROQ_API_KEYS`), `LISTENER_PORT=3847`, `ANTHROPIC_A
 | Facts | Пам'ять: перегляд, пошук, редагування, FTS5-пошук |
 | Tasks | Нагадування та cron-задачі з повним редагуванням (текст, розклад, runAgent) |
 | Settings | Налаштування чатів, сесії |
-| Secrets | Сховище секретів бота (назви й поля, без значень), видалення, передачі через TGAP, імпорт логінів із Google Chrome |
+| Secrets | Сховище секретів бота (назви й поля, без значень), видалення, передачі через TGAP із відкликанням, імпорт логінів із Google Chrome |
 | Usage | Аналітика токенів та витрат |
 | Audio | TTS-провайдери (Gemini / Edge / ElevenLabs), вибір голосів, стиль Gemini, параметри швидкості/якості, ключі ElevenLabs з лічильниками |
 | System | Builtin tools, MCP servers, skills on/off |

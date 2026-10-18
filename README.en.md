@@ -405,7 +405,7 @@ A machine behind NAT, a firewall, or with a dynamic IP: The "🌐 Access from ou
 | Facts | Memory: view, search, edit, FTS5 search |
 | Tasks | Reminders and cron jobs with full editing (text, schedule, runAgent) |
 | Settings | Chat settings, sessions |
-| Secrets | The bot's vault (names and fields, never values), deleting, TGAP shares, importing logins from Google Chrome |
+| Secrets | The bot's vault (names and fields, never values), deleting, TGAP shares with revoke, importing logins from Google Chrome |
 | Usage | Token and cost analytics |
 | Audio | TTS providers (Gemini / Edge / ElevenLabs), voice selection, Gemini style, speed/quality parameters, ElevenLabs keys with counters |
 | System | Built-in tools, MCP servers, skills on/off |

@@ -14,6 +14,7 @@ import { getDb } from '../db.js'
 import { TgapService, buildDraftPrompt, parseCallbackData, approvalWords, clip, type TgapDeps, type Button } from './service.js'
 import { envelope, renderMessage, parseMessage, type Envelope, type Card } from './envelope.js'
 import * as store from './store.js'
+import { requestShareRevoke } from './share-revoke.js'
 import * as vault from '../secrets.js'
 
 const ALICE_BOT = 1001  // the peer: another owner's bot
@@ -524,6 +525,19 @@ describe('secrets (§4.8)', () => {
     expect(await h.svc.revokeShare(id)).toBe('Відкликано')
     expect(h.sent.at(-1)!.env).toMatchObject({ type: 'revoke', re: id })
     expect(await h.svc.revokeShare(id)).toBe('Уже неактивний')
+  })
+
+  it('revokes on the sweep what the admin panel asked to revoke', async () => {
+    const h = harness()
+    await meetAlice(h, vault.boxKeys().publicKey)
+    vault.putSecret('api', { value: 'sk-123456789' })
+    await h.svc.shareSecret('api', ALICE_BOT, 0)
+    const id = h.sent.at(-1)!.env!.id
+    expect(requestShareRevoke(getDb(), id)).toBe(true)
+    await h.svc.sweep()
+    expect(h.sent.at(-1)!.env).toMatchObject({ type: 'revoke', re: id })
+    expect(store.getShare(id)).toMatchObject({ state: 'revoked', revoke_requested: null })
+    expect(requestShareRevoke(getDb(), id)).toBe(false)
   })
 
   it('never shares with a blocked or plain-text bot', async () => {

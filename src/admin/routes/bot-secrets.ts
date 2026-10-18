@@ -19,6 +19,7 @@ import {
   normalizeName, SECRET_NAME, type SecretMeta,
 } from '../../vault-core.js'
 import { chromeAvailable, listChromeLogins, readChromeLogin, siteKey, suggestName, type ChromeLogin } from '../../chrome-import.js'
+import { addShareRevokeColumn, requestShareRevoke, REVOCABLE } from '../../tgap/share-revoke.js'
 import { logger } from '../../logger.js'
 
 const app = new Hono<I18nEnv>()
@@ -37,17 +38,32 @@ function vault(bot: string): DatabaseSync {
 
 const storeDir = (bot: string) => resolve(getBotDir(bot), 'store')
 
-interface ShareView { id: string; direction: string; name: string; state: string; peer: string; updated_at: number }
+interface ShareView { id: string; direction: string; name: string; state: string; peer: string; revoke_requested: number | null; updated_at: number }
+
+const SHARE_SQL = `
+  SELECT s.id, s.direction, s.name, s.state, s.revoke_requested, s.updated_at,
+         COALESCE('@' || p.username, CAST(s.peer_id AS TEXT)) AS peer
+  FROM tgap_secret_shares s LEFT JOIN tgap_peers p ON p.bot_id = s.peer_id`
 
 function shares(d: DatabaseSync): ShareView[] {
+  addShareRevokeColumn(d)
   try {
-    return d.prepare(`
-      SELECT s.id, s.direction, s.name, s.state, s.updated_at,
-             COALESCE('@' || p.username, CAST(s.peer_id AS TEXT)) AS peer
-      FROM tgap_secret_shares s LEFT JOIN tgap_peers p ON p.bot_id = s.peer_id
-      ORDER BY s.updated_at DESC LIMIT 50
-    `).all() as unknown as ShareView[]
+    return d.prepare(`${SHARE_SQL} ORDER BY s.updated_at DESC LIMIT 50`).all() as unknown as ShareView[]
   } catch { return [] /* TGAP never ran on this bot */ }
+}
+
+function shareRow(bot: string, s: ShareView, t: TFunc) {
+  const revocable = s.direction === 'out' && (REVOCABLE as readonly string[]).includes(s.state)
+  return html`
+    <tr id="share-${s.id}">
+      <td>${s.direction === 'out' ? '→' : '←'}</td><td><code>${s.name}</code></td><td>${s.peer}</td>
+      <td><small>${s.revoke_requested && revocable ? t('secrets.revoking') : t(`secrets.state.${s.state}`)}</small></td>
+      <td class="ts-cell hide-mobile">${formatTs(s.updated_at)}</td>
+      <td>${revocable && !s.revoke_requested
+        ? html`<button hx-post="/bot/${bot}/secrets/shares/${s.id}/revoke" hx-target="#share-${s.id}" hx-swap="outerHTML"
+            hx-confirm="${t('secrets.revokeConfirm', { name: s.name, peer: s.peer })}" class="danger outline btn-sm" style="white-space:nowrap">${icon('undo-2')} ${t('secrets.revoke')}</button>`
+        : ''}</td>
+    </tr>`
 }
 
 function secretRow(bot: string, s: SecretMeta, t: TFunc) {
@@ -92,10 +108,8 @@ app.get('/bot/:name/secrets', validateBot, (c) => {
         <small>${t('secrets.sharesHint')}</small>
       </div>
       <div class="table-wrap" style="margin-bottom:2rem"><table>
-        <thead><tr><th></th><th>${t('secrets.name')}</th><th>${t('secrets.peer')}</th><th>${t('secrets.state')}</th><th class="hide-mobile">${t('secrets.updated')}</th></tr></thead>
-        <tbody>${shared.map(s => html`
-          <tr><td>${s.direction === 'out' ? '→' : '←'}</td><td><code>${s.name}</code></td><td>${s.peer}</td><td><small>${t(`secrets.state.${s.state}`)}</small></td><td class="ts-cell hide-mobile">${formatTs(s.updated_at)}</td></tr>`)}
-        </tbody>
+        <thead><tr><th></th><th>${t('secrets.name')}</th><th>${t('secrets.peer')}</th><th>${t('secrets.state')}</th><th class="hide-mobile">${t('secrets.updated')}</th><th></th></tr></thead>
+        <tbody>${shared.map(s => shareRow(name, s, t))}</tbody>
       </table></div>` : ''}
 
     <div class="section-header">
@@ -189,6 +203,17 @@ app.post('/bot/:name/secrets/import', validateBot, async (c) => {
   } catch (err: any) {
     return c.html(alert('error', `${t('secrets.chromeError')}: ${err?.message ?? err}`))
   }
+})
+
+app.post('/bot/:name/secrets/shares/:id/revoke', validateBot, (c) => {
+  const t: TFunc = c.get('t')
+  const bot = botName(c)
+  const id = c.req.param('id')!
+  const d = getBotDb(bot)
+  if (!requestShareRevoke(d, id)) return c.html(html`<tr><td colspan="6">${alert('warning', t('secrets.revokeGone'))}</td></tr>`)
+  logger.info({ bot, id }, '[admin] asked the bot to revoke a shared secret')
+  const row = d.prepare(`${SHARE_SQL} WHERE s.id = ?`).get(id) as unknown as ShareView
+  return c.html(shareRow(bot, row, t))
 })
 
 app.delete('/bot/:name/secrets/:secret', validateBot, (c) => {

@@ -94,6 +94,23 @@ describe('admin: secrets', () => {
     expect(readAllValues(getBotDb('demo'), vaultKey(STORE)).has('old')).toBe(false)
   })
 
+  it('revokes an active outgoing share by marking it for the bot', async () => {
+    const d = getBotDb('demo')
+    d.exec(`CREATE TABLE IF NOT EXISTS tgap_secret_shares (id TEXT PRIMARY KEY, direction TEXT, peer_id INTEGER, conv TEXT, name TEXT, fields TEXT, note TEXT,
+      secret_expires_at INTEGER, sealed TEXT, state TEXT, stored_name TEXT, tg_message_id INTEGER, card_message_id INTEGER, created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE IF NOT EXISTS tgap_peers (bot_id INTEGER PRIMARY KEY, username TEXT); DELETE FROM tgap_secret_shares;
+      INSERT OR REPLACE INTO tgap_peers VALUES (42, 'PeerBot');
+      INSERT INTO tgap_secret_shares (id, direction, peer_id, conv, name, fields, state, created_at, updated_at) VALUES
+        ('S1', 'out', 42, 'C', 'shop', '[]', 'delivered', 1, 1), ('S2', 'in', 42, 'C', 'api', '[]', 'accepted', 1, 1)`)
+    const page = await (await app.request('/bot/demo/secrets')).text()
+    expect(page).toContain('/bot/demo/secrets/shares/S1/revoke')
+    expect(page).not.toContain('/shares/S2/revoke') // incoming: only the sender revokes
+    const row = await (await app.request('/bot/demo/secrets/shares/S1/revoke', { method: 'POST' })).text()
+    expect(row).toContain('відкликається')
+    expect((d.prepare("SELECT revoke_requested FROM tgap_secret_shares WHERE id = 'S1'").get() as any).revoke_requested).toBeGreaterThan(0)
+    expect(await (await app.request('/bot/demo/secrets/shares/S2/revoke', { method: 'POST' })).text()).toContain('Уже неактивний')
+  })
+
   it('filters by site or login', () => {
     const all = [
       { profile: 'Default', rowid: 1, origin: 'https://a.com/', username: 'root', lastUsed: 0 },

@@ -8,6 +8,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { getDb } from '../db.js'
 import type { Envelope } from './envelope.js'
+import { addShareRevokeColumn } from './share-revoke.js'
 
 export type Trust = 'unknown' | 'known' | 'trusted' | 'blocked'
 export type PeerProtocol = 'tgap' | 'plain'
@@ -145,6 +146,7 @@ function db(): DatabaseSync {
   for (const col of ['variants TEXT', 'proposal TEXT', 'authority TEXT', 'mandate TEXT', 'decision TEXT']) {
     try { d.exec(`ALTER TABLE tgap_requests ADD COLUMN ${col}`) } catch { /* already there */ }
   }
+  addShareRevokeColumn(d)
   ready = d
   return d
 }
@@ -328,8 +330,18 @@ export interface ShareRow {
   stored_name: string | null
   tg_message_id: number | null
   card_message_id: number | null
+  /** Set by the admin panel: revoke this share on the next sweep. */
+  revoke_requested: number | null
   created_at: number
   updated_at: number
+}
+
+export function revokeRequestedShares(): ShareRow[] {
+  return db().prepare(`SELECT * FROM tgap_secret_shares WHERE direction = 'out' AND revoke_requested IS NOT NULL ORDER BY revoke_requested`).all() as unknown as ShareRow[]
+}
+
+export function clearRevokeRequest(id: string): void {
+  db().prepare('UPDATE tgap_secret_shares SET revoke_requested = NULL WHERE id = ?').run(id)
 }
 
 export function insertShare(r: Pick<ShareRow, 'id' | 'direction' | 'peer_id' | 'conv' | 'name' | 'fields' | 'note' | 'secret_expires_at' | 'sealed' | 'state'>): void {
