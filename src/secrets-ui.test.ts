@@ -10,9 +10,14 @@ const { STORE } = vi.hoisted(() => {
 vi.mock('./config.js', () => ({ STORE_DIR: STORE, ALLOWED_CHAT_ID: '42,77' }))
 vi.mock('./logger.js', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
 vi.mock('./tgap/registry.js', () => ({ getTgap: () => null }))
+vi.mock('./chrome-import.js', () => ({
+  findChromeLogins: (site: string) => site.startsWith('shop.com.ua')
+    ? [{ profile: 'Default', rowid: 7, origin: 'https://shop.com.ua/admin/', username: 'admin', lastUsed: 0 }] : [],
+  readChromeLogin: async () => ({ url: 'https://shop.com.ua/admin/', login: 'admin', password: 'chrome-pass-1' }),
+}))
 
 import { getDb } from './db.js'
-import { secretsMiddleware, PROMPT_PREFIX, listView, _resetSecretsUiForTests } from './secrets-ui.js'
+import { secretsMiddleware, PROMPT_PREFIX, listView, offerChromeImport, _resetSecretsUiForTests } from './secrets-ui.js'
 import { getSecretValues, putSecret, _resetSecretsForTests } from './secrets.js'
 
 function fakeCtx(over: { from?: number; text?: string; replyTo?: { id: number; text: string } ; data?: string }) {
@@ -98,5 +103,18 @@ describe('secretsMiddleware', () => {
     expect(v.html).toContain('<b>api</b>')
     expect(v.html).not.toContain('sk-123456')
     expect(v.keyboard.flat().map(b => (b as any).callback_data)).toEqual(['sec:del:api'])
+  })
+
+  it('imports a Chrome login picked by a button; the message never carries the password', async () => {
+    const sent: Array<{ text: string; markup: any }> = []
+    const api: any = { async sendMessage(_c: number, text: string, o: any) { sent.push({ text, markup: o.reply_markup }) } }
+    expect(await offerChromeImport(api, 'shop', 'example.org')).toBe(0)
+    expect(await offerChromeImport(api, 'Shop', 'shop.com.ua')).toBe(1)
+    const button = sent[0].markup.inline_keyboard[0][0]
+    expect(button.text).toContain('admin')
+    const g = fakeCtx({ data: button.callback_data })
+    await secretsMiddleware(g.ctx, vi.fn())
+    expect(getSecretValues('shop')).toEqual({ url: 'https://shop.com.ua/admin/', login: 'admin', password: 'chrome-pass-1' })
+    expect(JSON.stringify([sent, g.edits])).not.toContain('chrome-pass-1')
   })
 })

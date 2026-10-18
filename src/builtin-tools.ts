@@ -150,6 +150,7 @@ export function getBuiltinToolDefs(mergedEnv?: Record<string, string>): BuiltinT
     // Secrets vault
     { name: 'ListSecrets', icon: 'key-round', category: 'utility', description: 'Names and fields of vault secrets (never values); use as {{secret:name.field}}', available: true },
     { name: 'ShareSecret', icon: 'key', category: 'utility', description: "Offer the owner to share a vault secret with another BotVa bot; the owner confirms", available: true },
+    { name: 'ImportBrowserSecret', icon: 'key-square', category: 'utility', description: 'Offer the owner to save a login from Google Chrome into the vault; the owner picks it by a button', available: process.platform === 'darwin' },
     // Code
     { name: 'RunPython', icon: 'code', category: 'code', description: 'Execute Python code (calculations, data, charts)', available: true },
     // Reminders
@@ -1088,6 +1089,30 @@ NOT for: messages, email, memory or other bots — a secret placed there is refu
         if (list.length === 0) return { content: [{ type: 'text' as const, text: 'The vault is empty. The owner adds secrets with /secret add <name>.' }] }
         const lines = list.map(m => `${m.name}: fields ${m.fields.join(', ')}${m.note ? ` — ${m.note}` : ''}${m.source ? ` (from ${m.source})` : ''}${m.expires_at ? `, valid until ${new Date(m.expires_at * 1000).toISOString()}` : ''}`)
         return { content: [{ type: 'text' as const, text: `${lines.join('\n')}\n\nUse as {{secret:<name>.<field>}} inside a tool call. Fields url/login/user/email may also appear in tool output as they are.` }] }
+      }
+    )
+  )
+
+  if (process.platform === 'darwin' && isOn('ImportBrowserSecret')) tools.push(
+    tool(
+      'ImportBrowserSecret',
+      `Offer the OWNER to save a login saved in Google Chrome on this Mac into the vault. The owner gets buttons with the matching logins (username and URL) and picks one; the bot then copies login, password and URL from Chrome straight into the vault. You never see the password, and it never goes through the chat.
+Use when the owner says: "візьми пароль з хрому", "знайди креди в Chrome і додай у сховище", or a secret is missing and the owner is away from the computer. Then use it as {{secret:<name>.<field>}} or pass it on with ShareSecret.
+NOT for: reading passwords yourself — never open Chrome's Login Data or the Keychain from Bash.`,
+      {
+        name: z.string().describe('Name to save it under: a-z, 0-9, _ and -, up to 24 characters, e.g. "shop"'),
+        site: z.string().describe('Site host, optionally with a path to narrow it, e.g. "shop.com.ua/bitrix/admin"'),
+      },
+      async (args) => {
+        usedTools.add('ImportBrowserSecret')
+        try {
+          const { offerChromeImport } = await import('./secrets-ui.js')
+          const n = await offerChromeImport(ctx.api, args.name, args.site)
+          if (n === 0) return { content: [{ type: 'text' as const, text: `Chrome has no saved passwords for ${args.site}. Try the bare host, or ask the owner to add it with /secret add.` }] }
+          return { content: [{ type: 'text' as const, text: `The owner now has ${n} login(s) from Chrome to choose from. Nothing is saved until they press a button; then the secret "${args.name}" appears in ListSecrets.` }] }
+        } catch (err: any) {
+          return { content: [{ type: 'text' as const, text: `Could not offer: ${err?.message ?? err}` }], isError: true }
+        }
       }
     )
   )

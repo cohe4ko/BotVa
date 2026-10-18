@@ -17,6 +17,8 @@ import {
   putSecret, getSecretValues, getSecretMeta, listSecrets, deleteSecret, freeName, parseSecretInput,
   resolvePlaceholders, redact, redactText, hasPlaceholder, boxKeys, seal, unseal, _resetSecretsForTests,
 } from './secrets.js'
+import { DatabaseSync } from 'node:sqlite'
+import { vaultKey, writeSecret, removeSecret } from './vault-core.js'
 import { decideSecretInput, secretAllowedIn, secretInputHook, secretOutputHook } from './secret-hooks.js'
 
 beforeEach(() => {
@@ -31,6 +33,17 @@ describe('vault', () => {
     expect(getSecretMeta('bitrix')).toMatchObject({ name: 'bitrix', fields: ['login', 'password'], note: 'site admin', source: null })
     const raw = JSON.stringify(getDb().prepare('SELECT * FROM secrets').all())
     expect(raw).not.toContain('hunter2-long')
+  })
+
+  it('sees a secret another process (the admin panel) wrote, without a restart', () => {
+    putSecret('a', { value: 'first-value' })
+    expect(getSecretValues('a')).toEqual({ value: 'first-value' })
+    const other = new DatabaseSync(join(STORE, 'botva.db'))
+    writeSecret(other, vaultKey(STORE), 'b', { password: 'from-admin' }, { note: 'з Chrome' })
+    expect(getSecretValues('b')).toEqual({ password: 'from-admin' })
+    removeSecret(other, 'b')
+    expect(getSecretValues('b')).toBeUndefined()
+    other.close()
   })
 
   it('keeps the master key private to its owner', () => {

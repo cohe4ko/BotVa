@@ -171,6 +171,8 @@ Enable `TGAP_ENABLED=1` in the bot's `.env` file; both bots require Bot-to-Bot C
 
 Logins, passwords and API keys live in the bot's encrypted vault. The owner adds them with `/secret add <name>`, and the bot deletes the message with the value at once. The agent sees only names (ListSecrets) and writes `{{secret:name.field}}` in a tool call: the value is filled in just before the tool runs and cut out of the result, so it reaches neither the model's context nor the session history. Secrets are never filled into messages, emails, memory or requests to other bots. A secret can be passed to another person's BotVa bot over TGAP: the "🔑 Share a secret" button on a request card, `/secret share`, or ShareSecret. It travels sealed to the recipient's X25519 key, and the recipient's owner decides whether to accept it. A share can be revoked.
 
+A login saved in Google Chrome on the same Mac can be taken straight from there: in the admin panel (bot tab "Secrets" → "Import from Google Chrome": a searchable list of saved logins, a name and an "Import" button), with `/secret import <name> <site>`, or by asking the agent ("take the password for the site from Chrome"), which calls ImportBrowserSecret and the owner picks the login by a button. The password goes from Chrome straight into the vault and never passes through the chat, Telegram or the model. On the first import macOS may ask to allow access to the "Chrome Safe Storage" Keychain item.
+
 ### Telegram
 
 Session mode in `/settings`: **Name** (one conversation, the bot names it using NameSession) or **Topics** - each private chat topic is a separate conversation with its own session (topics are enabled for the bot in @BotFather).
@@ -403,6 +405,7 @@ A machine behind NAT, a firewall, or with a dynamic IP: The "🌐 Access from ou
 | Facts | Memory: view, search, edit, FTS5 search |
 | Tasks | Reminders and cron jobs with full editing (text, schedule, runAgent) |
 | Settings | Chat settings, sessions |
+| Secrets | The bot's vault (names and fields, never values), deleting, TGAP shares, importing logins from Google Chrome |
 | Usage | Token and cost analytics |
 | Audio | TTS providers (Gemini / Edge / ElevenLabs), voice selection, Gemini style, speed/quality parameters, ElevenLabs keys with counters |
 | System | Built-in tools, MCP servers, skills on/off |
@@ -434,7 +437,7 @@ Detailed guide: [MANUAL.md](MANUAL.md)
 | `/undo` | Undo the last step — the next message will continue from the previous point |
 | `/fork` | Branch the conversation: continue in a new branch with the same context, the current one remains in `/session` |
 | `/tasks` | Background tasks for this conversation with a stop button for each |
-| `/secret` | Secret vault: `add`, `del`, `share`, and shared secrets with a Revoke button |
+| `/secret` | Secret vault: `add`, `del`, `share`, `import` (a login from Google Chrome), and shared secrets with a Revoke button |
 | `/voice` | Enable/disable voice responses |
 | `/img <description>` | Generate an image |
 | `/model` | Switch the chat model and reasoning effort |
@@ -456,6 +459,8 @@ BotVa/
 │   ├── agent.ts            # Claude agent with MCP
 │   ├── builtin-tools.ts    # Built-in tools
 │   ├── secrets.ts          # Secret vault, placeholders, sealing for sharing
+│   ├── vault-core.ts       # Vault table and key (shared by the bot and the admin panel)
+│   ├── chrome-import.ts    # Logins from Google Chrome on macOS
 │   ├── memory.ts           # Memory system
 │   ├── db.ts               # SQLite
 │   ├── voice.ts            # STT/TTS

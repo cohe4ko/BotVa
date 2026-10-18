@@ -23,17 +23,17 @@ import {
   createCipheriv, createDecipheriv, randomBytes, generateKeyPairSync, createPrivateKey, createPublicKey,
   diffieHellman, hkdfSync, type KeyObject,
 } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
-import { resolve } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { STORE_DIR } from './config.js'
 import { getDb } from './db.js'
+import {
+  ensureVaultSchema, vaultKey, encryptWith, decryptWith, normalizeName, dropExpiredSecrets, writeSecret,
+  readSecretMeta, readSecretList, readAllValues, removeSecret, _resetVaultKeysForTests,
+  type SecretMeta, type SecretMetaInput,
+} from './vault-core.js'
 
-export const VAULT_KEY_FILE = 'vault.key'
+export { VAULT_KEY_FILE, SECRET_NAME, normalizeName, type SecretMeta } from './vault-core.js'
 
-/** Names are short so they fit in Telegram callback data. */
-export const SECRET_NAME = /^[a-z0-9][a-z0-9_-]{0,23}$/
-const FIELD_NAME = /^[a-z0-9_-]{1,32}$/
 /** Values shorter than this are not redacted from tool output: too many false hits. */
 const MIN_REDACT = 4
 /**
@@ -43,125 +43,46 @@ const MIN_REDACT = 4
  */
 const PUBLIC_FIELDS = new Set(['url', 'host', 'login', 'user', 'username', 'email'])
 
-export interface SecretMeta {
-  name: string
-  fields: string[]
-  note: string | null
-  /** Who it came from: null for the owner, else the peer bot's label. */
-  source: string | null
-  source_peer: number | null
-  /** The TGAP share it arrived with — a revoke must name it. */
-  share_id: string | null
-  expires_at: number | null
-  created_at: number
-}
-
-interface Row extends Omit<SecretMeta, 'fields'> { fields: string; blob: string }
-
 let ready: DatabaseSync | null = null
-let masterKey: Buffer | null = null
 let cache: Map<string, Record<string, string>> | null = null
+/** PRAGMA data_version when the cache was filled: it moves when another process (the admin panel) writes. */
+let cacheVersion = -1
 
 function db(): DatabaseSync {
   const d = getDb()
   if (ready === d) return d
-  d.exec(`
-    CREATE TABLE IF NOT EXISTS secrets (
-      name TEXT PRIMARY KEY,
-      fields TEXT NOT NULL,
-      blob TEXT NOT NULL,
-      note TEXT,
-      source TEXT,
-      source_peer INTEGER,
-      share_id TEXT,
-      expires_at INTEGER,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS secret_keys (
-      id TEXT PRIMARY KEY,
-      public_key TEXT NOT NULL,
-      private_blob TEXT NOT NULL
-    );
-  `)
+  ensureVaultSchema(d)
   ready = d
   return d
 }
 
-const now = () => Math.floor(Date.now() / 1000)
+const master = () => vaultKey(STORE_DIR)
+const encrypt = (plain: string, aad: string) => encryptWith(master(), plain, aad)
+const decrypt = (blob: string, aad: string) => decryptWith(master(), blob, aad)
 
-function master(): Buffer {
-  if (masterKey) return masterKey
-  const file = resolve(STORE_DIR, VAULT_KEY_FILE)
-  if (!existsSync(file)) {
-    mkdirSync(STORE_DIR, { recursive: true })
-    writeFileSync(file, randomBytes(32).toString('hex') + '\n', { mode: 0o600 })
-  }
-  try { chmodSync(file, 0o600) } catch { /* not ours to fix */ }
-  const key = Buffer.from(readFileSync(file, 'utf8').trim(), 'hex')
-  if (key.length !== 32) throw new Error(`${VAULT_KEY_FILE} is damaged`)
-  masterKey = key
-  return key
+function dataVersion(): number {
+  return Number((db().prepare('PRAGMA data_version').get() as { data_version: number }).data_version)
 }
-
-function encrypt(plain: string, aad: string): string {
-  const iv = randomBytes(12)
-  const c = createCipheriv('aes-256-gcm', master(), iv)
-  c.setAAD(Buffer.from(aad))
-  const ct = Buffer.concat([c.update(plain, 'utf8'), c.final()])
-  return [iv, c.getAuthTag(), ct].map(b => b.toString('base64')).join('.')
-}
-
-function decrypt(blob: string, aad: string): string {
-  const [iv, tag, ct] = blob.split('.').map(s => Buffer.from(s, 'base64'))
-  const d = createDecipheriv('aes-256-gcm', master(), iv)
-  d.setAAD(Buffer.from(aad))
-  d.setAuthTag(tag)
-  return Buffer.concat([d.update(ct), d.final()]).toString('utf8')
-}
-
-const toMeta = (r: Row): SecretMeta => ({
-  name: r.name, fields: JSON.parse(r.fields), note: r.note, source: r.source, source_peer: r.source_peer,
-  share_id: r.share_id, expires_at: r.expires_at, created_at: r.created_at,
-})
 
 function dropExpired(): void {
-  const r = db().prepare('DELETE FROM secrets WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now())
-  if (Number(r.changes) > 0) cache = null
+  if (dropExpiredSecrets(db()) > 0) cache = null
 }
 
 // ---------------------------------------------------------------- vault
 
-export function normalizeName(name: string): string {
-  return name.trim().toLowerCase()
-}
-
-export function putSecret(
-  name: string,
-  values: Record<string, string>,
-  meta: Partial<Pick<SecretMeta, 'note' | 'source' | 'source_peer' | 'share_id' | 'expires_at'>> = {},
-): void {
-  const n = normalizeName(name)
-  if (!SECRET_NAME.test(n)) throw new Error(`Bad secret name "${name}": a-z, 0-9, _ and -, up to 24 characters`)
-  const fields = Object.keys(values)
-  if (fields.length === 0) throw new Error('A secret needs at least one value')
-  for (const f of fields) if (!FIELD_NAME.test(f)) throw new Error(`Bad field name "${f}"`)
-  db().prepare(`
-    INSERT OR REPLACE INTO secrets (name, fields, blob, note, source, source_peer, share_id, expires_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(n, JSON.stringify(fields), encrypt(JSON.stringify(values), n), meta.note ?? null, meta.source ?? null,
-    meta.source_peer ?? null, meta.share_id ?? null, meta.expires_at ?? null, now())
+export function putSecret(name: string, values: Record<string, string>, meta: SecretMetaInput = {}): void {
+  writeSecret(db(), master(), name, values, meta)
   cache = null
 }
 
 export function getSecretMeta(name: string): SecretMeta | undefined {
   dropExpired()
-  const r = db().prepare('SELECT * FROM secrets WHERE name = ?').get(normalizeName(name)) as unknown as Row | undefined
-  return r ? toMeta(r) : undefined
+  return readSecretMeta(db(), name)
 }
 
 export function listSecrets(): SecretMeta[] {
   dropExpired()
-  return (db().prepare('SELECT * FROM secrets ORDER BY name').all() as unknown as Row[]).map(toMeta)
+  return readSecretList(db())
 }
 
 export function getSecretValues(name: string): Record<string, string> | undefined {
@@ -169,9 +90,9 @@ export function getSecretValues(name: string): Record<string, string> | undefine
 }
 
 export function deleteSecret(name: string): boolean {
-  const r = db().prepare('DELETE FROM secrets WHERE name = ?').run(normalizeName(name))
+  const gone = removeSecret(db(), name)
   cache = null
-  return Number(r.changes) > 0
+  return gone
 }
 
 /** A name not taken yet: `name`, else `name-2`, `name-3`… */
@@ -185,13 +106,11 @@ export function freeName(name: string): string {
 /** Every secret's values, decrypted once and kept until the vault changes. */
 function allValues(): Map<string, Record<string, string>> {
   dropExpired()
-  if (cache) return cache
-  const m = new Map<string, Record<string, string>>()
-  for (const r of db().prepare('SELECT name, blob FROM secrets').all() as unknown as Row[]) {
-    try { m.set(r.name, JSON.parse(decrypt(r.blob, r.name))) } catch { /* wrong key or damaged row: skip it */ }
-  }
-  cache = m
-  return m
+  const v = dataVersion()
+  if (cache && v === cacheVersion) return cache
+  cache = readAllValues(db(), master())
+  cacheVersion = v
+  return cache
 }
 
 /**
@@ -342,6 +261,7 @@ export function unseal(s: Sealed, aad: string): string {
 /** Test hook: a fresh database and key file per test file. */
 export function _resetSecretsForTests(): void {
   ready = null
-  masterKey = null
   cache = null
+  cacheVersion = -1
+  _resetVaultKeysForTests()
 }

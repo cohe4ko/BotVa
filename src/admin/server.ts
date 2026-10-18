@@ -15,6 +15,7 @@ import botFacts from './routes/bot-facts.js'
 import botUsage from './routes/bot-usage.js'
 import botImages from './routes/bot-images.js'
 import botLogs from './routes/bot-logs.js'
+import botSecrets from './routes/bot-secrets.js'
 import system from './routes/system.js'
 import createBot from './routes/create-bot.js'
 import gallery from './routes/gallery.js'
@@ -70,6 +71,7 @@ export function createAdminApp(): Hono<I18nEnv> {
   app.route('/', botUsage)
   app.route('/', botImages)
   app.route('/', botLogs)
+  app.route('/', botSecrets)
   app.route('/', system)
   app.route('/', createBot)
   app.route('/', gallery)
