@@ -15,19 +15,20 @@ function encrypt(plain: string): Buffer {
 
 function fakeChrome(): string {
   const dir = mkdtempSync(join(tmpdir(), 'chrome-fake-'))
-  const add = (profile: string, rows: Array<[string, string, string, number?]>) => {
+  const add = (profile: string, rows: Array<[string, string, string, number?, bigint?]>) => {
     mkdirSync(join(dir, profile))
     const db = new DatabaseSync(join(dir, profile, 'Login Data'))
     db.exec('CREATE TABLE logins (origin_url TEXT, username_value TEXT, password_value BLOB, blacklisted_by_user INTEGER, date_last_used INTEGER)')
-    const ins = db.prepare('INSERT INTO logins VALUES (?, ?, ?, ?, 0)')
-    for (const [o, u, p, bl = 0] of rows) ins.run(o, u, p ? encrypt(p) : Buffer.alloc(0), bl)
+    const ins = db.prepare('INSERT INTO logins VALUES (?, ?, ?, ?, ?)')
+    for (const [o, u, p, bl = 0, used = 0n] of rows) ins.run(o, u, p ? encrypt(p) : Buffer.alloc(0), bl, used)
     db.close()
   }
   add('Default', [['https://other.com/', 'x', 'y']])
   add('Profile 1', [
     ['https://www.shop.com.ua/bitrix/admin/index.php', 'admin', 's3cret'],
     ['http://shop.com.ua/bitrix/admin/index.php', 'admin', 's3cret'],
-    ['https://crm.shop.com.ua/', 'manager', 'p2'],
+    // Real Chrome times are microseconds since 1601 — beyond a JS number
+    ['https://crm.shop.com.ua/', 'manager', 'p2', 0, 13_436_302_828_121_835n],
     ['https://notshop.com.ua/', 'z', 'z'],
     ['https://shop.com.ua/never', 'n', '', 0],
     ['https://shop.com.ua/blocked', 'b', 'b', 1],
@@ -45,8 +46,8 @@ describe('chrome-import', () => {
   it('finds logins for a host and its subdomains, one per host and user (www folded), without passwords', () => {
     const found = findChromeLogins('shop.com.ua', fakeChrome())
     expect(found.map(f => `${f.username}@${f.origin}`)).toEqual([
+      'manager@https://crm.shop.com.ua/', // used most recently
       'admin@https://www.shop.com.ua/bitrix/admin/index.php',
-      'manager@https://crm.shop.com.ua/',
     ])
     expect(JSON.stringify(found)).not.toContain('s3cret')
   })
@@ -71,6 +72,7 @@ describe('chrome-import', () => {
     expect(all.map(l => l.username).sort()).toEqual(['admin', 'manager', 'x', 'z'])
     expect(all.every(l => l.profile && l.rowid > 0)).toBe(true)
     expect(JSON.stringify(all)).not.toContain('s3cret')
+    expect(all[0]).toMatchObject({ username: 'manager', lastUsed: 1_791_829_228 })
   })
 
   it('suggests a vault name from the URL', () => {

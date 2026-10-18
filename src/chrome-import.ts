@@ -59,7 +59,7 @@ export function siteKey(s: string): string {
   return h.replace(/^www\./, '')
 }
 
-/** Chrome counts microseconds from 1601-01-01. */
+/** Chrome counts microseconds from 1601-01-01 — past 2^53, so turned into Unix seconds in SQL. */
 const WEBKIT_EPOCH_S = 11_644_473_600
 
 /** Every login with a saved password, newest use first, one per host and username. Usernames and URLs only. */
@@ -68,13 +68,12 @@ export function listChromeLogins(dir = chromeDir()): ChromeLogin[] {
   const seen = new Set<string>()
   for (const profile of profiles(dir)) {
     const rows = withCopy(join(dir, profile, 'Login Data'), db =>
-      db.prepare(`SELECT rowid AS rid, origin_url, username_value, date_last_used FROM logins WHERE blacklisted_by_user = 0 AND length(password_value) > 0 ORDER BY date_last_used DESC`).all() as Array<{ rid: number; origin_url: string; username_value: string; date_last_used: number | bigint | null }>)
+      db.prepare(`SELECT rowid AS rid, origin_url, username_value, CASE WHEN date_last_used > 0 THEN MAX(0, date_last_used / 1000000 - ${WEBKIT_EPOCH_S}) ELSE 0 END AS used FROM logins WHERE blacklisted_by_user = 0 AND length(password_value) > 0 ORDER BY date_last_used DESC`).all() as Array<{ rid: number; origin_url: string; username_value: string; used: number }>)
     for (const r of rows) {
       const key = `${siteKey(r.origin_url)}|${r.username_value}`
       if (seen.has(key)) continue
       seen.add(key)
-      const used = Number(r.date_last_used ?? 0)
-      out.push({ profile, rowid: Number(r.rid), origin: r.origin_url, username: r.username_value, lastUsed: used > 0 ? Math.max(0, Math.floor(used / 1e6) - WEBKIT_EPOCH_S) : 0 })
+      out.push({ profile, rowid: Number(r.rid), origin: r.origin_url, username: r.username_value, lastUsed: Number(r.used) })
     }
   }
   return out.sort((a, b) => b.lastUsed - a.lastUsed)
