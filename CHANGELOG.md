@@ -7,15 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-18
+
 ### Added
 - **Secret vault.** `/secret add|del|share` keeps logins, passwords and API keys encrypted (AES-256-GCM, per-bot `store/vault.key`); the message with the value is deleted at once. The agent knows names only (`ListSecrets`) and writes `{{secret:name.field}}` in a tool call: a PreToolUse hook fills the value in, a PostToolUse hook cuts it out of the result, so it is in neither the model's context nor the session transcript. Refused in messaging, email, memory and other-bot tools; the tool guard blocks reading the key file.
 - **Sharing secrets over TGAP** (spec §4.8): `secret` / `revoke` envelopes sealed to the receiver's X25519 key from its card (ECIES, HKDF-SHA256, AES-256-GCM). Both owners confirm: the sender picks the secret and how long it is valid ("🔑 Share a secret" on a request card, `/secret share`, `ShareSecret`), the receiver accepts or declines. The sealed message is deleted once stored; a share can be revoked.
 - **Logins from Google Chrome into the vault** (macOS). Admin panel: a "Secrets" bot tab lists the vault (names and fields only), TGAP shares, and every login saved in Chrome with search, a suggested name and an "Import" button. In Telegram: `/secret import <name> <site>` or the agent's `ImportBrowserSecret`, with the owner picking the login by a button. The password goes from Chrome's Login Data (decrypted with the "Chrome Safe Storage" Keychain key) straight into the vault. The bot picks up secrets written by the admin panel without a restart.
-
+- **Revoking TGAP shares from the admin panel.** The "Secrets" tab has a "Revoke" button on active outgoing shares; the panel marks the share and the bot sends the revoke on its next sweep (within a minute), same as `/secret`.
 - **TGAP: reply variants.** The approval card offers 2–3 drafts that differ in substance (full, limited, refusal; the recommended one first, an optional advice line) with a send button each. "🔄 Differently" redrafts from the owner's own words without pinging the peer again; "✏️ Own text" stays. The drafting run is told that earlier answers are not a rule and gets the vault's secret names (never values) so a variant can offer access through the secure channel. A variant too long for the card is posted in full.
 - **TGAP Extended: proposals.** `AskExternalBot` takes `kind: "proposal"` with an optional structured `proposal` and a `mandate` (`authority: may_commit`). The owner confirms the mandate with a button before anything is sent; it never reaches the peer. Answers carry `decision` accepted / rejected / counter: within the mandate the bot accepts or counters by itself (a new proposal, `turn + 1`, bounded by `max_turns`), anything outside goes to the owner with "Accept / Own proposal / Decline". Acceptances not approved by the other owner are shown as tentative. Incoming proposals get decision-tagged variants; `expect: json` answers carry `data`.
 
 ### Fixed
+- A TGAP answer comes back to the chat the question was asked from.
+- `AskExternalBot` gives precise hints for `BOT_ACCESS_RESTRICTED` and `USER_BOT_TO_BOT_DISABLED`.
+- The agent no longer works around tools with direct Bot API calls; `AskExternalBot` is always available.
 - TGAP approval card no longer calls a bot "new" when it has written before.
 - TGAP notices show the whole question in a folded quote instead of cutting it mid-word.
 
@@ -247,6 +252,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Vitest 4.x з 80+ тестами по 12 модулях
 - Покриття: agent, scheduler, media, email, auto-react, disk-sessions, MCP config
 
+[Unreleased]: https://github.com/cohe4ko/BotVa/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/cohe4ko/BotVa/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/cohe4ko/BotVa/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cohe4ko/BotVa/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/cohe4ko/BotVa/compare/v1.1.0...v1.1.1
